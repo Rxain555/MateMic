@@ -86,10 +86,16 @@
 ### 命令行方式
 
 ```powershell
-dotnet restore MicMate.sln          # 还原依赖（NuGet.config 已配国内镜像 nuget.azure.cn）
-dotnet build MicMate.sln -c Debug   # 构建
-dotnet run --project MicMate.csproj # 运行
+dotnet restore MicMate.sln            # 还原依赖（NuGet.config 已配国内镜像 nuget.azure.cn）
+dotnet build MicMate.sln -c Debug -m:1 # 构建
+dotnet run --project MicMate.csproj    # 运行
 ```
+
+> **`-m:1` 是串行构建，建议保留**。在受限环境（沙箱、无命名管道权限）里，
+> MSBuild 的多节点并行构建会在**不打印任何错误**的情况下失败
+> （输出只有"生成失败 / 0 个警告 0 个错误"，退出码 1），而同一个解决方案
+> 串行构建完全正常。工作区根目录的 `build-and-run.bat` 已经带上这个参数。
+> 如果命令行构建报"0 个错误但失败"，先看这个原因，而不是去改代码。
 
 产物：`MicMate\bin\Debug\net9.0-windows\MicMate.exe`
 （`MicMate.Windows.dll` 为托盘图标所在的 WinForms 程序集，需与主程序放在一起）
