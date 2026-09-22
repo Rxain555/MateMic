@@ -1,0 +1,565 @@
+<Window x:Class="MicMate.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        mc:Ignorable="d"
+        Title="MicMate" Height="800" Width="1180" MinHeight="700" MinWidth="1150"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource WindowBrush}"
+        FontFamily="Microsoft YaHei UI, Segoe UI" FontSize="12"
+        UseLayoutRounding="True" SnapsToDevicePixels="True"
+        Closing="OnWindowClosing" StateChanged="OnWindowStateChanged"
+        KeyDown="OnWindowKeyDown" PreviewKeyDown="OnWindowPreviewKeyDown"
+        TextInput="OnWindowTextInput">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- 顶部工具栏 -->
+        <Border Grid.Row="0" Background="White" BorderBrush="{StaticResource CardBorderBrush}"
+                BorderThickness="0,0,0,1" Padding="8,5,8,5">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <WrapPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Style="{StaticResource LabelText}" Text="音频处理" Margin="0,0,5,0" />
+                    <CheckBox x:Name="ToggleProcessing" Style="{StaticResource Switch}" Margin="0,0,12,0"
+                              Checked="OnProcessingToggled" Unchecked="OnProcessingToggled"
+                              ToolTip="总旁通开关：关闭后麦克风静音（播放器仍可送出）" />
+
+                    <TextBlock Style="{StaticResource LabelText}" Text="全局快捷键" Margin="0,0,5,0" />
+                    <Button x:Name="HotkeyButton" Style="{StaticResource ToolbarButton}"
+                            Width="118" Margin="0,0,12,0" Click="OnGlobalHotkeyClick"
+                            Content="点击输入快捷键"
+                            ToolTip="点击后按下组合键，即可为「音频处理」总开关绑定全局快捷键。注意：全局快捷键会被 MicMate 独占，其他程序（含文本输入框）不会再收到该按键，建议使用带 Ctrl / Alt 的组合键。" />
+
+                    <TextBlock Style="{StaticResource LabelText}" Text="输入" Margin="0,0,4,0" />
+                    <ComboBox x:Name="InputDeviceCombo" Style="{StaticResource FlatCombo}"
+                              ItemContainerStyle="{StaticResource FlatComboItem}" Width="98" Margin="0,0,10,0"
+                              DropDownOpened="OnDeviceDropDownOpened" SelectionChanged="OnDeviceSelectionChanged"
+                              ToolTip="录音设备（物理麦克风）" />
+
+                    <TextBlock Style="{StaticResource LabelText}" Text="输出" Margin="0,0,4,0" />
+                    <ComboBox x:Name="OutputDeviceCombo" Style="{StaticResource FlatCombo}"
+                              ItemContainerStyle="{StaticResource FlatComboItem}" Width="98" Margin="0,0,10,0"
+                              DropDownOpened="OnDeviceDropDownOpened" SelectionChanged="OnDeviceSelectionChanged"
+                              ToolTip="主输出：送往 MIXLINE 虚拟播放设备" />
+
+                    <TextBlock Style="{StaticResource LabelText}" Text="监听" Margin="0,0,4,0" />
+                    <ComboBox x:Name="MonitorDeviceCombo" Style="{StaticResource FlatCombo}"
+                              ItemContainerStyle="{StaticResource FlatComboItem}" Width="98" Margin="0,0,10,0"
+                              DropDownOpened="OnDeviceDropDownOpened" SelectionChanged="OnDeviceSelectionChanged"
+                              ToolTip="监听输出：送往物理扬声器" />
+
+                    <TextBlock Style="{StaticResource LabelText}" Text="监听" Margin="0,0,5,0" />
+                    <CheckBox x:Name="ToggleMonitor" Style="{StaticResource Switch}" Margin="0,0,12,0"
+                              Checked="OnMonitorToggled" Unchecked="OnMonitorToggled" />
+
+                    <TextBlock Style="{StaticResource LabelText}" Text="开机自启" Margin="0,0,5,0" />
+                    <CheckBox x:Name="ToggleAutoStart" Style="{StaticResource Switch}" Margin="0,0,12,0"
+                              Checked="OnAutoStartToggled" Unchecked="OnAutoStartToggled" />
+
+                    <TextBlock Style="{StaticResource LabelText}" Text="最小化到托盘" Margin="0,0,5,0" />
+                    <CheckBox x:Name="ToggleTray" Style="{StaticResource Switch}"
+                              Checked="OnTrayToggled" Unchecked="OnTrayToggled" />
+                </WrapPanel>
+
+                <TextBlock x:Name="VersionText" Grid.Column="1" Style="{StaticResource LabelText}"
+                           Text="v0.1.0" Margin="10,0,0,0" VerticalAlignment="Center" />
+            </Grid>
+        </Border>
+
+        <!-- 主体三栏：分组容器（红色框）内直接放功能模块卡（紫色 / 绿色框），只有两层 -->
+        <!-- 主体三栏：分组容器（红色框）内直接放功能模块卡（紫色 / 绿色框），只有两层。
+             底部留 6px：否则三栏容器的圆角底边会与窗口底边完全重合，
+             看起来像"三个层级的底边叠在一起"。 -->
+        <Grid Grid.Row="1" Margin="6,6,6,6">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="330" />
+                <ColumnDefinition Width="*" MinWidth="330" />
+                <ColumnDefinition Width="330" />
+            </Grid.ColumnDefinitions>
+
+            <!-- ============ 左栏：音频处理链 ============ -->
+            <Border Grid.Column="0" Style="{StaticResource GroupContainer}" Margin="0,0,7,0">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Style="{StaticResource GroupTitle}" Text="音频处理链" />
+
+                    <!-- 左右不留内边距：右边的 4px 是给滚动条预留的，会让卡片左右不对称。
+                         滚动条按需覆盖在内容上方（Auto 模式的常规做法）。 -->
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,0,6">
+                        <StackPanel>
+                            <!-- 噪声门 -->
+                            <Border Style="{StaticResource Card}">
+                                <StackPanel>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource SectionTitle}" Text="噪声门" />
+                                        <CheckBox x:Name="ToggleGate" Grid.Column="1" Style="{StaticResource Switch}"
+                                                  Margin="0,0,8,0" Checked="OnEffectToggled"
+                                                  Unchecked="OnEffectToggled" />
+                                        <Button x:Name="ExpandGate" Grid.Column="2"
+                                                Style="{StaticResource ExpanderButton}"
+                                                Click="OnExpandClick" Tag="{Binding GateExpanded, RelativeSource={RelativeSource AncestorType=Window}}" />
+                                    </Grid>
+                                    <StackPanel x:Name="PanelGate" Visibility="Collapsed" Margin="0,6,0,0">
+                                        <Grid Margin="0,2,0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="60" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="阈值" />
+                                            <Slider x:Name="GateThresholdSlider" Grid.Column="1"
+                                                    Style="{StaticResource FlatSlider}" Minimum="-80" Maximum="0"
+                                                    Value="-55" Tag="GateThreshold" ValueChanged="OnSliderChanged" />
+                                        </Grid>
+                                        <Grid Margin="0,2,0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="60" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}"
+                                                       Text="释放时间" />
+                                            <Slider x:Name="GateReleaseSlider" Grid.Column="1"
+                                                    Style="{StaticResource FlatSlider}" Minimum="10" Maximum="600"
+                                                    Value="150" Tag="GateRelease" ValueChanged="OnSliderChanged" />
+                                        </Grid>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- AI 降噪 -->
+                            <Border Style="{StaticResource Card}">
+                                <StackPanel>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource SectionTitle}" Text="AI 降噪" />
+                                        <CheckBox x:Name="ToggleDenoise" Grid.Column="1"
+                                                  Style="{StaticResource Switch}" Margin="0,0,8,0"
+                                                  Checked="OnEffectToggled" Unchecked="OnEffectToggled" />
+                                        <Button x:Name="ExpandDenoise" Grid.Column="2"
+                                                Style="{StaticResource ExpanderButton}"
+                                                Click="OnExpandClick" Tag="{Binding DenoiseExpanded, RelativeSource={RelativeSource AncestorType=Window}}" />
+                                    </Grid>
+                                    <StackPanel x:Name="PanelDenoise" Visibility="Collapsed" Margin="0,6,0,0">
+                                        <Grid Margin="0,2,0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="60" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="模型" />
+                                            <ComboBox x:Name="ModelCombo" Grid.Column="1"
+                                                      Style="{StaticResource FlatCombo}"
+                                                      ItemContainerStyle="{StaticResource FlatComboItem}"
+                                                      DropDownOpened="OnModelDropDownOpened"
+                                                      SelectionChanged="OnModelSelectionChanged" />
+                                            <!-- 打开模型文件夹：原先是独立卡片，现挪到模型下拉框右侧，不占额外空间 -->
+                                            <Button x:Name="OpenModelsFolderButton" Grid.Column="2"
+                                                    Style="{StaticResource IconButton}" Margin="6,0,0,0"
+                                                    Click="OnOpenModelsFolderClick"
+                                                    ToolTip="打开降噪模型文件夹">
+                                                <Path Data="M 1 3 L 5 3 L 6.5 5 L 13 5 L 13 12 L 1 12 Z"
+                                                      Stroke="#5A5A5A" StrokeThickness="1.3"
+                                                      StrokeLineJoin="Round" Fill="Transparent" />
+                                            </Button>
+                                        </Grid>
+                                        <Grid Margin="0,2,0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="60" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}"
+                                                       Text="降噪强度" />
+                                            <Slider x:Name="DenoiseStrengthSlider" Grid.Column="1"
+                                                    Style="{StaticResource FlatSlider}" Minimum="0" Maximum="100"
+                                                    Value="70" Tag="DenoiseStrength" ValueChanged="OnSliderChanged" />
+                                        </Grid>
+                                        <Grid Margin="0,2,0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="60" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}"
+                                                       Text="干湿比" />
+                                            <Slider x:Name="DenoiseWetSlider" Grid.Column="1"
+                                                    Style="{StaticResource FlatSlider}" Minimum="0" Maximum="100"
+                                                    Value="100" Tag="DenoiseWet" ValueChanged="OnSliderChanged" />
+                                        </Grid>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 响度平衡 -->
+                            <Border Style="{StaticResource Card}">
+                                <StackPanel>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource SectionTitle}"
+                                                   Text="响度平衡" />
+                                        <CheckBox x:Name="ToggleLoudness" Grid.Column="1"
+                                                  Style="{StaticResource Switch}" Margin="0,0,8,0"
+                                                  Checked="OnEffectToggled" Unchecked="OnEffectToggled" />
+                                        <Button x:Name="ExpandLoudness" Grid.Column="2"
+                                                Style="{StaticResource ExpanderButton}"
+                                                Click="OnExpandClick" Tag="{Binding LoudnessExpanded, RelativeSource={RelativeSource AncestorType=Window}}" />
+                                    </Grid>
+                                    <StackPanel x:Name="PanelLoudness" Visibility="Collapsed" Margin="0,6,0,0">
+                                        <Grid Margin="0,2,0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="60" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}"
+                                                       Text="目标响度" />
+                                            <Slider x:Name="LoudnessTargetSlider" Grid.Column="1"
+                                                    Style="{StaticResource FlatSlider}" Minimum="-30" Maximum="-8"
+                                                    Value="-20" Tag="LoudnessTarget"
+                                                    ValueChanged="OnSliderChanged" />
+                                        </Grid>
+                                        <Grid Margin="0,2,0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="60" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}"
+                                                       Text="响应速度" />
+                                            <Slider x:Name="LoudnessSpeedSlider" Grid.Column="1"
+                                                    Style="{StaticResource FlatSlider}" Minimum="1" Maximum="10"
+                                                    Value="5" Tag="LoudnessSpeed" ValueChanged="OnSliderChanged" />
+                                        </Grid>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 音色风格 -->
+                            <Border Style="{StaticResource Card}">
+                                <StackPanel>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource SectionTitle}"
+                                                   Text="音色风格" />
+                                        <CheckBox x:Name="ToggleTone" Grid.Column="1"
+                                                  Style="{StaticResource Switch}" Margin="0,0,8,0"
+                                                  Checked="OnEffectToggled" Unchecked="OnEffectToggled" />
+                                        <Button x:Name="ExpandTone" Grid.Column="2"
+                                                Style="{StaticResource ExpanderButton}"
+                                                Click="OnExpandClick" Tag="{Binding ToneExpanded, RelativeSource={RelativeSource AncestorType=Window}}" />
+                                    </Grid>
+                                    <UniformGrid x:Name="ToneGrid" Columns="6" Margin="0,6,0,0"
+                                                 Visibility="Collapsed">
+                                        <RadioButton Style="{StaticResource ChipToggle}" Content="清亮" Tag="Bright"
+                                                     Click="OnToneSelected" />
+                                        <RadioButton Style="{StaticResource ChipToggle}" Content="沉稳" Tag="Warm"
+                                                     Click="OnToneSelected" />
+                                        <RadioButton Style="{StaticResource ChipToggle}" Content="深邃" Tag="Deep"
+                                                     Click="OnToneSelected" />
+                                        <RadioButton Style="{StaticResource ChipToggle}" Content="尖锐" Tag="Sharp"
+                                                     Click="OnToneSelected" />
+                                        <RadioButton Style="{StaticResource ChipToggle}" Content="空灵" Tag="Ethereal"
+                                                     Click="OnToneSelected" />
+                                        <RadioButton Style="{StaticResource ChipToggle}" Content="自然" Tag="Natural"
+                                                     Click="OnToneSelected" />
+                                    </UniformGrid>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 效果器 -->
+                            <Border Style="{StaticResource Card}">
+                                <StackPanel>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource SectionTitle}" Text="效果器" />
+                                        <CheckBox x:Name="ToggleEffect" Grid.Column="1"
+                                                  Style="{StaticResource Switch}" Margin="0,0,8,0"
+                                                  Checked="OnEffectToggled" Unchecked="OnEffectToggled" />
+                                        <Button x:Name="ExpandEffect" Grid.Column="2"
+                                                Style="{StaticResource ExpanderButton}"
+                                                Click="OnExpandClick" Tag="{Binding EffectExpanded, RelativeSource={RelativeSource AncestorType=Window}}" />
+                                    </Grid>
+                                    <StackPanel x:Name="PanelCreative" Visibility="Collapsed" Margin="0,6,0,0">
+                                        <UniformGrid x:Name="EffectGrid" Columns="5">
+                                            <RadioButton Style="{StaticResource ChipToggle}" Content="混响" Tag="Reverb"
+                                                         Click="OnCreativeEffectSelected" />
+                                            <RadioButton Style="{StaticResource ChipToggle}" Content="延迟" Tag="Delay"
+                                                         Click="OnCreativeEffectSelected" />
+                                            <RadioButton Style="{StaticResource ChipToggle}" Content="合唱" Tag="Chorus"
+                                                         Click="OnCreativeEffectSelected" />
+                                            <RadioButton Style="{StaticResource ChipToggle}" Content="电音" Tag="Robot"
+                                                         Click="OnCreativeEffectSelected" />
+                                            <RadioButton Style="{StaticResource ChipToggle}" Content="炸麦" Tag="Megaphone"
+                                                         Click="OnCreativeEffectSelected" />
+                                        </UniformGrid>
+                                        <Grid Margin="0,4,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="60" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}"
+                                                       Text="效果强度" />
+                                            <Slider x:Name="EffectAmountSlider" Grid.Column="1"
+                                                    Style="{StaticResource FlatSlider}" Minimum="0" Maximum="100"
+                                                    Value="55" Tag="EffectAmount" ValueChanged="OnSliderChanged" />
+                                        </Grid>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 增益 -->
+                            <Border Style="{StaticResource CardLast}">
+                                <StackPanel>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource SectionTitle}" Text="增益" />
+                                        <CheckBox x:Name="ToggleGain" Grid.Column="1" Style="{StaticResource Switch}"
+                                                  Margin="0,0,8,0" Checked="OnEffectToggled"
+                                                  Unchecked="OnEffectToggled" />
+                                        <Button x:Name="ExpandGain" Grid.Column="2"
+                                                Style="{StaticResource ExpanderButton}"
+                                                Click="OnExpandClick" Tag="{Binding GainExpanded, RelativeSource={RelativeSource AncestorType=Window}}" />
+                                    </Grid>
+                                    <StackPanel x:Name="PanelGain" Visibility="Collapsed" Margin="0,6,0,0">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="60" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}"
+                                                       Text="增益强度" />
+                                            <Slider x:Name="GainSlider" Grid.Column="1"
+                                                    Style="{StaticResource FlatSlider}" Minimum="-24" Maximum="24"
+                                                    Value="0" Tag="GainDb" ValueChanged="OnSliderChanged" />
+                                        </Grid>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+
+            <!-- ============ 中栏：实时频谱 ============ -->
+            <Border Grid.Column="1" Style="{StaticResource GroupContainer}" Margin="0,0,7,0">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Style="{StaticResource GroupTitle}" Text="实时频谱" />
+
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <!-- 输入频谱：占上半剩余空间 -->
+                            <RowDefinition Height="*" MinHeight="90" />
+                            <!-- 输出频谱：占下半剩余空间 -->
+                            <RowDefinition Height="*" MinHeight="90" />
+                            <!-- RMS 电平条：放在最下面 -->
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <!-- 输入频谱 -->
+                        <Border Grid.Row="0" Style="{StaticResource Card}" Padding="6">
+                            <Grid>
+                                <TextBlock Style="{StaticResource LabelText}" Text="输入"
+                                           HorizontalAlignment="Center" VerticalAlignment="Top"
+                                           Margin="0,2,0,0" Panel.ZIndex="2" />
+                                <Canvas x:Name="InputSpectrumCanvas" ClipToBounds="True" Margin="0,20,0,0" />
+                            </Grid>
+                        </Border>
+
+                        <!-- 输出频谱 -->
+                        <Border Grid.Row="1" Style="{StaticResource Card}" Padding="6">
+                            <Grid>
+                                <TextBlock Style="{StaticResource LabelText}" Text="输出"
+                                           HorizontalAlignment="Center" VerticalAlignment="Top"
+                                           Margin="0,2,0,0" Panel.ZIndex="2" />
+                                <Canvas x:Name="OutputSpectrumCanvas" ClipToBounds="True" Margin="0,20,0,0" />
+                            </Grid>
+                        </Border>
+
+                        <!-- RMS 电平条：直接贴着容器，不再套一层卡片边框（原来层级太多）。
+                             上下间距相等，两端与容器同宽。 -->
+                        <Border Grid.Row="2" Background="Transparent" BorderThickness="0"
+                                Margin="0,6,0,6" Padding="0">
+                            <Grid Height="16" x:Name="LevelTrack">
+                                <Rectangle RadiusX="8" RadiusY="8">
+                                    <Rectangle.Fill>
+                                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                            <GradientStop Color="#5CD65C" Offset="0" />
+                                            <GradientStop Color="#5CD65C" Offset="0.55" />
+                                            <GradientStop Color="#F2C744" Offset="0.62" />
+                                            <GradientStop Color="#F2C744" Offset="0.86" />
+                                            <GradientStop Color="#F26B6B" Offset="0.92" />
+                                            <GradientStop Color="#F26B6B" Offset="1" />
+                                        </LinearGradientBrush>
+                                    </Rectangle.Fill>
+                                </Rectangle>
+                                <Border x:Name="LevelMask" HorizontalAlignment="Right" Background="#EFEFEF"
+                                        Opacity="0.85" Width="0" CornerRadius="0,8,8,0" />
+                                <Rectangle x:Name="LevelNeedle" Width="2" Fill="#2F2F2F"
+                                           HorizontalAlignment="Left" />
+                            </Grid>
+                        </Border>
+                    </Grid>
+                </DockPanel>
+            </Border>
+
+            <!-- ============ 右栏：播放伴奏 / 语音包 ============ -->
+            <Border Grid.Column="2" Style="{StaticResource GroupContainer}">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Style="{StaticResource GroupTitle}" Text="播放伴奏或语音包" />
+
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <!-- 路由开关 + 音量 -->
+                        <Border Grid.Row="0" Style="{StaticResource Card}">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Style="{StaticResource LabelText}" Text="同时监听" />
+                                    <CheckBox x:Name="TogglePlayerMonitor" Style="{StaticResource Switch}"
+                                              Margin="6,0,18,0" Checked="OnPlayerMonitorToggled"
+                                              Unchecked="OnPlayerMonitorToggled" />
+                                    <TextBlock Style="{StaticResource LabelText}" Text="循环播放" />
+                                    <CheckBox x:Name="ToggleLoop" Style="{StaticResource Switch}" Margin="6,0,0,0"
+                                              Checked="OnLoopToggled" Unchecked="OnLoopToggled" />
+                                </StackPanel>
+                                <Grid Margin="0,8,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="60" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="播放音量" />
+                                    <Slider x:Name="PlayerVolumeSlider" Grid.Column="1"
+                                            Style="{StaticResource FlatSlider}" Minimum="0" Maximum="100"
+                                            Value="80" ValueChanged="OnPlayerVolumeChanged" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <Button Grid.Row="1" Style="{StaticResource FlatButton}" Content="添加音频文件"
+                                HorizontalAlignment="Stretch" Margin="0,0,0,6" Click="OnAddFilesClick" />
+
+                        <!-- 音频列表 -->
+                        <Border Grid.Row="2" Style="{StaticResource CardLast}" Padding="0">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+
+                                <Border Grid.Row="0" Background="#F0F0F0" CornerRadius="3,3,0,0">
+                                    <TextBlock Style="{StaticResource LabelText}" Text="音频列表"
+                                               HorizontalAlignment="Center" Margin="0,5,0,5" />
+                                </Border>
+
+                                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                    <ItemsControl x:Name="TrackList">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid Height="30" Cursor="Hand"
+                                                      MouseLeftButtonUp="OnTrackRowClick"
+                                                      ToolTip="点击播放；右侧按钮设置全局快捷键，✕ 移除">
+                                                    <Grid.Style>
+                                                        <Style TargetType="Grid">
+                                                            <Setter Property="Background" Value="Transparent" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsCurrent}"
+                                                                             Value="True">
+                                                                    <Setter Property="Background"
+                                                                            Value="#DCEBFD" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Grid.Style>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="136" />
+                                                        <ColumnDefinition Width="28" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Grid.Column="0"
+                                                               Style="{StaticResource LabelText}"
+                                                               Text="{Binding DisplayName}" Margin="8,0,4,0"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               ToolTip="{Binding FilePath}" />
+                                                    <Button Grid.Column="1"
+                                                            Style="{StaticResource TrackRowButton}"
+                                                            Click="OnTrackHotkeyClick" Tag="{Binding}"
+                                                            ToolTip="点击设置该文件的全局快捷键">
+                                                        <TextBlock Style="{StaticResource LabelText}"
+                                                                   Text="{Binding HotkeyText}"
+                                                                   HorizontalAlignment="Center"
+                                                                   TextTrimming="CharacterEllipsis" />
+                                                    </Button>
+                                                    <Button Grid.Column="2" Style="{StaticResource RemoveButton}"
+                                                            Click="OnTrackRemoveClick" Tag="{Binding}"
+                                                            ToolTip="从列表移除该音频文件" />
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
+
+                                <!-- 空列表提示（默认状态） -->
+                                <TextBlock x:Name="TrackListEmptyHint" Grid.Row="1"
+                                           Style="{StaticResource SmallText}"
+                                           Text="列表为空，点击上方「添加音频文件」添加伴奏或语音包"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           Margin="12,0,12,0" TextWrapping="Wrap" TextAlignment="Center" />
+                            </Grid>
+                        </Border>
+                    </Grid>
+                </DockPanel>
+            </Border>
+        </Grid>
+
+        <!-- 状态条（MIXLINE 提示 / 错误） -->
+        <Border x:Name="StatusBar" Grid.Row="1" Background="{StaticResource WarningBrush}"
+                BorderBrush="{StaticResource WarningBorderBrush}" BorderThickness="1" CornerRadius="3"
+                Padding="8,4,8,4" Margin="6,6,6,0" VerticalAlignment="Top" Visibility="Collapsed"
+                Panel.ZIndex="5">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="StatusText" Grid.Column="0" Style="{StaticResource LabelText}"
+                           Foreground="{StaticResource WarningTextBrush}" TextWrapping="Wrap" />
+                <Button x:Name="StatusActionButton" Grid.Column="1" Style="{StaticResource FlatButton}"
+                        Content="查看设置指南" Margin="8,0,0,0" Visibility="Collapsed"
+                        Click="OnStatusActionClick" />
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
