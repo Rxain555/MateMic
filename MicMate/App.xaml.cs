@@ -78,8 +78,14 @@ public partial class App : Application
         // 而不是让异常处理框把进程挂在后台（自检/自动化场景下会表现为“卡住”）。
         try
         {
-            MainWindow = new MainWindow();
-            MainWindow.Show();
+            // --autostart 由开机自启的注册表项写入（见 AutoStartService）：
+            // 这种情况下不弹主窗口，直接把窗口收进托盘。
+            var main = new MainWindow
+            {
+                StartMinimizedToTray = args.Contains("--autostart", StringComparer.OrdinalIgnoreCase),
+            };
+            MainWindow = main;
+            main.Show();
         }
         catch (Exception ex)
         {

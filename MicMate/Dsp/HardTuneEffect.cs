@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 
 namespace MicMate.Dsp;
 
@@ -38,7 +38,6 @@ public sealed class HardTuneEffect
     private readonly PitchShifter? _shifter;
     private NAudio.Effects.Equalizer? _timbre;
     private int _pitchNumber = -1;
-    private double _framesInTune;
     private double _appliedSemitones;
 
     /// <summary>调音目标音高（MIDI 编号）。由**未变调的参考信号**测得，
@@ -69,9 +68,6 @@ public sealed class HardTuneEffect
 
     /// <summary>诊断用：是否施加电子化音染（EQ）。</summary>
     public bool EnableTimbre { get; set; } = true;
-
-    /// <summary>诊断用：是否叠加极短延迟做厚度。</summary>
-    public bool EnableHarmony { get; set; } = true;
 
     /// <summary>调式根音（MIDI 音高，60 = 中央 C）。</summary>
     public int RootMidiNote { get; set; } = 60;
@@ -119,11 +115,9 @@ public sealed class HardTuneEffect
             if (_pitchNumber < 0 || Math.Abs(snapped - _pitchNumber) >= 0.5)
             {
                 _pitchNumber = (int)Math.Round(snapped);
-                _framesInTune = 0;
             }
             else
             {
-                _framesInTune++;
             }
 
             _targetPitch = snapped;
@@ -131,7 +125,6 @@ public sealed class HardTuneEffect
         else
         {
             _pitchNumber = -1;
-            _framesInTune = 0;
         }
 
         // 3) 参考音高（同一份参考信号测得）→ 需要的变调量
@@ -239,46 +232,10 @@ public sealed class HardTuneEffect
         _appliedSemitones = 0;
         _targetPitch = 0;
         _pitchNumber = -1;
-        _framesInTune = 0;
         _shifter?.Reset();
         Array.Clear(_analysisRing);
         Array.Clear(_analysisWindow);
         _analysisWrite = 0;
     }
-
-    /// <summary>把一块数据按需供给下游（相位声码器会按自己的节奏读取）。</summary>
-    private sealed class PushedSource : NAudio.Wave.ISampleProvider
-    {
-        private float[] _buffer = new float[8192];
-        private int _count;
-        private int _position;
-
-        public NAudio.Wave.WaveFormat WaveFormat { get; } =
-            NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(48000, 1);
-
-        public void Feed(ReadOnlySpan<float> samples)
-        {
-            if (_buffer.Length < samples.Length) _buffer = new float[samples.Length];
-            samples.CopyTo(_buffer);
-            _count = samples.Length;
-            _position = 0;
-        }
-
-        public int Read(Span<float> buffer)
-        {
-            var available = _count - _position;
-            if (available <= 0) return 0;
-
-            var take = Math.Min(available, buffer.Length);
-            _buffer.AsSpan(_position, take).CopyTo(buffer);
-            _position += take;
-            if (_position >= _count)
-            {
-                _count = 0;
-                _position = 0;
-            }
-
-            return take;
-        }
-    }
 }
+

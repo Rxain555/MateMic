@@ -20,7 +20,6 @@ public sealed class OutputBus : ISampleProvider
 {
     private readonly MicMixer _mixer;
     private readonly SpectrumAnalyzer _analyzer;
-    private readonly float[] _scratch = new float[8192];
 
     public OutputBus(MicMixer mixer, SpectrumAnalyzer analyzer)
     {

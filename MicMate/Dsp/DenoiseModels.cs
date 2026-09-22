@@ -18,16 +18,6 @@ public interface IDenoiseModel : IDisposable
     void Reset();
 }
 
-/// <summary>无模型时的直通后端。</summary>
-public sealed class PassthroughDenoiseModel : IDenoiseModel
-{
-    public string Name { get; init; } = "无模型";
-    public string TensorInfo => "—";
-    public void Process(Span<float> frame) { }
-    public void Reset() { }
-    public void Dispose() { }
-}
-
 /// <summary>
 /// 由训练产出的 ONNX 模型驱动的降噪后端：从模型提取每频点增益曲线，
 /// 交给内置 STFT 谱减内核执行（保证实时性与稳定性），模型文件本身通过

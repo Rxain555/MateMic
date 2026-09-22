@@ -136,34 +136,9 @@ public sealed class MonoToStereoProvider : ISampleProvider
 }
 
 /// <summary>
-/// 频谱/RMS 采样点。以直通方式透传数据，同时把样本送入分析器。
-/// 分析器内部只做定长拷贝，FFT 与 UI 更新都在 UI 线程按 30 fps 完成。
-/// </summary>
-public sealed class AnalysisTap : ISampleProvider
-{
-    private readonly ISampleProvider _source;
-    private readonly SpectrumAnalyzer _analyzer;
-
-    public AnalysisTap(ISampleProvider source, SpectrumAnalyzer analyzer)
-    {
-        _source = source;
-        _analyzer = analyzer;
-        WaveFormat = source.WaveFormat;
-    }
-
-    public WaveFormat WaveFormat { get; }
-
-    public int Read(Span<float> buffer)
-    {
-        var read = _source.Read(buffer);
-        if (read > 0) _analyzer.Feed(buffer[..read]);
-        return read;
-    }
-}
-
-/// <summary>
-/// 频谱分析：音频线程只做拷贝入环形缓冲区，UI 线程按帧率取走并计算 FFT。
-/// 使用无锁的环形缓冲区，避免在音频线程中分配内存或加锁。
+/// 频谱与电平分析：音频线程只把样本拷贝进无锁环形缓冲、顺带累加 RMS/峰值，
+/// FFT 与频带计算都在 UI 线程按帧率（30 fps）完成，因此音频线程无分配、不加锁。
+/// 采集侧的取样点见 <c>InputTapSource</c>，输出侧见 <c>OutputBus</c>。
 /// </summary>
 public sealed class SpectrumAnalyzer
 {

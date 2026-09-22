@@ -70,7 +70,13 @@ public sealed class HotkeyService : IDisposable
     private readonly Dictionary<int, (uint Modifiers, uint Vk, Action Callback)> _registered = new();
     private HwndSource? _source;
     private IntPtr _handle;
-    private int _nextId = 0xC000;
+
+    /// <summary>
+    /// 热键 ID 从 1 开始分配。RegisterHotKey 的文档规定：
+    /// 应用程序必须使用 0x0000–0xBFFF，0xC000–0xFFFF 保留给共享 DLL（GlobalAddAtom 的范围）。
+    /// 早期实现从 0xC000 开始，属于越界使用，可能与其他组件的热键 ID 冲突。
+    /// </summary>
+    private int _nextId = 1;
 
     public void Attach(Window window)
     {

@@ -50,6 +50,9 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     private TrackViewModel? _pendingHotkeyTrack;
     private Action? _statusAction;
 
+    /// <summary>开机自启（命令行 --autostart）时置 true：启动完成后直接收进托盘，不弹主窗口。</summary>
+    public bool StartMinimizedToTray { get; init; }
+
     public MainWindow()
     {
         _config = _store.Load();
@@ -173,6 +176,21 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             RegisterConfiguredHotkeys();
             RefreshTrackHighlight();
             _timer.Start();
+
+            // 开机自启：不弹窗口，直接收进托盘（托盘双击即可恢复）。
+            // 用户若关掉了「最小化到托盘」，则尊重该设置，仍然显示窗口。
+            if (StartMinimizedToTray)
+            {
+                if (_config.MinimizeToTray)
+                {
+                    Hide();
+                    Log.Info("以 --autostart 启动：已直接最小化到托盘。");
+                }
+                else
+                {
+                    Log.Info("以 --autostart 启动：但「最小化到托盘」已关闭，仍显示主窗口。");
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -210,20 +228,33 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         }
     }
 
-    private void RestoreWindowPlacement()    {
+    private void RestoreWindowPlacement()
+    {
         Width = Math.Max(MinWidth, _config.WindowWidth);
         Height = Math.Max(MinHeight, _config.WindowHeight);
         if (double.IsNaN(_config.WindowLeft) || double.IsNaN(_config.WindowTop)) return;
 
-        var virtualWidth = SystemParameters.VirtualScreenWidth;
-        var virtualHeight = SystemParameters.VirtualScreenHeight;
-        if (_config.WindowLeft > -50 && _config.WindowLeft < virtualWidth - 100 &&
-            _config.WindowTop > -50 && _config.WindowTop < virtualHeight - 100)
+        // 虚拟桌面可能跨多显示器，且副屏可以在主屏左边/上边（此时坐标为负）。
+        // 早期实现用 `Left > -50 && Left < VirtualScreenWidth` 判断，等于假设原点在 (0,0)，
+        // 于是放在左侧副屏的窗口每次启动都会被判定为“跑到屏幕外”而拉回中间。
+        var desktopLeft = SystemParameters.VirtualScreenLeft;
+        var desktopTop = SystemParameters.VirtualScreenTop;
+        var desktopRight = desktopLeft + SystemParameters.VirtualScreenWidth;
+        var desktopBottom = desktopTop + SystemParameters.VirtualScreenHeight;
+
+        // 至少要有 100×100 落在虚拟桌面内，才认为这个位置还能用
+        var visible = _config.WindowLeft + 100 > desktopLeft && _config.WindowLeft < desktopRight - 100 &&
+                      _config.WindowTop + 100 > desktopTop && _config.WindowTop < desktopBottom - 100;
+
+        if (!visible)
         {
-            WindowStartupLocation = WindowStartupLocation.Manual;
-            Left = _config.WindowLeft;
-            Top = _config.WindowTop;
+            Log.Info($"保存的窗口位置 ({_config.WindowLeft:0},{_config.WindowTop:0}) 已不在当前桌面范围内，改为居中显示。");
+            return;
         }
+
+        WindowStartupLocation = WindowStartupLocation.Manual;
+        Left = _config.WindowLeft;
+        Top = _config.WindowTop;
     }
 
     private void ApplyConfigToControls()
@@ -738,19 +769,19 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     /// <summary>把配置里记录的展开状态应用到各模块面板与箭头。</summary>
     private void SyncExpanderArrows()
     {
-        void Apply(UIElement panel, Button arrow, bool expanded)
-        {
-            panel.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
-            if (expanded) arrow.Tag = true;
-        }
+        void Apply(UIElement panel, bool expanded)
+            => panel.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
 
-        Apply(PanelGate, ExpandGate, _config.Panels.Gate);
-        Apply(PanelDenoise, ExpandDenoise, _config.Panels.Denoise);
-        Apply(PanelLoudness, ExpandLoudness, _config.Panels.Loudness);
-        Apply(ToneGrid, ExpandTone, _config.Panels.Tone);
-        Apply(PanelCreative, ExpandEffect, _config.Panels.Effect);
-        Apply(PanelGain, ExpandGain, _config.Panels.Gain);
+        Apply(PanelGate, _config.Panels.Gate);
+        Apply(PanelDenoise, _config.Panels.Denoise);
+        Apply(PanelLoudness, _config.Panels.Loudness);
+        Apply(ToneGrid, _config.Panels.Tone);
+        Apply(PanelCreative, _config.Panels.Effect);
+        Apply(PanelGain, _config.Panels.Gain);
 
+        // 箭头朝向完全由 XAML 里的 Tag 绑定驱动（见 Ui/Theme.xaml 的 ExpanderButton）。
+        // 这里**不能**再写 arrow.Tag = true：给已有 OneWay 绑定的依赖属性赋局部值会
+        // 直接把绑定顶掉，之后箭头就再也不跟随展开状态了。
         GateExpanded = _config.Panels.Gate;
         DenoiseExpanded = _config.Panels.Denoise;
         LoudnessExpanded = _config.Panels.Loudness;

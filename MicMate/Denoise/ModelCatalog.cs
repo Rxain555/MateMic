@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using MicMate.Core;
@@ -48,8 +47,6 @@ public static class ModelCatalog
 
     public const string DefaultModelName = "默认模型（内置谱减降噪）";
 
-    private static readonly JsonSerializerOptions JsonOptions = new();
-
     /// <summary>
     /// 扫描结果缓存。
     /// 每次 Scan 都要为**每个**模型创建 InferenceSession（dpdfnet8 达 15 MB），
@@ -58,10 +55,7 @@ public static class ModelCatalog
     /// </summary>
     private static IReadOnlyList<DenoiseModelInfo>? _cache;
 
-    /// <summary>使缓存失效（模型目录变化、训练完成后调用）。</summary>
-    public static void InvalidateCache() => _cache = null;
-
-    /// <summary>取得模型列表。默认使用缓存。</summary>
+    /// <summary>取得模型列表。默认使用缓存；需要重新扫描时传 <paramref name="forceRefresh"/>。</summary>
     public static IReadOnlyList<DenoiseModelInfo> Scan(bool forceRefresh = false)
     {
         if (!forceRefresh && _cache != null) return _cache;
@@ -261,19 +255,6 @@ public static class ModelCatalog
         {
             message = "模型推理失败：" + ex.Message;
             return false;
-        }
-    }
-
-    public static void WriteManifest(string modelPath, object manifest)
-    {
-        try
-        {
-            var json = JsonSerializer.Serialize(manifest, JsonOptions);
-            File.WriteAllText(modelPath + ".json", json);
-        }
-        catch (Exception ex)
-        {
-            Log.Warn("写入模型说明文件失败：" + ex.Message);
         }
     }
 }

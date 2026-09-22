@@ -35,11 +35,14 @@
 | 三 | M15 全局快捷键绑定 | ✅ 完成 |
 | 三 | M16 播放路由开关 + 独立音量 + 播放列表持久化 | ✅ 完成 |
 | 四 | M17/M18 录音 + 背景噪声采集 | ✅ 完成 |
-| 四 | M19 Python 运行时检测与自动安装 | ⚠️ 已实现，未实测（见 §6） |
-| 四 | M20 训练脚本调用 + 进度反馈 | ⚠️ 已实现，含内置训练器（见 §6） |
+| 四 | M19 Python 运行时检测与自动安装 | ❌ 已移除（见 §6：内置训练链路整体删除） |
+| 四 | M20 训练脚本调用 + 进度反馈 | ❌ 已移除（同上） |
 | 四 | M21 模型文件夹扫描 + 模型验证 | ✅ 完成 |
 | 四 | M22 配置持久化 | ✅ 完成 |
-| 五 | M23–M25 扩展（手机串流 / AOA / 变声） | ⬜ 未开始（规划书标注为可选） |
+| 五 | M23–M25 扩展（手机串流 / AOA 变声） | ⬜ 未开始（规划书标注为可选） |
+
+> **2026-09 复审后的状态**：本轮修掉了 1 个阻断项（`Dsp/DenoiseEffect.cs` 编译不过）与
+> 若干功能性问题，并新增 `tools/dev/DspProbe` 作为回归探针。详见 §13。
 
 ---
 
@@ -67,7 +70,7 @@
 3. 在「解决方案资源管理器」里右键 **MicMate** 工程 → **设为启动项目**。
 4. 按 **F5**（调试运行）或 **Ctrl+F5**（不调试运行）。
 
-就这样，不需要其他配置：`MicMate.csproj.user` 已设好工作目录，`tools\train_denoise.py` 会自动复制到输出目录。
+就这样，不需要其他配置。工作目录无关紧要：数据目录是按 exe 位置解析的（见 §8）。
 
 **开发小贴士**
 
@@ -76,8 +79,9 @@
 | 只想改界面外观 | 运行中直接改 XAML，XAML 热重载会即时生效，不必重启 |
 | 想隔离测试数据（不动真实配置） | 调试 → MicMate 属性 → 调试 → 命令行参数填 `--appdata D:\temp\micmate-dev` |
 | 想看渲染结果截图 | 命令行参数填 `--selfcheck D:\ui.png`，程序注入合成信号、截图后自动退出 |
-| 想验证训练链路 | 命令行参数填 `--selftrain D:\train_out`，跑完自动退出并写日志 |
-| 程序“起不来” | 看 `%LocalAppData%\MicMate\logs\app_yyyyMMdd.log`，启动失败原因都在里面 |
+| 想验证效果器链路 | 命令行参数填 `--audiocheck --fx`（效果器）或 `--audiocheck --tune`（电音调音） |
+| 想验证降噪节点 | `dotnet run --project tools\dev\DspProbe`（26 项断言，不需要声卡） |
+| 程序“起不来” | 看数据目录下 `logs\app_yyyyMMdd.log`，启动失败原因都在里面 |
 
 ### 命令行方式
 
@@ -103,11 +107,12 @@ dotnet run --project MicMate.csproj # 运行
 
 | 参数 | 说明 |
 |---|---|
-| `--appdata <目录>` | 覆盖数据目录（调试 / 便携模式），默认 `%LocalAppData%\MicMate` |
+| `--appdata <目录>` | 覆盖数据目录（调试 / 便携模式） |
+| `--autostart` | 开机自启时由注册表项写入：启动后直接收进托盘，不弹主窗口（若「最小化到托盘」为关则仍显示窗口） |
 | `--selfcheck <png> [--expanded]` | 渲染自检：注入合成频谱、截图后自动退出；`--expanded` 先展开全部模块 |
-| `--selftrain <目录>` | 训练链路自检：合成底噪 → 内置训练 → ONNX 校验 → 提取曲线 |
 | `--audiocheck [秒数] [输出设备关键字] [输入设备关键字]` | **音频链路诊断**：逐级打印端点静音/音量、采集与输出的实际电平与样本数，并给出结论 |
-| `--audiocheck --fx` | **效果器自检**：对合成信号跑一遍四个效果，打印各自对信号的改变量（用于确认效果真的生效） |
+| `--audiocheck --fx` | **效果器自检**：对合成信号跑一遍五个效果，打印各自对信号的改变量（用于确认效果真的生效） |
+| `--audiocheck --tune` | **电音自检**：输入若干走音的正弦，测量输出主频是否被吸附到 C 大调音级 |
 
 ### 听不到声音时先跑 `--audiocheck`
 
@@ -174,8 +179,14 @@ Copy-Item MicMate\Assets\appicon.ico MicMate.Windows\Assets\appicon.ico -Force
 # 渲染自检：注入合成频谱后截图并退出，用于离线核对界面
 MicMate.exe --selfcheck D:\ui_check.png
 
-# 训练链路自检：生成合成底噪 → 内置训练 → ONNX 校验 → 提取降噪曲线
-MicMate.exe --selftrain D:\train_out
+# 效果器自检：确认五个效果都真的改变了信号
+MicMate.exe --audiocheck --fx
+
+# 电音自检：确认音高真的被吸附到音阶
+MicMate.exe --audiocheck --tune
+
+# 降噪节点回归探针（26 项断言，不需要声卡与界面）
+dotnet run --project tools\dev\DspProbe
 ```
 
 ---
@@ -211,9 +222,10 @@ WASAPI 采集(BufferedWaveProvider) → 原始输入频谱取样
 > 只由主输出播放器拉动，监听从它复制出的环形缓冲里独立读取。
 
 * **处理链顺序固定**，用户不可拖拽排序；**未启用的模块从链中物理移除**（`DynamicChain` 用单次原子写发布新的不可变数组，音频线程不加锁、不分配）。
-* **效果器单例**：混响 / 延迟 / 合唱 / 电音四选一，切换时重建该节点。
-  其中**电音是三级串联**：环形调制（`RingModulatorEffect`，产生金属/机器人音色，这是关键）→ 相位声码器变调（−2 至 −8 半音）→ 高频共振峰 EQ。
-  只用变调时听起来仅音高改变、缺少机械感，所以环形调制是主力。
+* **效果器单例**：混响 / 延迟 / 合唱 / 电音 / 炸麦五选一，切换时重建该节点。
+  其中**电音**是 `HardTuneEffect`：自相关基频检测 → 吸附到 C 大调音级 → 相位声码器变调 → 电子化音染
+  （2 样本梳状延迟 + 共振峰 EQ）。手写一个可用的变调器很难，所以这里复用 NWaves 的
+  `PhaseVocoder` 做时间伸缩再线性插值重采样回原长（实测偏差 2–6 音分）。
 * **播放器音频不经过效果链**，仅在输出前以固定 50:50 比例混入；混音后经软限幅（Look-ahead Limiter + tanh 兜底）避免削波。
 * **总旁通开关**（工具栏「音频处理」）就是**闭麦开关**：关闭 = 麦克风静音（不管链路里有没有模块），
   打开 = 出声（链路里有模块就处理，一个都没启用就是直通）。因为首次启动默认关闭，**程序启动时麦克风是静音的**，
@@ -222,7 +234,7 @@ WASAPI 采集(BufferedWaveProvider) → 原始输入频谱取样
 * **实时性**：`WithMmcssThreadPriority("Pro Audio")`、共享模式、低延迟与原始模式（RAW）**逐级降级**（端点不支持 RAW 时自动回退，不会导致引擎启动失败）。
 * **降噪实现**（§3.2/3.5.4）：480 samples（10 ms）一帧；内置 STFT 过减谱减 + 维纳增益 + 谱底噪内核；
   「干湿比」按 `out = dry × (1 − wet) + denoised × wet` 混合；单帧推理超过 50 ms 会记录日志并跳过该帧。
-  模型下拉框列出 `%LocalAppData%\MicMate\models\*.onnx`，模型被删除时自动回退到默认模型。
+  模型下拉框列出**数据目录**下 `models\*.onnx`（见 §8），模型被删除时自动回退到默认模型。
 
 ### 降噪模型支持哪些格式
 
@@ -292,25 +304,25 @@ _session = new InferenceSession(path, sessionOptions);
 
 #### 保底模型（无外部模型时使用）
 
-`Dsp/SpectralDenoiseModel.cs`。**定位**：保证"总有可用的降噪"，不追求高阶算法。
-三级结构，各段都经逐样本验证：
+`Dsp/SpectralDenoiseModel.cs`。**定位**：保证"总有可用的降噪"，且**绝不破坏音频**。
+两级结构：
 
 1. **二阶 Butterworth 高通（120 Hz）**，标准 RBJ 双二阶系数
 2. **全频带向下扩展器**（dB 域）：低于门限才衰减，高于门限必然直通
-3. **32 频带频带门控**（在 12 kHz 降采样域算分频带增益，作用回 48 kHz 信号）
 
-实测（语音段越接近 0 越好，底噪越负越好）：
+实测（`--audiocheck` 同款合成信号，`dotnet run --project tools\dev\DspProbe` 第 9 节可复现）：
 
-| 强度 | 语音 | 底噪（宽带沙沙声） |
-|---|---|---|
-| 0 | 0 dB | 0 dB |
-| 40 | −1.0 dB | −9.7 dB |
-| 70 | −1.3 dB | −27.7 dB |
-| 100 | −3.1 dB | −50.7 dB |
+| 信号 | 结果 |
+|---|---|
+| −33.5 dBFS 语音样信号（300 Hz） | −0.6 dB（基本直通，不压人声） |
+| −55 dBFS 宽带底噪 | **−15.3 dB**（强度 70） |
+| 数字静音 | 输出恒为 0，无 NaN |
 
-> **为什么加第 3 级**：单频带门控对"麦克风电流声/沙沙声"这类**宽带稳态**噪声压不干净——
-> 它与语音频带重叠，只能整体压低。分频带后，语音占主导的频带保持直通、
-> 噪声占主导的频带被压下去。
+> **为什么没有分频带**：曾经做过 16/32 频带门控，但在低采样率域里低频带的双二阶极点
+> 极度靠近单位圆、数值不稳定，会把增益算成 NaN 并污染全部输出，CPU 也高到 80%（单核）。
+> **与其留一个会毁音频的实现，不如只保留能证明稳定的部分**——所以现在只有两级，
+> 对宽带稳态噪声的抑制远不如上面的表格（早期的 −27.7/−50.7 dB 数字属于已删除的三级版本）。
+> 想要好效果请放一个 ONNX 模型进 `models\`。
 
 #### 降噪相关的已踩坑清单（保留以防重复）
 
@@ -355,7 +367,7 @@ _session = new InferenceSession(path, sessionOptions);
 dpdfnet8 有 15 MB、dpdfnet2 有 10 MB，在 UI 线程上同步做这件事会造成明显卡顿——
 用户反馈"点击模型选择下拉框就卡死"正是这个原因。
 
-修法：`Scan()` 结果进缓存，只在首次、训练完成或显式 `InvalidateCache()` 时才真正扫描；
+修法：`Scan()` 结果进缓存，需要重新扫描时用 `Scan(forceRefresh: true)`；
 同时记录扫描耗时（正常约 350 ms）。
 
 ### 下拉框箭头
@@ -437,29 +449,41 @@ STFT 地基已由 NWaves 提供并验证通过，接下来要做的是：
 | 深邃 Deep | 0.051 | **0.149** | +2.8 dB |
 | 自然 Natural | 0 | 0 | 0（按设计直通） |
 
-### 训练模型功能：建议**保留但不必投入**
+### 音色风格：预设曾静默失效（已修）
 
-现状：内置训练器产出的是**增益曲线域**（形态 A）的"噪声画像"——它只是给谱减算法
-提供一组逐频点过减倍率，本身不是神经网络，效果上限明显低于 GTCRN / DPDFNet。
+`ToneStyleEffect` 的 `_bands` 数组必须按固定段数（3 段）分配：NAudio 的 `Equalizer`
+是**按引用**持有该数组的，长度定下后不会再变，而参数更新是按 `_bands.Length` 复制的。
+早期版本用 `BuildBands(settings.Style ?? Natural)` 建数组，默认（一个预设都不选）时
+只会得到 **1 段**，于是之后选择任何预设都只有第 1 个滤波器生效：
+「沉稳」丢掉 6 kHz 衰减与 9 kHz 高架，「清亮」丢掉低频衰减。
+现在固定 3 段，且三段必须是各自独立的实例（共用实例会让三个滤波器全变成最后一段）。
 
-**结论**：
-* 你已有 GTCRN（16 kHz，<1% 占用）与 DPDFNet（48 kHz）两个**实测可用**的模型，
-  它们在各方面的表现都优于内置训练器能产出的东西。
-* 因此**训练功能对当前使用没有增益**，但作为"无模型可用时的自训练兜底"仍有价值，保留即可。
-* 若将来想去掉，可一并移除 `TrainingService` / `NoiseProfileTrainer` / `tools/train_denoise.py`
-  以及界面上的训练面板与 `--selftrain` 命令。
+### 训练 / Python 链路：已删除
+
+早期版本实现过「录制底噪 → 内置 C# 训练器（或 Python 脚本）→ 导出 ONNX 增益曲线模型」
+的整条链路。复审结论：**它产出的不是神经网络**，只是给谱减算法提供一组逐频点过减倍率，
+效果上限明显低于 GTCRN / DPDFNet，且 `SpectralDenoiseModel.LoadProfile` 只把曲线存下来
+打印一行日志、**根本不参与处理**（"增益曲线域模型"实际上就是保底降噪换了名字）。
+
+因此本轮把整条链路移除：`NoiseProfileTrainer` / `NoiseRecorder` / `TrainingService` /
+`SelfTest.cs`（`--selftrain`）/ `Denoise/PythonRuntime.cs` / `Denoise/OnnxProtoWriter.cs` /
+`tools/train_denoise.py`。需要时可以从 git 历史里取回。
+
+> 仍然支持的是**外部 ONNX 模型**（DPDFNet / GTCRN 这类频谱域流式模型，见上文），
+> 以及形状匹配的波形域模型。
+
 ### 频谱域与电音：已改用 NWaves 现成模块
 
-内置默认模型是**谱减 + 维纳增益**的经典实现：它不需要任何模型文件，能压掉稳定底噪，
-但对非平稳噪声和音乐噪声的处理远不如神经网络模型——**想要好效果请放一个波形域模型进去**。
+内置默认模型是**谱减 + 向下扩展**的经典实现：它不需要任何模型文件，能压掉稳定底噪，
+但对非平稳噪声和音乐噪声的处理远不如神经网络模型——**想要好效果请放一个模型进 `models\`**。
 
 **尚未完成 / 待后续补充**
 
-* **Python 训练路径未在本机实测**：本机 Python 是 Microsoft Store 的应用执行别名（未安装真实解释器），
-  且计划中的内嵌 CPython 下载源在当前网络环境下不可达。因此
-  `Denoise/PythonRuntime.cs`（检测 3.10+、NuGet 预编译 CPython 解压到 `%LocalAppData%\MicMate\runtime/`）
-  与 `tools/train_denoise.py` 均已按接口写好，但**未经端到端验证**。
-* 「降噪强度」对增益曲线域模型体现在过减系数上；对波形域模型目前只作用于干湿比，未做逐模型标定。
+* 硬调音（电音）的相位声码器有约 28–40 ms 未补偿延迟与 ~40 ms 起振静音；
+  `PitchDetector`（自相关）在 ~130 Hz 以下检不出、1 kHz 附近会出倍频错误。
+  建议换成 `NAudio.Effects.PitchShiftEffect`（自带 `LatencySamples`）+ YIN 类检测器。
+* 「降噪强度」对保底模型体现为过减系数；对其他后端现在是**干湿占比**
+  （0 = 逐样本直通，100 = 全量），已修正早期"强度 0 仍有 −8 dB"的问题，但未做逐模型标定。
 
 ---
 
@@ -476,28 +500,32 @@ STFT 地基已由 NWaves 提供并验证通过，接下来要做的是：
 ## 8. 配置与数据目录
 
 ```
-%LocalAppData%\MicMate\          ← 默认数据根目录（非漫游）
+<exe 所在目录>\data\        ← 默认数据根目录（就地存放，绿色软件）
 ├── config.json          # 全局配置（设备、效果链参数、播放列表、窗口位置等）
-├── models/              # ONNX 模型（内置训练器与外部模型都放这里）
+├── models/              # ONNX 模型（外部模型放这里）
 ├── recordings/          # 录制的底噪样本 noise_yyyyMMdd_HHmmss.wav
-├── runtime/             # 内嵌 Python 运行时（按需下载）
+├── runtime/             # 预留（早期内嵌 Python 运行时用，现已不再使用）
 └── logs/                # 按天滚动的日志，保留最近 7 天
 ```
 
-**为什么放在 `%LocalAppData%` 而不是规划书写的 `%AppData%`**：`%AppData%`（Roaming）会被域/企业环境的
-漫游配置文件同步到服务器，而这里放的是 ONNX 模型（二进制）、录音 WAV、日志，以及**内嵌 Python 运行时**
-（几千个文件 + 原生 DLL）——都不该漫游，否则会拖慢登录、吃掉漫游配额。规划书 6.2 提到单文件发布时
-也是改用 `%LocalAppData%`，这里直接统一为同一路径。
-
-启动时会自动把 0.1 版遗留在 `%AppData%\MicMate` 下的配置、模型与录音迁移过来（只搬缺失的文件，不覆盖）。
+**为什么就地存放**：`%AppData%`（Roaming）会被域/企业环境同步到服务器，而这里放的是
+ONNX 模型（二进制）、录音 WAV 与日志，都不该漫游。就地存放同时还避免了"VS 调试与直接双击
+用两个不同数据目录"的问题。
 
 目录选择顺序（逐级回退，保证程序始终能启动）：
 
-1. `%LocalAppData%\MicMate` —— 默认
-2. `%AppData%\MicMate` —— LocalAppData 不可用时
-3. `%TEMP%\MicMate` —— 最后兜底
+1. `<exe 目录>\data` —— 默认（用 `.write-test` 探针确认可写）
+2. `<exe 目录>\MicMate` —— 兼容早期布局
+3. `%LocalAppData%\MicMate` —— 安装目录只读时（例如装在 Program Files）
+4. `%TEMP%\MicMate` —— 最后兜底
+
+启动时会尝试把早期遗留在 `%LocalAppData%\MicMate` 的配置、模型与录音搬到当前数据目录
+（只搬缺失的文件，不覆盖；目标目录已有 `config.json` 则跳过）。
 
 也可用 `--appdata <目录>` 显式指定（便携 / 调试）。
+
+> ⚠️ 注意：默认数据目录在 `bin\Debug\...\data` 下，**`dotnet clean` / 删除 bin 会连配置、录音和模型一起删掉**。
+> 想长期保留请用 `--appdata` 指到别处，或把 exe 发布到固定目录再运行。
 
 ---
 
@@ -507,7 +535,7 @@ STFT 地基已由 NWaves 提供并验证通过，接下来要做的是：
 MicMate/
 ├── App.xaml(.cs)              应用入口、单实例、全局异常、自检入口
 ├── MainWindow.xaml(.cs)       三栏主界面与全部交互
-├── SelfTest.cs                离线自检（训练链路 / 渲染校验）
+├── App.xaml(.cs)              应用入口、单实例、全局异常、自检与诊断入口
 ├── GlobalUsings.cs
 ├── NuGet.config               NuGet 源（国内镜像）
 ├── Core/
@@ -516,33 +544,42 @@ MicMate/
 │   ├── Log.cs                 按天滚动日志
 │   ├── DeviceService.cs       WASAPI 设备枚举 + 热插拔通知 + MIXLINE 检测
 │   ├── HotkeyService.cs       全局热键注册/解析/格式化
-│   └── AutoStartService.cs    开机自启（HKCU Run）
+│   └── AutoStartService.cs    开机自启（HKCU Run，写入 --autostart）
 ├── Audio/
 │   ├── AudioEngine.cs         音频图：采集 → 效果链 → 混音 → 主/监听输出
-│   ├── AnalysisProviders.cs   分析采样点、监听复制、声道转换
+│   ├── AnalysisProviders.cs   采集取样点、监听复制、声道转换
+│   ├── OutputBus.cs           输出总线（输出频谱 + 监听复制的唯一取样点）
 │   ├── PlayerSampleBuffer.cs  播放器环形缓冲
-│   └── FilePlayerService.cs   音频文件播放（Media Foundation 解码 + 重采样）
+│   └── FilePlayerService.cs   音频文件播放（MF 解码 + 重采样；代次号打断换曲）
 ├── Dsp/
-│   ├── IAudioEffect.cs        效果器接口 + 可在线重建的处理链
-│   ├── DenoiseModels.cs       降噪后端（谱减内核 + ONNX 画像后端）
-│   ├── DenoiseEffect.cs       AI 降噪节点（10 ms 分帧、干湿比、超时跳过）
+│   ├── IAudioEffect.cs        效果器接口 + 可在线重建的处理链（DynamicChain）
+│   ├── DenoiseEffect.cs       AI 降噪节点（480 样本分帧、固定 10 ms 延迟、干湿比、超时跳过）
+│   ├── DenoiseModels.cs       降噪后端接口 + ONNX 画像后端
+│   ├── SpectralDenoiseModel.cs 保底降噪（高通 + 向下扩展）
 │   ├── NoiseGateEffect.cs     噪声门
-│   ├── LoudnessBalanceEffect.cs 响度平衡（400 ms RMS + 指数平滑 + 防削波）
-│   ├── ToneStyleEffect.cs     六种音色风格预设 EQ
-│   ├── CreativeEffect.cs      混响/延迟/合唱/电音（单例）
+│   ├── LoudnessBalanceEffect.cs 响度平衡（400 ms RMS + 平滑 + 即时峰值保护 + 静音保持）
+│   ├── ToneStyleEffect.cs     六种音色风格预设 EQ（固定 3 段）
+│   ├── CreativeEffect.cs      混响/延迟/合唱/电音/炸麦（单例）
+│   ├── HardTuneEffect.cs      电音内核：基频吸附 + 变调 + 音染
+│   ├── PitchDetector.cs       自相关基频检测
+│   ├── PitchShifter.cs        相位声码器变调
+│   ├── MegaphoneDistortionEffect.cs 炸麦（压缩 + 削波 + 带通 + 降位）
 │   ├── OutputStage.cs         增益、软限幅、单声道转立体声、频谱分析
 │   ├── MicMixer.cs            麦克风 + 播放器 50:50 混合总线
-│   └── SmoothedGain.cs        指数平滑增益与 dB 工具
+│   └── SmoothedGain.cs        指数平滑增益与 dB 工具（AudioMath）
 ├── Denoise/
-│   ├── ModelCatalog.cs        模型扫描 / ONNX 校验 / 曲线提取
-│   ├── NoiseProfileTrainer.cs 内置训练器（不依赖 Python）+ ONNX 导出
-│   ├── OnnxProtoWriter.cs     极简 ONNX protobuf 写入器
-│   ├── NoiseRecorder.cs       10 秒底噪录制
-│   ├── PythonRuntime.cs       Python 检测与自动安装（未实测）
-│   └── TrainingService.cs     训练流程编排（内置 / Python 双路径）
+│   ├── ModelCatalog.cs        模型扫描 / ONNX 校验 / 单线程会话创建
+│   ├── DpdfNetDenoiseModel.cs 频谱域流式模型（DPDFNet / GTCRN / PureVox 一族）
+│   ├── OnnxWaveformDenoiseModel.cs 波形域模型（480 样本帧 + 循环状态回传）
+│   ├── MixedRadixFft.cs       混合基 FFT（960 = 2^6×3×5）
+│   └── RateConverter.cs       非 48 kHz 模型的重采样层
 ├── Ui/Theme.xaml              浅色扁平主题（开关、滑块、按钮、下拉框、芯片按钮）
 ├── ViewModels/TrackViewModel.cs
-└── tools/train_denoise.py     Python 训练脚本（与内置训练器接口一致）
+├── AudioDiagnostics.cs        --audiocheck 诊断与效果/调音自检
+└── tools/dev/                 独立小工具（不参与主程序编译）
+    ├── DspProbe/              降噪 / 响度 / 音色的回归探针（26 项断言）
+    ├── DpdfProbe/ NWavesProbe/ TuneProbe/ OnnxInfo/ ApiScan/ IconBuilder/ RowProbe/
+    └── ui-preview*.png        渲染自检截图
 ```
 
 `MicMate.Windows/`（独立 WinForms 程序集）只提供托盘图标，避免 WPF 工程同时引入
@@ -556,6 +593,9 @@ MicMate/
   单声道→立体声的扩展在输出前完成。
 * 采集缓冲区为 80 ms（WASAPI 共享模式的安全区间），端到端延迟受系统混音引擎影响，
   实测输出侧约 7 ms；低延迟采集需要端点混音格式与请求格式一致，当前请求单声道 float 时会走标准共享模式。
+* **降噪节点固定引入 10 ms（480 样本）延迟**：480 样本一帧交给模型，输出按样本逐个交出，
+  这也正是"任意块长都不会在帧边界产生跳变"的代价。启用降噪时端到端延迟约多 10 ms；
+  从直通切到处理（或切换模型后第一次进入处理）时，头 10 ms 是静音。
 * 部分虚拟声卡端点不支持 WASAPI RAW 模式，程序会自动逐级降级并在日志中记录原因。
 * 规划书 §3.7.1 关于总开关的描述与语音包行为冲突，本项目按“闭麦但不静音语音包”实现（见 §5）。
 * 未实现规划书 §3.8 的后续扩展（手机 USB 串流、实时变声、多效果器串联、VST）。
@@ -577,7 +617,7 @@ MIT。
 
 | # | 项目书原文 | 问题 | 处理 |
 |---|---|---|---|
-| 1 | §6.3 数据目录 `%AppData%/MicMate/` | Roaming 会被域环境同步；模型是二进制、内嵌 Python 是几千个文件，都不该漫游 | **改为 `%LocalAppData%\MicMate` + 自动迁移**，见 §8 |
+| 1 | §6.3 数据目录 `%AppData%/MicMate/` | Roaming 会被域环境同步；模型是二进制，不该漫游 | **改为 `<exe 目录>\data`（就地存放）+ 旧目录自动迁移**，见 §8 |
 | 2 | §3.7.1 总开关「关闭后停止音频处理并停止输出，可作为麦克风一键开关」 | 停止输出会连语音包一起静音，与 §3.4 的语音包用途直接冲突：用户闭麦后语音包就废了 | **实现为「麦克风静音，播放器照常送出」**，见 §5 |
 | 3 | §3.2「未启用的效果器从处理链中移除，而非简单跳过」 | 字面读是要求 true bypass，与前半句「每个模块可独立启用/禁用」的语义冲突 | 按「物理移除节点」实现；旁通交由各效果自身的 bypass 处理 |
 | 4 | §3.3 频谱「暂停时不再调用 `Dispatcher.Invoke`」 | 不该在音频线程调用 UI，与 §4.4 自己的规定矛盾 | 改为音频线程只做定长拷贝进无锁环形缓冲，UI 线程按帧率取走 |
@@ -594,9 +634,9 @@ MIT。
 | 10 | §2.1「位深 32-bit float」 | 输出端无法与「任意声卡」兼容 | 内部 32f，输出前转设备支持的格式 |
 | 11 | §3.2.2「50:50 固定混合」+「软限幅」 | 语音包与麦克风各 0.5 后，语音包实际听感偏小 | 播放器另给独立音量（0–2 倍），混音比保持 50:50 |
 | 12 | §3.4.1「热键数量有限（系统限制约 100 个）」 | 实际限制是**每个进程约 1 万个 ID**，不是 100 | 未做人为限制 |
-| 13 | §3.5.1「默认不安装 Python，首次训练时下载预编译 CPython」 | ① 现代 CPython 的 NuGet 包**不带 pip**，`numpy`/`onnx` 仍要联网装；② 内嵌运行时装进 Roaming 目录更不合适；③ 「预计训练时间 20–90 分钟」暗示要跑重训练，实际本项目 10 秒就完成 | **改为内置 C# 训练器，零 Python 依赖**；Python 脚本保留为进阶路径（按住 Ctrl 点「训练模型」） |
-| 14 | §6.2「不默认捆绑 Python；首次训练时按需下载内嵌运行时」 | 与 §3.5.1 重复描述同一件事，且两处措辞不一致 | 已在实现中合并为一条路径 |
-| 15 | §3.5.3「预计训练时间根据 CPU 型号、核心数、内存自动估算」 | 没有 Python 训练时，估算值（20–90 分钟）与真实耗时（秒级）差两个数量级，会误导用户 | 估算改为约 3–11 分钟量级并标注为粗略值 |
+| 13 | §3.5.1「默认不安装 Python，首次训练时下载预编译 CPython」 | ① 现代 CPython 的 NuGet 包**不带 pip**，`numpy`/`onnx` 仍要联网装；② 内嵌运行时装进 Roaming 目录更不合适；③ 「预计训练时间 20–90 分钟」暗示要跑重训练，实际本项目 10 秒就完成 | **改为内置 C# 训练器，零 Python 依赖**；该链路后来整体删除（见 §6） |
+| 14 | §6.2「不默认捆绑 Python；首次训练时按需下载内嵌运行时」 | 与 §3.5.1 重复描述同一件事，且两处措辞不一致 | 已在实现中合并为一条路径；该链路随 §6 一并删除 |
+| 15 | §3.5.3「预计训练时间根据 CPU 型号、核心数、内存自动估算」 | 没有 Python 训练时，估算值（20–90 分钟）与真实耗时（秒级）差两个数量级，会误导用户 | 随训练链路整体删除，估算器不再存在 |
 
 ### 缺失或可以更好的（低）
 
@@ -605,6 +645,55 @@ MIT。
 | 16 | 没有规定**效果器 DSP 算法**（混响/延迟/合唱/电音具体怎么做） | 已直接采用 NAudio 3 自带的 `NAudio.Effects` 内核（Freeverb、延迟线、相位声码器），比自研更稳 |
 | 17 | 没有规定音色 EQ 的三段具体参数 | 见第 5 条，已自行定义 |
 | 18 | §8.2 要求「连续运行 72 小时」「Windows 10/11 + 不同 MIXLINE 版本兼容性测试」 | 这类验收项在单人开发 + 单机环境下无法完成，建议降级为「自检脚本 + 手动冒烟测试」 |
-| 19 | §9 开发计划的验收标准偏笼统（如「能看到麦克风列表」） | 建议补上可自动化验证的判据（本项目用 `--selfcheck` / `--selftrain` 覆盖了渲染与训练两条链路） |
+| 19 | §9 开发计划的验收标准偏笼统（如「能看到麦克风列表」） | 建议补上可自动化验证的判据（本项目用 `--selfcheck` / `--audiocheck --fx|--tune` / `tools/dev/DspProbe` 覆盖渲染与 DSP 链路） |
 | 20 | §3.8 明确不添加 AEC / TSE | 合理，保留 |
 | 21 | §7 性能目标给了具体 CPU 百分比 | 没有说明测量方法（采样周期、是否含频谱渲染），难以判定达成与否 |
+
+---
+
+## 13. 本轮复审与修复记录（2026-09）
+
+审查范围：全部 `MicMate` / `MicMate.Windows` 源码；同时复用了 `docs/dsp-audit-2026-09.md`
+（上一次 DSP 逐项实测报告，结论仍然有效）。
+
+### 阻断项（已修）
+
+* **`Dsp/DenoiseEffect.cs` 编译不过**（`CS0103: _working`）：一次未完成的改写留下的半成品，
+  且把 `_working` 补上也**不对**——`_frame` 被模型就地改写后，`_out - _frame` 在默认
+  `Wet=100%` 时恒等于 0，模型输出对音频零影响。现已重写为「输入累加 + 输出环形缓冲」，
+  并新增 `tools/dev/DspProbe` 锁住行为（块长 1…8192、随机块长、延迟、帧对齐、干湿混合、直通、切换、超时共 26 项断言）。
+
+### 功能性问题（已修）
+
+| 问题 | 影响 | 修复 |
+|---|---|---|
+| `ToneStyleEffect._bands` 只有 1 段 | 默认启动路径下选任何音色预设都只有第 1 个滤波器生效 | 固定 3 段（且三段各自独立实例） |
+| `LoudnessBalanceEffect` 峰值保护只改目标值 | 0 dBFS 冲激输出 +12.5 dBFS，全被后级限幅器硬压 | 改为即时峰值钳制；实测峰值 0.891（−1 dBFS） |
+| 同上：静音/底噪被加 +22…24 dB | 说完话的底噪被抬高、下一个字过响 | 低于 −50 dBFS 时保持增益（AGC 噪声门） |
+| `OnnxWaveformDenoiseModel` 未传 `SessionOptions` | 波形域模型会把所有 CPU 核心拉满（README 记录的 949% 事故） | 统一走 `ModelCatalog.CreateSession` |
+| `AudioEngine` 两路同时喂 `OutputSpectrum` | 输出频谱与电平表读数是两路信号交替拼接的结果 | 只保留 `OutputBus` 一个取样点 |
+| `FilePlayerService.Play` 不打断当前播放 | 点第二个音频/语音包没反应，且没有任何停止入口 | 代次号打断；再点一次正在播放的条目即停止 |
+| 展开箭头绑定被 `arrow.Tag = true` 顶掉 | 配置里已展开的模块，重启后收起时箭头仍朝下 | 删除该局部赋值，绑定为唯一来源 |
+| 窗口位置判定假设原点在 (0,0) | 放在左侧/上方副屏的窗口每次启动被拉回中间 | 改用虚拟桌面左/上边界 |
+| 全局热键 ID 从 `0xC000` 开始 | 越出文档规定的应用范围（0x0000–0xBFFF） | 改为从 1 开始 |
+| `--autostart` 写入注册表但无人处理 | 开机自启会直接弹出主窗口 | 识别该参数并直接收进托盘 |
+
+### 清理
+
+* 删除已无引用的整文件：`SelfTest.cs`（`--selftrain` 从来没有处理分支）、
+  `Denoise/PythonRuntime.cs`、`Denoise/OnnxProtoWriter.cs`、`Dsp/RingModulatorEffect.cs`（README 曾误称它是电音主力）。
+* 删除无引用类型/成员：`AnalysisTap`、`PassthroughDenoiseModel`、`ModelCatalog.WriteManifest`、
+  `InvalidateCache`、`OutputBus._scratch`、`HardTuneEffect.EnableHarmony/_framesInTune/PushedSource`。
+* 保留但已知未使用（有明确诊断价值，故不删）：`DpdfNetDenoiseModel.BypassModel`（跳过模型、
+  只做 FFT+OLA 恒等重建，用于定位 FFT/OLA 问题）、`MixedRadixFft.Inverse`。
+* 新增 `git` 仓库与 `.gitignore`（此前工作区**没有版本控制**，这是本次"改到一半编译不过"无法回退的根因）。
+
+### 仍然存在的已知问题（未修，见上方各节）
+
+* 硬调音（电音）：~40 ms 起振静音、28–40 ms 未补偿延迟、湿信号频响不平坦（0.72×–1.32×）。
+* `PitchDetector`：<130 Hz 检不出、1 kHz 附近倍频错误、系统性偏高 16–42 音分。
+* 音色风格切换仍有样本级跳变（EQ 交叉渐变不足以掩盖）。
+* DSP 参数由 UI 线程直接写进音频线程正在使用的对象（未走 NAudio 的 `ParameterDispatchQueue`）。
+* 保底降噪模型对宽带稳态噪声只有约 −15 dB 抑制（分频带版本因数值不稳定已移除）。
+* 界面：`Switch`/展开箭头/删除按钮均 `Focusable="False"`、全项目无 `AutomationProperties`、
+  设备下拉框固定 98 DIP 会裁剪设备名、`MinWidth/MinHeight` 在 1366×768@125% 或 1080p@150% 下超出可用工作区。

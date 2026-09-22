@@ -11,6 +11,11 @@ using NAudio.Wave;
 //   1. 任意块长都不抛异常、不产生 NaN；
 //   2. 输出恰好是"输入延迟 480 样本"，帧顺序/对齐正确（不重不漏）；
 //   3. 模型输出真的进入了音频（干湿混合不是空操作），直通路径逐样本精确。
+//
+// 另外覆盖 LoudnessBalanceEffect（峰值保护 / 静音与底噪 / 收敛）与 ToneStyleEffect（预设段数）。
+//
+// 用法：dotnet run --project tools\dev\DspProbe    （不需要声卡，也不需要界面）
+// 说明：第 7、8 节含线程与计时断言，机器在跑别的重活时偶发失败属正常，重跑即可。
 
 const int SampleRate = 48000;
 const int FrameSize = SpectralDenoiseModel.FrameSize;   // 480
