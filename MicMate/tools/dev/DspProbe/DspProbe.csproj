@@ -26,6 +26,11 @@
     <Compile Include="..\..\..\Core\Log.cs" />
     <Compile Include="..\..\..\Dsp\DenoiseEffect.cs" />
     <Compile Include="..\..\..\Dsp\DenoiseModels.cs" />
+    <Compile Include="..\..\..\Dsp\CreativeEffect.cs" />
+    <Compile Include="..\..\..\Dsp\HardTuneEffect.cs" />
+    <Compile Include="..\..\..\Dsp\MegaphoneDistortionEffect.cs" />
+    <Compile Include="..\..\..\Dsp\PitchDetector.cs" />
+    <Compile Include="..\..\..\Dsp\PitchShifter.cs" />
     <Compile Include="..\..\..\Dsp\IAudioEffect.cs" />
     <Compile Include="..\..\..\Dsp\LoudnessBalanceEffect.cs" />
     <Compile Include="..\..\..\Dsp\SmoothedGain.cs" />

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 namespace MicMate.Dsp;
 
@@ -90,13 +90,27 @@ public sealed class HardTuneEffect
         _timbre.Configure(format);
     }
 
-    /// <summary>就地处理一块音频。</summary>
+    /// <summary>
+    /// 就地处理一块音频。
+    ///
+    /// 内部按 <see cref="_dryBuffer"/> 的容量分块：设备周期可能大于该容量（例如 4096），
+    /// 早期实现遇到这种块直接 `return`，于是整个电音效果**静默失效**且没有任何日志。
+    /// </summary>
     public void ProcessInPlace(Span<float> buffer, int sampleRate)
+    {
+        for (var offset = 0; offset < buffer.Length; offset += _dryBuffer.Length)
+        {
+            var count = Math.Min(_dryBuffer.Length, buffer.Length - offset);
+            ProcessChunk(buffer.Slice(offset, count), sampleRate);
+        }
+    }
+
+    /// <summary>处理一个不超过内部缓冲区容量的块。</summary>
+    private void ProcessChunk(Span<float> buffer, int sampleRate)
     {
         if (buffer.Length == 0) return;
 
         var length = buffer.Length;
-        if (_dryBuffer.Length < length) return;
 
         // 0) 先留一份未变调的参考信号：基频检测必须基于它，
         //    否则下一帧测到的是已经移动过的音高，会一帧帧累积漂移
@@ -113,12 +127,7 @@ public sealed class HardTuneEffect
             var snapped = SnapToMidi(midi);
 
             if (_pitchNumber < 0 || Math.Abs(snapped - _pitchNumber) >= 0.5)
-            {
                 _pitchNumber = (int)Math.Round(snapped);
-            }
-            else
-            {
-            }
 
             _targetPitch = snapped;
         }
@@ -137,7 +146,7 @@ public sealed class HardTuneEffect
         _appliedSemitones += (wanted - _appliedSemitones) * coefficient;
         _appliedSemitones = Math.Clamp(_appliedSemitones, -12, 12);
 
-        // 5) 变调（暂未启用：相位声码器内核尚未调通，见类注释）
+        // 5) 变调（相位声码器，见 Dsp/PitchShifter.cs）
         if (EnablePitchShift && _shifter != null && Math.Abs(_appliedSemitones) > 0.01)
         {
             _shifter.Semitones = (float)_appliedSemitones;

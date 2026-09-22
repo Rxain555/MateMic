@@ -406,9 +406,36 @@ Section("11. 音色风格：以「未选择」构造、之后再选预设，3 �
     Check(at6k < 0.6f, $"6 kHz 处 ≈ −6 dB（实测 {20 * Math.Log10(at6k):0.0} dB；修复前该段根本没建，为 0 dB）");
 }
 
+// ---------------------------------------------------------------- 12. 电音块长
+Section("12. 电音：块长大于内部缓冲时不能静默失效");
+{
+    var effectSettings = new CreativeEffectSettings
+    {
+        Enabled = true,
+        Kind = CreativeEffectKind.Robot,
+        Amount = 88f,
+    };
+
+    bool Processed(int blockSize)
+    {
+        var fx = new CreativeEffect(format, effectSettings) { Enabled = true };
+        var tone = Tone(blockSize, 300f, 0.3f);
+        var output = (float[])tone.Clone();
+        for (var pos = 0; pos < output.Length; pos += blockSize)
+            fx.Read(output.AsSpan(pos, Math.Min(blockSize, output.Length - pos)));
+
+        for (var i = 0; i < output.Length; i++)
+            if (MathF.Abs(output[i] - tone[i]) > 1e-6f) return true;
+        return false;
+    }
+
+    Check(Processed(480), "480 样本块被处理（WASAPI 常见周期）");
+    Check(Processed(4096), "4096 样本块被处理（修复前该块直接 return，整个电音静默失效）");
+}
+
 Console.WriteLine();
 Console.WriteLine(failures == 0
-    ? "全部通过：DenoiseEffect / LoudnessBalanceEffect / ToneStyleEffect 的回归项均符合预期。"
+    ? "全部通过：DenoiseEffect / LoudnessBalanceEffect / ToneStyleEffect / CreativeEffect 的回归项均符合预期。"
     : $"有 {failures} 项未通过。");
 return failures == 0 ? 0 : 1;
 
