@@ -30,6 +30,7 @@ Python/
 *.log
 Thumbs.db
 
-# 临时验证产物
-_probe_*.txt
-_selfcheck.png
+# 涓存椂楠岃瘉浜х墿锛堝彧閿氬畾浠撳簱鏍圭洰褰曪級
+/_*.png
+/_probe_*.txt
+/_commitmsg*.txt
