@@ -69,19 +69,9 @@ public sealed class DpdfNetDenoiseModel : IDenoiseModel
 
     public DpdfNetDenoiseModel(string path, string displayName)
     {
-        // 关键：显式限制单线程推理。
-        // 官方参考实现（onnx_backend.py）就是 intra/inter_op_num_threads = 1。
-        // 若不传 SessionOptions，ONNX Runtime 会默认开线程池把所有核心拉满——
-        // 实测等效单核占用高达 949%（CPU 时间是墙钟的 9.5 倍），
-        // 在实时音频线程上既会抢 CPU 又会因线程调度造成抖动。
-        var sessionOptions = new SessionOptions
-        {
-            IntraOpNumThreads = 1,
-            InterOpNumThreads = 1,
-            GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL,
-        };
-
-        _session = new InferenceSession(path, sessionOptions);
+        // 关键：单线程推理（见 ModelCatalog.CreateSession 的说明：
+        // 不限线程时 ONNX Runtime 会把所有核心拉满，实测等效单核占用 949%）。
+        _session = ModelCatalog.CreateSession(path);
 
         var rawMetadata = _session.ModelMetadata?.CustomMetadataMap ?? new Dictionary<string, string>();
         // 元数据键名大小写不统一（PureVox 用大写），统一成小写查

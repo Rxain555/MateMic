@@ -9,6 +9,9 @@ namespace MicMate.Dsp;
 /// </summary>
 public sealed class ToneStyleEffect : IAudioEffect
 {
+    /// <summary>预设固定使用的滤波器段数（所有预设都是 3 段）。</summary>
+    private const int BandCount = 3;
+
     private readonly ToneSettings _settings;
     private readonly NAudio.Effects.Equalizer _equalizer;
     private readonly NAudio.Effects.EqualizerBand[] _bands;
@@ -19,7 +22,13 @@ public sealed class ToneStyleEffect : IAudioEffect
     {
         WaveFormat = format;
         _settings = settings;
-        _bands = BuildBands(settings.Style ?? ToneStyle.Natural);
+
+        // 必须按 BandCount 段分配：NAudio 的 Equalizer 是**按引用**持有这个数组的，
+        // 长度一旦定下就再也不会变，而 UpdateParameters 是按 _bands.Length 复制的。
+        // 早期版本用 `BuildBands(settings.Style ?? Natural)` 建数组，未选择风格时
+        // 只得到 1 段（Natural 是平坦响应，只写了 1 个滤波器），于是之后切换任何预设
+        // 都只有第 1 段生效——「沉稳」丢掉 6 kHz 衰减和 9 kHz 高架，「清亮」丢掉低频衰减。
+        _bands = BuildFlatBands();
         _equalizer = new NAudio.Effects.Equalizer(_bands);
         _equalizer.Configure(format);
         UpdateParameters();
@@ -40,13 +49,17 @@ public sealed class ToneStyleEffect : IAudioEffect
 
         // 未选择时按平坦响应处理，模块本身由引擎从处理链中移除
         var preset = BuildBands(_settings.Style ?? ToneStyle.Natural);
-        for (var i = 0; i < _bands.Length && i < preset.Length; i++)
+        for (var i = 0; i < _bands.Length; i++)
         {
-            _bands[i].Type = preset[i].Type;
-            _bands[i].Frequency = preset[i].Frequency;
-            _bands[i].Q = preset[i].Q;
-            _bands[i].GainDb = preset[i].GainDb;
-            _bands[i].ShelfSlope = preset[i].ShelfSlope;
+            // 预设段数与分配段数不一致时，多出来的段一律置平（增益 0），
+            // 绝不能让上一条预设的增益残留下来
+            var band = i < preset.Length ? preset[i] : FlatBand;
+
+            _bands[i].Type = band.Type;
+            _bands[i].Frequency = band.Frequency;
+            _bands[i].Q = band.Q;
+            _bands[i].GainDb = band.GainDb;
+            _bands[i].ShelfSlope = band.ShelfSlope;
         }
 
         _equalizer.Update();
@@ -118,9 +131,22 @@ public sealed class ToneStyleEffect : IAudioEffect
             NAudio.Effects.EqualizerBand.Peaking(550f, 0.9f, -2f),
         },
         // 自然：平坦响应（bypass）
-        _ => new[]
-        {
-            NAudio.Effects.EqualizerBand.Peaking(1000f, 1f, 0f),
-        },
+        _ => BuildFlatBands(),
     };
+
+    /// <summary>平坦响应（增益 0）。既是「未选择 / 自然」的响应，也是数组长度的基准。</summary>
+    private static NAudio.Effects.EqualizerBand[] BuildFlatBands()
+    {
+        // 必须是**各自独立**的实例：Equalizer 按引用持有这个数组，而 UpdateParameters
+        // 是逐个写 _bands[i] 的；若三段共用一个对象，后写的段会覆盖前面的段，
+        // 结果三个滤波器全变成最后一段（实测：整个均衡器等于没有作用）。
+        var bands = new NAudio.Effects.EqualizerBand[BandCount];
+        for (var i = 0; i < bands.Length; i++)
+            bands[i] = NAudio.Effects.EqualizerBand.Peaking(1000f, 1f, 0f);
+        return bands;
+    }
+
+    /// <summary>只读的平坦段：仅用于填充，绝不写回（<see cref="UpdateParameters"/> 只从预设里读）。</summary>
+    private static readonly NAudio.Effects.EqualizerBand FlatBand =
+        NAudio.Effects.EqualizerBand.Peaking(1000f, 1f, 0f);
 }

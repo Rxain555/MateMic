@@ -490,7 +490,7 @@
                                             <DataTemplate>
                                                 <Grid Height="30" Cursor="Hand"
                                                       MouseLeftButtonUp="OnTrackRowClick"
-                                                      ToolTip="点击播放；右侧按钮设置全局快捷键，✕ 移除">
+                                                      ToolTip="点击播放；正在播放时再点一次即停止。右侧按钮设置全局快捷键，右侧 ✕ 移除">
                                                     <Grid.Style>
                                                         <Style TargetType="Grid">
                                                             <Setter Property="Background" Value="Transparent" />

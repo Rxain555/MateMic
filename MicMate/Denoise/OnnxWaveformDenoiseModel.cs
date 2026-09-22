@@ -29,7 +29,10 @@ public sealed class OnnxWaveformDenoiseModel : IDenoiseModel
 
     public OnnxWaveformDenoiseModel(string path, string displayName)
     {
-        _session = new InferenceSession(path);
+        // 必须走单线程会话（与频谱域后端、模型校验路径一致）：
+        // 不传 SessionOptions 时 ONNX Runtime 会默认开线程池把所有核心拉满，
+        // 实测等效单核占用 949%、全机 CPU 59%，而且线程调度抖动会直接影响实时音频。
+        _session = ModelCatalog.CreateSession(path);
 
         // 找主音频输入：优先名字里含 input/audio/mix 的 [_, 480] 张量，否则取第一个 [_, 480]
         var audioInput = _session.InputMetadata

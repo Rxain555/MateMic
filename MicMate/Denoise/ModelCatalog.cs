@@ -112,8 +112,9 @@ public static class ModelCatalog
     /// 建立单线程推理会话。
     /// 官方参考实现就是单线程；不限制的话 ONNX Runtime 默认会把所有核心拉满
     /// （实测等效单核占用 949%，全机 CPU 59%——远超同一功能的 PureVox 的约 2%）。
+    /// 所有建会话的地方（校验、频谱域后端、波形域后端）都必须走这里。
     /// </summary>
-    private static InferenceSession CreateSession(string path)
+    internal static InferenceSession CreateSession(string path)
         => new(path, new SessionOptions
         {
             IntraOpNumThreads = 1,

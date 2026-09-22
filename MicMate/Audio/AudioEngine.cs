@@ -53,8 +53,7 @@ public sealed class AudioEngine : IDisposable
         Gain = new GainEffect(Format, config.Gain);
 
         Chain = new DynamicChain(RawTap);
-        WetTap = new InputTapSource(Chain, OutputSpectrum);
-        MicMixer = new MicMixer(Format, WetTap);
+        MicMixer = new MicMixer(Format, Chain);
         Bus = new OutputBus(MicMixer, OutputSpectrum);
         _limiter = new SoftLimiterEffect(Format);
         _stereo = new MonoToStereoProvider(_limiter);
@@ -93,8 +92,12 @@ public sealed class AudioEngine : IDisposable
     /// <summary>采集侧原始信号（输入频谱在这里取样）。</summary>
     public InputTapSource RawTap { get; }
 
-    /// <summary>效果链输出（混音前的处理后麦克风信号）。</summary>
-    public InputTapSource WetTap { get; }
+    /// <summary>
+    /// 输出频谱/电平的唯一取样点是 <see cref="Bus"/>（混音之后）。
+    /// 这里**不能**再给效果链输出套一个分析采样点：两路同时喂同一个分析器，
+    /// 进入 FFT 的就成了"链路输出 + 混音输出"交替拼接的序列，
+    /// 频谱与 RMS/峰值全都不代表真实输出（历史 bug）。
+    /// </summary>
 
     /// <summary>是否把最终音频发送到监听设备。</summary>
     public bool MonitorEnabled => _monitorPlayer != null;

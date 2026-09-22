@@ -1110,7 +1110,12 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         // 全局热键可能在任意线程触发，统一回 UI 线程处理
         Dispatcher.BeginInvoke(new Action(() =>
         {
-            _player.Play(track.FilePath);
+            // 再点一次正在播放的条目 = 停止（列表里没有单独的停止按钮）
+            if (string.Equals(_player.CurrentPath, track.FilePath, StringComparison.OrdinalIgnoreCase))
+                _player.Stop();
+            else
+                _player.Play(track.FilePath);
+
             RefreshTrackHighlight();
         }));
     }

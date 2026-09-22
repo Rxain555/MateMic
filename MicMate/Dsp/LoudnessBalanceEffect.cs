@@ -6,7 +6,13 @@ namespace MicMate.Dsp;
 /// <summary>
 /// 3. 响度平衡（RMS 简化版）：
 /// 400 ms 积分窗口测 RMS，换算到目标响度区间后做指数渐变增益，
-/// 峰值超过 −1 dBFS 时立即降低增益防削波。
+/// 峰值超过 −1 dBFS 时**立即**降低增益防削波（不走平滑器）。
+///
+/// 两个关键点（早期版本都没有，导致明显听感问题）：
+///   · 峰值保护必须立刻生效：只改"目标值"再由 0.5–5 s 的平滑器慢慢爬过去，
+///     等于没有保护（实测 0 dBFS 冲激会让输出冲到 +12.5 dBFS 才被后级限幅器按住）。
+///   · 低于 <see cref="MinInputDb"/> 时**保持**增益而不是继续加大：否则一段静音/底噪
+///     会被一路加到 +24 dB，说话时第一个字必然过响，且底噪被整体抬高。
 /// </summary>
 public sealed class LoudnessBalanceEffect : IAudioEffect
 {
@@ -14,6 +20,11 @@ public sealed class LoudnessBalanceEffect : IAudioEffect
     private const float PeakCeilingDb = -1f;
     private const float MaxGainDb = 24f;
     private const float MinGainDb = -24f;
+
+    /// <summary>低于这个输入电平视为"没有人在说话"：增益保持不动（相当于 AGC 的噪声门）。</summary>
+    private const float MinInputDb = -50f;
+
+    private static readonly float PeakCeilingLinear = AudioMath.DbToLinear(PeakCeilingDb);
 
     private readonly LoudnessSettings _settings;
     private readonly int _sampleRate;
@@ -70,24 +81,26 @@ public sealed class LoudnessBalanceEffect : IAudioEffect
         {
             var sample = buffer[i];
 
-            // RMS 滑动窗口
-            if (_windowFilled >= _windowSamples)
-                _sumSquares -= _window[_windowPos] * _window[_windowPos];
-            else
-                _windowFilled++;
-
-            _window[_windowPos] = sample;
-            _sumSquares += sample * sample;
-            _windowPos++;
-            if (_windowPos >= _windowSamples) _windowPos = 0;
-
+            // 1) 用窗口里的历史**输入**样本估 RMS。这里必须量增益前的信号：
+            //    增益是线性的，rms_out = rms_in × g，所以 g = target / rms_in 直接命中目标；
+            //    若改成量增益后的输出再套同一个式子，环路增益变成 2，
+            //    稳态会停在"只加到一半"的位置（实测目标 −20 dBFS 只到 −26.8 dBFS）。
             var rms = MathF.Sqrt((float)(_sumSquares / Math.Max(1, _windowFilled)));
             CurrentRmsDb = AudioMath.LinearToDb(rms);
 
-            var desiredDb = Math.Clamp(target - CurrentRmsDb, MinGainDb, MaxGainDb);
-            _gain.SetTarget(AudioMath.DbToLinear(desiredDb));
+            // 2) 目标增益。低于噪声门限时保持当前增益，不继续往上加。
+            if (CurrentRmsDb <= MinInputDb)
+            {
+                _gain.SetTarget(_gain.Current);
+            }
+            else
+            {
+                var desiredDb = Math.Clamp(target - CurrentRmsDb, MinGainDb, MaxGainDb);
+                _gain.SetTarget(AudioMath.DbToLinear(desiredDb));
+            }
 
-            // 峰值保护：10 ms 窗内维护滑动峰值
+            // 3) 峰值保护：用输入峰值算出"当前允许的最大增益"，超过就立刻压下来。
+            //    本轮样本一定满足 |sample| * g ≤ −1 dBFS。
             _peakWindow[_peakPos] = sample;
             _peakPos++;
             if (_peakPos >= _peakWindow.Length)
@@ -103,13 +116,30 @@ public sealed class LoudnessBalanceEffect : IAudioEffect
                 _peak = peak;
             }
 
-            var peakDb = AudioMath.LinearToDb(MathF.Max(_peak, MathF.Abs(sample)));
-            if (peakDb > PeakCeilingDb)
-                _gain.SetTarget(MathF.Min(_gain.Current, _gain.Current * AudioMath.DbToLinear(PeakCeilingDb - peakDb)));
+            var observed = MathF.Max(_peak, MathF.Abs(sample));
+            var limit = observed > 1e-6f ? PeakCeilingLinear / observed : float.MaxValue;
 
             var g = _gain.Next();
+            if (g > limit)
+            {
+                g = limit;
+                _gain.Snap(g);   // 立即生效，不经过平滑器
+            }
+
             CurrentGainDb = AudioMath.LinearToDb(g);
-            buffer[i] = sample * g;
+            var output = sample * g;
+            buffer[i] = output;
+
+            // 4) 把**增益前**的样本写进窗口（见上面第 1 步的理由）
+            if (_windowFilled >= _windowSamples)
+                _sumSquares -= (double)_window[_windowPos] * _window[_windowPos];
+            else
+                _windowFilled++;
+
+            _window[_windowPos] = sample;
+            _sumSquares += (double)sample * sample;
+            _windowPos++;
+            if (_windowPos >= _windowSamples) _windowPos = 0;
         }
 
         return buffer.Length;

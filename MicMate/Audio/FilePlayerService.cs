@@ -8,6 +8,10 @@ namespace MicMate.Audio;
 /// 音频文件播放器。支持 WAV / MP3 / M4A(AAC) / WMA 等 Media Foundation 可解码的格式。
 /// 播放数据不经过效果链，直接送入 <see cref="Dsp.MicMixer"/>，在处理后的麦克风信号输出前
 /// 以固定 50:50 比例混入（项目书 3.2.2）。
+///
+/// 换曲与停止用**代次（generation）**打断正在解码的旧曲：早期实现只设一个 `_pendingPath`，
+/// 而正在 RenderFile 里的解码线程要等当前文件放完才会回头看到新路径，
+/// 表现为「点第二个音频/按第二个语音包快捷键没有反应」（注释却写着"打断当前播放"）。
 /// </summary>
 public sealed class FilePlayerService : IDisposable
 {
@@ -18,8 +22,10 @@ public sealed class FilePlayerService : IDisposable
     private readonly float[] _blockBuffer = new float[4800];   // 100 ms @ 48 kHz
 
     private Thread? _worker;
-    private volatile bool _stopRequested;
     private volatile string? _pendingPath;
+
+    /// <summary>每次换曲/停止都 +1；正在解码的旧曲发现代次变了就立即退出。</summary>
+    private int _generation;
 
     /// <summary>循环播放开关。</summary>
     public volatile bool LoopEnabled;
@@ -50,20 +56,23 @@ public sealed class FilePlayerService : IDisposable
             return;
         }
 
-        _stopRequested = false;
+        Interlocked.Increment(ref _generation);   // 让正在解码的旧曲退出
+        _buffer.Clear();                          // 丢掉上一首残留在缓冲里的音频
         _pendingPath = path;
         StartWorker();
     }
 
-    /// <summary>停止播放。</summary>
+    /// <summary>停止播放（立即生效，不等当前文件放完）。</summary>
     public void Stop()
     {
-        _stopRequested = true;
+        Interlocked.Increment(ref _generation);
         _pendingPath = null;
         CurrentPath = null;
         _buffer.Clear();
         RaiseStateChanged();
     }
+
+    private bool IsCurrent(int generation) => generation == Volatile.Read(ref _generation);
 
     private void StartWorker()
     {
@@ -90,15 +99,16 @@ public sealed class FilePlayerService : IDisposable
             }
 
             _pendingPath = null;
+            var generation = Volatile.Read(ref _generation);
 
             try
             {
-                RenderFile(path);
+                RenderFile(path, generation);
+                if (!IsCurrent(generation)) continue;   // 已被换曲/停止打断，不要再动状态
 
-                if (LoopEnabled && !_stopRequested)
+                if (LoopEnabled)
                 {
-                    // 循环播放：重新排队同一个文件
-                    _stopRequested = false;
+                    // 循环播放：重新排队同一个文件（代次不变，所以不会自我打断）
                     _pendingPath = path;
                 }
                 else
@@ -111,14 +121,18 @@ public sealed class FilePlayerService : IDisposable
             catch (Exception ex)
             {
                 Log.Error($"播放 {Path.GetFileName(path)} 失败", ex);
-                CurrentPath = null;
-                RaiseStateChanged();
+                if (IsCurrent(generation))
+                {
+                    CurrentPath = null;
+                    RaiseStateChanged();
+                }
+
                 Thread.Sleep(150);
             }
         }
     }
 
-    private void RenderFile(string path)
+    private void RenderFile(string path, int generation)
     {
         using var reader = new MediaFoundationReader(path);
         ISampleProvider provider = reader.ToSampleProvider();
@@ -146,12 +160,14 @@ public sealed class FilePlayerService : IDisposable
         if (provider.WaveFormat.Channels != 1)
             provider = new StereoToMonoFloatProvider(provider);
 
+        if (!IsCurrent(generation)) return;   // 打开文件期间被换曲了
+
         CurrentPath = path;
         _buffer.Clear();
         RaiseStateChanged();
         Log.Info("开始播放：" + Path.GetFileName(path));
 
-        while (!_stopRequested && !_shutdown.IsCancellationRequested)
+        while (IsCurrent(generation) && !_shutdown.IsCancellationRequested)
         {
             var read = provider.Read(_blockBuffer);
             if (read <= 0) break;
@@ -167,7 +183,7 @@ public sealed class FilePlayerService : IDisposable
             // 背压：缓冲接近上限时等待播放侧消费，避免内存无界增长
             var waited = 0;
             while (_buffer.BufferedDuration > TimeSpan.FromMilliseconds(400)
-                   && !_stopRequested && !_shutdown.IsCancellationRequested)
+                   && IsCurrent(generation) && !_shutdown.IsCancellationRequested)
             {
                 Thread.Sleep(5);
                 if (++waited > 400) break;
@@ -190,7 +206,7 @@ public sealed class FilePlayerService : IDisposable
     {
         try
         {
-            _stopRequested = true;
+            Interlocked.Increment(ref _generation);
             _shutdown.Cancel();
             _worker?.Join(500);
         }
