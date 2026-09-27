@@ -29,7 +29,7 @@
   #define MyOutputDir "..\dist"
 #endif
 #ifndef MyAppVersion
-  #define MyAppVersion "0.2.0"
+  #define MyAppVersion "0.2.1"
 #endif
 
 [Setup]
@@ -169,5 +169,15 @@ procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   // 程序文件都删完之后再动用户数据
   if (CurUninstallStep = usPostUninstall) and DeleteUserData then
+  begin
     DelTree(ExpandConstant('{app}\data'), True, True, True);
+
+    // 补删程序目录本身。
+    // 到了这一步，Inno"删除自己创建的空目录"的阶段早已结束——它执行时 data\ 还在，
+    // 所以 {app} 被判为非空而跳过；等 data\ 在这里被删掉，{app} 就成了孤儿空目录。
+    // 注意：靠 [UninstallDelete] 的 "dirifempty" 解决不了，那条属于主卸载阶段，
+    // 执行时 data\ 仍在，同样不会被删。
+    // RemoveDir 只在目录确实为空时成功；非空（数据保留、或还有别的残留）时静默失败。
+    RemoveDir(ExpandConstant('{app}'));
+  end;
 end;

@@ -16,7 +16,7 @@
     <SelfContained>false</SelfContained>
     <!-- exe 图标（同时被资源管理器、任务栏、Alt+Tab 使用） -->
     <ApplicationIcon>Assets\appicon.ico</ApplicationIcon>
-    <Version>0.2.0</Version>
+    <Version>0.2.1</Version>
     <AssemblyName>MateMic</AssemblyName>
     <RootNamespace>MateMic</RootNamespace>
     <LangVersion>latest</LangVersion>
