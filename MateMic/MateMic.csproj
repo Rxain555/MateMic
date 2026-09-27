@@ -1,0 +1,64 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <Platforms>AnyCPU;x64</Platforms>
+    <!--
+      刻意不设 RuntimeIdentifier：设了会把输出挪到 bin\Debug\net9.0-windows\win-x64\，
+      而 Visual Studio 调试时用的启动路径与"直接双击 exe"可能不一致，导致
+      数据目录（exe 同级的 data\）被分到两处，表现为"VS 里调试不保存配置"。
+      框架依赖构建不需要 RID。
+    -->
+    <SelfContained>false</SelfContained>
+    <!-- exe 图标（同时被资源管理器、任务栏、Alt+Tab 使用） -->
+    <ApplicationIcon>Assets\appicon.ico</ApplicationIcon>
+    <Version>0.2.0</Version>
+    <AssemblyName>MateMic</AssemblyName>
+    <RootNamespace>MateMic</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <SatelliteResourceLanguages>zh-Hans;en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MateMic.Windows\MateMic.Windows.csproj" />
+    <PackageReference Include="NAudio" Version="3.1.0" />
+    <PackageReference Include="NWaves" Version="0.9.5" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.20.1" />
+  </ItemGroup>
+
+  <!-- tools 目录只放脚本与独立小工具，绝不参与主程序编译（否则里面的顶级语句会抢占入口点） -->
+  <ItemGroup>
+    <Compile Remove="tools\**" />
+    <None Remove="tools\**" />
+    <Page Remove="tools\**" />
+    <Resource Remove="tools\**" />
+    <Content Remove="tools\**" />
+    <EmbeddedResource Remove="tools\**" />
+  </ItemGroup>
+
+  <!--
+    Ui\Theme.Legacy.xaml 是旧版 UI 风格的备份，只作回退用（把 App.xaml 里的主题源
+    改回它即可），不参与当前构建：默认的 Page 通配会把 .xaml 编成 BAML，
+    这里显式排除，让它保持成一个可直接查看/复制的普通文件。
+  -->
+  <ItemGroup>
+    <Page Remove="Ui\Theme.Legacy.xaml" />
+    <None Include="Ui\Theme.Legacy.xaml" />
+  </ItemGroup>
+
+  <!-- 图标另存一份到输出目录，方便打包脚本与外部工具取用 -->
+  <ItemGroup>
+    <None Update="Assets\appicon.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Assets\appicon.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,182 @@
+using System.Text.Json.Serialization;
+
+namespace MateMic.Core;
+
+public enum ToneStyle
+{
+    Natural = 0,
+    Bright = 1,
+    Warm = 2,
+    Deep = 3,
+    Sharp = 4,
+    Ethereal = 5,
+}
+
+public enum CreativeEffectKind
+{
+    Reverb = 0,
+    Delay = 1,
+    Chorus = 2,
+    Robot = 3,
+
+    /// <summary>炸麦：麦克风过载模拟（增益前推 + 硬削波降位 + 带通）。</summary>
+    Megaphone = 4,
+}
+
+public sealed class NoiseGateSettings
+{
+    public bool Enabled { get; set; }
+
+    /// <summary>阈值。−55 dBFS 接近安静房间的底噪水平：能压掉空调/风扇声，又不至于吃掉正常说话。</summary>
+    public float ThresholdDb { get; set; } = -55f;
+
+    public float ReleaseMs { get; set; } = 150f;
+}
+
+public sealed class DenoiseSettings
+{
+    public bool Enabled { get; set; }
+
+    /// <summary>
+    /// 降噪模型标识：**空字符串 = 内置经典降噪**；外部模型用不带扩展名的文件名。
+    ///
+    /// 刻意不存显示名：显示名是文案，改了会让老配置全部失配、用户莫名丢掉模型选择。
+    /// 默认值 dpdfnet2_48khz_hr 随程序内置分发（放在 exe 同级的 models\ 里）；
+    /// 万一这台机器上没有这个文件，启动时会自动回退到内置经典降噪并写进日志。
+    /// </summary>
+    public string Model { get; set; } = "dpdfnet2_48khz_hr";
+
+    public float Strength { get; set; } = 100f;
+    public float Wet { get; set; } = 100f;
+}
+
+public sealed class LoudnessSettings
+{
+    public bool Enabled { get; set; }
+
+    /// <summary>目标响度。−20 更接近语音通话的舒适区间，比 −18 保守一些。</summary>
+    public float TargetLufs { get; set; } = -20f;
+
+    public int Speed { get; set; } = 5;
+}
+
+public sealed class ToneSettings
+{
+    public bool Enabled { get; set; }
+
+    /// <summary>null 表示用户尚未选择任何音色风格（此时模块不参与处理）。</summary>
+    public ToneStyle? Style { get; set; }
+}
+
+public sealed class CreativeEffectSettings
+{
+    public bool Enabled { get; set; }
+
+    /// <summary>null 表示用户尚未选择任何效果（此时模块不参与处理）。</summary>
+    public CreativeEffectKind? Kind { get; set; }
+
+    public float Amount { get; set; } = 55f;
+}
+
+public sealed class GainSettings
+{
+    public bool Enabled { get; set; }
+    public float GainDb { get; set; }
+}
+
+public sealed class PlayerTrack
+{
+    public string Path { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
+    public string Hotkey { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 同步按住键（按键说话的替代）：播放前按下该键、播放结束后松开。
+    /// 空字符串表示该条目不使用此功能。
+    /// </summary>
+    public string HoldKey { get; set; } = string.Empty;
+}
+
+public sealed class PlayerSettings
+{
+    /// <summary>
+    /// 界面上播放器面板的「音频监听」开关：播放器（伴奏/语音包）是否接入混音总线。
+    /// 打开后播放器音频既送主输出（MIXLINE），也在监控设备打开时送监听。
+    /// 与工具栏的监听设备开关组合出四种行为，见 <c>Dsp/MicMixer.cs</c> 类注释与 README §5。
+    /// </summary>
+    public bool AudioMonitor { get; set; }
+
+    public bool Loop { get; set; }
+    public float Volume { get; set; } = 80f;
+
+    /// <summary>
+    /// 总开关：是否允许「同步按住键」。默认关闭。
+    /// 该功能会用 SendInput 向系统注入按键，理论上存在被反作弊系统判定的风险，
+    /// 因此必须由用户显式开启后才会生效。
+    /// </summary>
+    public bool EnableHoldKey { get; set; }
+
+    public List<PlayerTrack> Tracks { get; set; } = new();
+}
+
+public sealed class DeviceSettings
+{
+    public string? InputDeviceId { get; set; }
+    public string? OutputDeviceId { get; set; }
+    public string? MonitorDeviceId { get; set; }
+}
+
+/// <summary>左侧处理链各模块的展开/收起状态，随配置持久化。</summary>
+public sealed class PanelExpandState
+{
+    public bool Gate { get; set; }
+    public bool Denoise { get; set; }
+    public bool Loudness { get; set; }
+    public bool Tone { get; set; }
+    public bool Effect { get; set; }
+    public bool Gain { get; set; }
+}
+
+public sealed class AppConfig
+{
+    public int Version { get; set; } = 1;
+
+    /// <summary>总旁通开关。首次启动默认关闭（未开始处理），由用户主动开启。</summary>
+    public bool AudioProcessingEnabled { get; set; }
+
+    public string ToggleHotkey { get; set; } = string.Empty;
+    /// <summary>
+    /// 工具栏「监听」开关：**麦克风**是否送到监听设备。
+    /// 它不再等于"监听设备开关"——播放器面板的「音频监听」也能单独把监听设备拉起来
+    /// （见 <c>AudioEngine.ShouldRunMonitorPlayer</c>），因此这个字段只决定"麦克风要不要进监听"。
+    /// </summary>
+    public bool MonitorEnabled { get; set; }
+    public bool AutoStart { get; set; }
+
+    /// <summary>
+    /// 关闭主窗口时收进系统托盘（而不是退出程序）。
+    /// 早期版本的这个开关同时管「最小化到托盘」，而最小化本来就该只进任务栏，
+    /// 现在该开关只作用于关闭按钮（最小化恢复为普通的任务栏最小化）。
+    /// </summary>
+    public bool CloseToTray { get; set; } = true;
+
+    public double WindowWidth { get; set; } = 1160;
+    public double WindowHeight { get; set; } = 720;
+    public double WindowLeft { get; set; } = double.NaN;
+    public double WindowTop { get; set; } = double.NaN;
+
+    /// <summary>左侧处理链各模块的展开状态（收起 = false，界面默认全部收起）。</summary>
+    public PanelExpandState Panels { get; set; } = new();
+
+    public DeviceSettings Devices { get; set; } = new();
+    public NoiseGateSettings NoiseGate { get; set; } = new();
+    public DenoiseSettings Denoise { get; set; } = new();
+    public LoudnessSettings Loudness { get; set; } = new();
+    public ToneSettings Tone { get; set; } = new();
+    public CreativeEffectSettings Effect { get; set; } = new();
+    public GainSettings Gain { get; set; } = new();
+    public PlayerSettings Player { get; set; } = new();
+
+    [JsonIgnore]
+    public bool Migrated => Version < 1;
+}

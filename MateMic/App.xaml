@@ -1,0 +1,17 @@
+<Application x:Class="MateMic.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!--
+                  主题切换点（UI 风格回退只需改这一行）：
+                    · Ui/Theme.Modern.xaml —— 当前风格：亚克力材质 + 扁平卡片 + 阴影分层
+                    · Ui/Theme.Legacy.xaml —— 改名/改版之前的旧风格（灰底 + 深色边框）
+                  两套主题对外暴露的资源键完全一致，窗口 XAML 不需要改。
+                -->
+                <ResourceDictionary Source="Ui/Theme.Modern.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>
