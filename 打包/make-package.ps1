@@ -133,8 +133,15 @@ if ($SkipPublish) {
     New-Item -ItemType Directory -Force -Path $modelsTarget | Out-Null
 
     # Checked in both layouts because the build output folder moved.
+    # $distRoot covers the NEW layout, where the build output (构建产物\) is a SIBLING of the
+    # repo root (源码\), not a child of it - looking under $projectRoot finds nothing there.
+    # The $projectRoot entries are kept for the old layout and for per-project bin\ folders.
     $modelSources = @(
         (Join-Path $projectRoot 'MateMic\models'),
+        (Join-Path $distRoot 'Release\bin\Release\net9.0-windows\data\models'),
+        (Join-Path $distRoot 'Release\data\models'),
+        (Join-Path $distRoot 'Debug\bin\Debug\net9.0-windows\data\models'),
+        (Join-Path $distRoot 'Debug\data\models'),
         (Join-Path $projectRoot '构建产物\Release\bin\Release\net9.0-windows\data\models'),
         (Join-Path $projectRoot '构建产物\Release\data\models'),
         (Join-Path $projectRoot '构建产物\Debug\bin\Debug\net9.0-windows\data\models'),
