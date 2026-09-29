@@ -696,7 +696,14 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
         // 三条开关路径（界面开关 / 全局快捷键 / 托盘菜单）都汇到本方法，
         // 因此音效只需在这里播放一处；_loading 守卫保证启动回填时不响。
-        ToggleSoundPlayer.Play(_config.AudioProcessingEnabled);
+        //
+        // 音效优先从「监听设备」播放——那正是用户实际在听的设备；
+        // 没配监听、或该设备已拔掉时，播放器自己会退回系统默认输出设备。
+        // 注意：GetDevice 返回的是新建的 COM 对象，所有权交给播放器释放。
+        MMDevice? soundTarget = null;
+        if (!string.IsNullOrWhiteSpace(_config.Devices.MonitorDeviceId))
+            soundTarget = _devices.GetDevice(_config.Devices.MonitorDeviceId, DataFlow.Render);
+        ToggleSoundPlayer.Play(_config.AudioProcessingEnabled, soundTarget);
     }
 
     private void ToggleProcessing_Click()
