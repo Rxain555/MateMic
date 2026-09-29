@@ -53,13 +53,13 @@ if ($isNew) {
     $projectRoot = $repoRoot
     $parent      = Split-Path -Parent $repoRoot            # ...\MateMic  (the project folder)
     $distRoot    = Join-Path $parent '构建产物'
-    $outDir      = Join-Path $parent '发布包'
+    $baseOutDir  = Join-Path $parent '发布包'
     $toolsRoot   = Join-Path (Split-Path -Parent (Split-Path -Parent $parent)) '本地工具'
 } elseif ($isOld) {
     $layout      = 'old'
     $projectRoot = $repoRoot
     $distRoot    = $repoRoot
-    $outDir      = Join-Path $repoRoot '安装包'
+    $baseOutDir  = Join-Path $repoRoot '安装包'
     $toolsRoot   = Join-Path $repoRoot '本地工具'
 } else {
     throw ("Cannot determine the repository layout. Expected MateMic\MateMic.csproj under " +
@@ -75,7 +75,7 @@ Write-Host ' MateMic packaging' -ForegroundColor Cyan
 Write-Host '============================================' -ForegroundColor Cyan
 Write-Host (" Layout    : " + $layout) -ForegroundColor Gray
 Write-Host (" Repo root : " + $repoRoot) -ForegroundColor Gray
-Write-Host (" Output    : " + $outDir) -ForegroundColor Gray
+# (Output path is printed below, once the version is known)
 
 if (!(Test-Path -LiteralPath $project)) { throw ("Project not found: " + $project) }
 
@@ -84,6 +84,12 @@ $version = '0.0.0'
 $m = Select-String -LiteralPath $project -Pattern '<Version>([^<]+)</Version>'
 if ($m) { $version = $m.Matches[0].Groups[1].Value.Trim() }
 Write-Host " Version   : $version"
+
+# Artifacts go into a per-version subfolder (发布包\<version>\): all versions in one
+# flat folder become impossible to navigate once there are more than a couple.
+$outDir = Join-Path $baseOutDir $version
+New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+Write-Host (" Output    : " + $outDir) -ForegroundColor Gray
 
 # Warn before step 1 deletes a data\ folder that may hold real user settings.
 $userData = Join-Path $publishDir 'data'
