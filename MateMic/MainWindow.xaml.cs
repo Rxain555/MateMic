@@ -90,6 +90,9 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
         InitializeComponent();
 
+        // 主题必须在窗口第一次渲染之前定下来，否则会先闪一下浅色。
+        ApplyThemeToResources();
+
         ApplyWindowIcon();
         ApplyCaptionIcon();
         RestoreWindowPlacement();
@@ -370,7 +373,9 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             return;
         }
 
-        WindowEffects.ApplyAcrylic(this, WindowEffects.IsSystemDarkMode());
+        // 窗口边框与标题栏的深浅跟随**本程序的**深色模式开关，而不是系统主题：
+        // 用户明确选了这个开关，界面就该整体一致，不该出现"界面深色、窗口边框浅色"。
+        WindowEffects.ApplyAcrylic(this, _config.DarkMode);
 
         // 标题栏是自绘的，这里只做一次客观自检：确认窗口本身确实"不可最大化"，
         // 免得哪天改坏了又被用户发现（最大化入口已经不存在了，但样式位也该是干净的）。
@@ -386,9 +391,17 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     /// 而 Style 里用 StaticResource 固定下来的少数几处（窗口背景、顶栏底色）
     /// 需要在这里手工补一刀。
     /// </summary>
+    /// <summary>
+    /// 把当前深浅配色写进**应用级**资源。
+    /// 用应用级而不是窗口级：自绘对话框（DialogHost）是独立窗口，
+    /// 只有应用级资源才能被它看到，否则深色模式下弹窗仍会是浅色。
+    /// </summary>
+    private void ApplyThemeToResources()
+        => ThemeManager.Apply(Application.Current.Resources, _config.DarkMode, WindowEffects.IsAcrylicActive);
+
     private void ApplyWindowMaterial()
     {
-        WindowEffects.PublishToResources(Resources);
+        ApplyThemeToResources();
 
         // 窗口底色用"柔和渐变 + 材质透明层"：叠在亚克力之上会呈现有光的玻璃感；
         // 不支持材质时它就是普通的浅灰渐变，界面同样完整。
@@ -443,6 +456,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             ToggleAutoStart.IsChecked = AutoStartService.IsEnabled();
             _config.AutoStart = ToggleAutoStart.IsChecked == true;
             ToggleCloseTray.IsChecked = _config.CloseToTray;
+            ToggleDarkMode.IsChecked = _config.DarkMode;
 
             ToggleGate.IsChecked = _config.NoiseGate.Enabled;
             GateThresholdSlider.Value = _config.NoiseGate.ThresholdDb;
@@ -502,12 +516,15 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         {
             var track = new Rectangle
             {
+                // 兜底色（资源缺失时用）；紧接着改成资源引用，
+                // 这样切换深色模式时底槽颜色会自动跟着变
                 Fill = new SolidColorBrush(Color.FromRgb(0xE6, 0xE9, 0xEE)),
                 RadiusX = 1,
                 RadiusY = 1,
                 Height = 3,
                 Width = 4,
             };
+            track.SetResourceReference(Rectangle.FillProperty, "SpectrumSlotBrush");
             canvas.Children.Add(track);
 
             var bar = new Rectangle
@@ -676,6 +693,10 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         _config.AudioProcessingEnabled = ToggleProcessing.IsChecked == true;
         _engine.UpdateAllParameters();
         SaveConfig();
+
+        // 三条开关路径（界面开关 / 全局快捷键 / 托盘菜单）都汇到本方法，
+        // 因此音效只需在这里播放一处；_loading 守卫保证启动回填时不响。
+        ToggleSoundPlayer.Play(_config.AudioProcessingEnabled);
     }
 
     private void ToggleProcessing_Click()
@@ -702,6 +723,20 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     {
         if (_loading) return;
         _config.CloseToTray = ToggleCloseTray.IsChecked == true;
+        SaveConfig();
+    }
+
+    /// <summary>
+    /// 切换深色 / 浅色配色。
+    /// 顺序讲究：先换配色（画刷都是 DynamicResource，换完自动生效），
+    /// 再更新窗口边框的深浅，最后落配置。
+    /// </summary>
+    private void OnDarkModeToggled(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        _config.DarkMode = ToggleDarkMode.IsChecked == true;
+        ApplyWindowMaterial();
+        WindowEffects.SetImmersiveDarkMode(this, _config.DarkMode);
         SaveConfig();
     }
 

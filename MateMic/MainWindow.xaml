@@ -9,7 +9,7 @@
         WindowStyle="None"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterScreen"
-        Background="{StaticResource WindowBrush}"
+        Background="{DynamicResource WindowBrush}"
         FontFamily="Microsoft YaHei UI, Segoe UI" FontSize="12"
         UseLayoutRounding="True" SnapsToDevicePixels="True"
         Closing="OnClosing" StateChanged="OnStateChanged"
@@ -72,9 +72,9 @@
              这里只加一层很淡的白，靠底边一条阴影把内容区压在下面，不再用深色描边。 -->
         <Border x:Name="TopBar" Grid.Row="1" Background="{DynamicResource AcrylicTopBarBrush}"
                 BorderThickness="0" Padding="10,7,10,7">
-            <Border.Effect>
-                <DropShadowEffect BlurRadius="16" ShadowDepth="3" Direction="270"
-                                  Color="#FF6B7280" Opacity="0.14" />
+                        <Border.Effect>
+                <!-- 主题里的顶栏投影：深色模式下会换成黑色投影 -->
+                <DynamicResource ResourceKey="TopBarShadow" />
             </Border.Effect>
             <StackPanel>
                 <Grid>
@@ -105,9 +105,14 @@
                               Checked="OnAutoStartToggled" Unchecked="OnAutoStartToggled" />
 
                     <TextBlock Style="{StaticResource LabelText}" Text="关闭到托盘" Margin="0,0,5,0" />
-                    <CheckBox x:Name="ToggleCloseTray" Style="{StaticResource Switch}"
+                    <CheckBox x:Name="ToggleCloseTray" Style="{StaticResource Switch}" Margin="0,0,12,0"
                               Checked="OnTrayToggled" Unchecked="OnTrayToggled"
                               ToolTip="打开：点右上角关闭按钮时收进系统托盘（双击托盘图标恢复）。关闭：关闭按钮直接退出程序。最小化按钮始终只最小化到任务栏。" />
+                    <TextBlock Style="{StaticResource LabelText}" Text="深色模式" Margin="0,0,5,0" />
+                    <CheckBox x:Name="ToggleDarkMode" Style="{StaticResource Switch}"
+                              Checked="OnDarkModeToggled" Unchecked="OnDarkModeToggled"
+                              ToolTip="切换深色 / 浅色配色。深色配色在暗环境下更护眼；设置会保存，下次启动继续沿用。" />
+
                     </WrapPanel>
 
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
@@ -257,7 +262,7 @@
                                                     Click="OnOpenModelsFolderClick"
                                                     ToolTip="打开降噪模型文件夹">
                                                 <Path Data="M 1 3 L 5 3 L 6.5 5 L 13 5 L 13 12 L 1 12 Z"
-                                                      Stroke="#5A5A5A" StrokeThickness="1.3"
+                                                      Stroke="{DynamicResource IconGlyphBrush}" StrokeThickness="1.3"
                                                       StrokeLineJoin="Round" Fill="Transparent" />
                                             </Button>
                                         </Grid>
@@ -508,7 +513,7 @@
                                 <Border x:Name="LevelMask" HorizontalAlignment="Right"
                                         Background="{DynamicResource LevelMaskBrush}"
                                         Opacity="0.85" Width="0" CornerRadius="0,8,8,0" />
-                                <Rectangle x:Name="LevelNeedle" Width="2" Fill="#2F2F2F"
+                                <Rectangle x:Name="LevelNeedle" Width="2" Fill="{DynamicResource LevelNeedleBrush}"
                                            HorizontalAlignment="Left" />
                             </Grid>
                         </Border>
@@ -634,7 +639,7 @@
                                                                 <Style.Triggers>
                                                                     <!-- 未绑定时显示成灰字占位符（像输入框的 placeholder） -->
                                                                     <DataTrigger Binding="{Binding IsHotkeySet}" Value="False">
-                                                                        <Setter Property="Foreground" Value="#9A9A9A" />
+                                                                        <Setter Property="Foreground" Value="{DynamicResource PlaceholderBrush}" />
                                                                     </DataTrigger>
                                                                 </Style.Triggers>
                                                             </Style>
@@ -650,7 +655,7 @@
                                                             <Style TargetType="Button" BasedOn="{StaticResource InputBoxButton}">
                                                                 <Style.Triggers>
                                                                     <DataTrigger Binding="{Binding IsHoldKeySet}" Value="False">
-                                                                        <Setter Property="Foreground" Value="#9A9A9A" />
+                                                                        <Setter Property="Foreground" Value="{DynamicResource PlaceholderBrush}" />
                                                                     </DataTrigger>
                                                                 </Style.Triggers>
                                                             </Style>
@@ -679,13 +684,12 @@
         </Grid>
 
         <!-- 状态条（MIXLINE 提示 / 设备掉线 / 错误） -->
-        <Border x:Name="StatusBar" Grid.Row="2" Background="{StaticResource WarningBrush}"
-                BorderBrush="{StaticResource WarningBorderBrush}" BorderThickness="1" CornerRadius="8"
+        <Border x:Name="StatusBar" Grid.Row="2" Background="{DynamicResource WarningBrush}"
+                BorderBrush="{DynamicResource WarningBorderBrush}" BorderThickness="1" CornerRadius="8"
                 Padding="10,6,10,6" Margin="8,6,8,8" VerticalAlignment="Bottom" Visibility="Collapsed"
                 Panel.ZIndex="5">
-            <Border.Effect>
-                <DropShadowEffect BlurRadius="14" ShadowDepth="3" Direction="270"
-                                  Color="#FF6B7280" Opacity="0.22" />
+                        <Border.Effect>
+                <DynamicResource ResourceKey="TopBarShadow" />
             </Border.Effect>
             <Grid>
                 <Grid.ColumnDefinitions>
@@ -693,7 +697,7 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <TextBlock x:Name="StatusText" Grid.Column="0" Style="{StaticResource LabelText}"
-                           Foreground="{StaticResource WarningTextBrush}" TextWrapping="Wrap" />
+                           Foreground="{DynamicResource WarningTextBrush}" TextWrapping="Wrap" />
                 <Button x:Name="StatusActionButton" Grid.Column="1" Style="{StaticResource FlatButton}"
                         Content="查看设置指南" Margin="8,0,0,0" Visibility="Collapsed"
                         Click="OnStatusActionClick" />

@@ -160,6 +160,12 @@ public sealed class AppConfig
     /// </summary>
     public bool CloseToTray { get; set; } = true;
 
+    /// <summary>
+    /// 深色配色。默认关闭（沿用历史外观），由工具栏的「深色模式」开关切换。
+    /// 配色本身由 <c>Ui/ThemeManager.cs</c> 决定，这里只存开/关。
+    /// </summary>
+    public bool DarkMode { get; set; }
+
     public double WindowWidth { get; set; } = 1160;
     public double WindowHeight { get; set; } = 720;
     public double WindowLeft { get; set; } = double.NaN;

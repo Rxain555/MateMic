@@ -12,18 +12,25 @@ namespace MateMic.Ui;
 /// </summary>
 public sealed class DialogHost : Window
 {
-    // 取自 Ui/Theme.xaml 的调色板，硬编码是为了不依赖尚未加载的应用资源
-    private const uint WindowColor = 0xF3F3F3;  // WindowBrush
-    private const uint LineColor = 0xC9C9C9;    // 卡片描边
-    private const uint TitleColor = 0xE9E9E9;   // 分组容器底色
-    private const uint TextColor = 0x1F1F1F;    // TextBrush
-    private const uint AccentColor = 0x2F80ED;  // AccentBrush
-    private const uint AccentHoverColor = 0x1E6FD9;
-    private const uint AccentPressedColor = 0x1A62C2;
-    private const uint ButtonFaceColor = 0xFFFFFF;
-    private const uint ButtonBorderColor = 0xCCCCCC;
-    private const uint ButtonHoverColor = 0xF2F2F2;
-    private const uint ButtonPressedColor = 0xE8E8E8;
+    // 颜色一律取自主题（Ui/ThemeManager.cs），**深浅两种模式都读主题**。
+    // 早先浅色下沿用了一组硬编码的"旧主题"色值（0xF3F3F3 / 0x2F80ED…），
+    // 结果是对话框与主界面配色不一致（`当前状态.md` 未解决问题 #20），现已统一。
+    //
+    // 每个 Pick 的第二个参数只是**兜底色值**，仅在主题资源取不到时生效
+    // （极端情形：App 资源尚未加载就弹窗，例如启动早期报错）。
+    // 兜底色值刻意对齐当前主题的浅色值，这样"没有主题"也不会退回旧观感。
+    // 色值一律 0xAARRGGBB——深色主题里边框色是半透明的，不能丢掉 alpha。
+    private static uint WindowColor => Pick("CardBrush", 0xFFFFFFFF);
+    private static uint LineColor => Pick("DialogBorderBrush", 0xFFD2D7DE);
+    private static uint TitleColor => Pick("HeaderSurfaceBrush", 0xFFFAFBFC);
+    private static uint TextColor => Pick("TextBrush", 0xFF1C1E22);
+    private static uint AccentColor => Pick("AccentBrush", 0xFF2F7DF6);
+    private static uint AccentHoverColor => Pick("AccentHoverBrush", 0xFF1D6AE6);
+    private static uint AccentPressedColor => Pick("AccentPressedBrush", 0xFF175BC9);
+    private static uint ButtonFaceColor => Pick("ControlBrush", 0xFFEEF0F3);
+    private static uint ButtonBorderColor => Pick("ControlBorderBrush", 0x18000000);
+    private static uint ButtonHoverColor => Pick("ControlHoverBrush", 0xFFE2E6EC);
+    private static uint ButtonPressedColor => Pick("ControlPressedBrush", 0xFFD4DAE3);
 
     private readonly Button _primary;
     private bool _accepted;
@@ -274,11 +281,19 @@ public sealed class DialogHost : Window
         return template;
     }
 
-    /// <summary>0xRRGGBB → 冻结画刷（可在模板触发器之间共享，不需要额外开销）。</summary>
-    private static SolidColorBrush Brush(uint rgb)
+    /// <summary>0xAARRGGBB → 冻结画刷（可在模板触发器之间共享，不需要额外开销）。</summary>
+    private static SolidColorBrush Brush(uint argb)
     {
-        var brush = new SolidColorBrush(Color.FromRgb((byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb));
+        var brush = new SolidColorBrush(Color.FromArgb(
+            (byte)(argb >> 24), (byte)(argb >> 16), (byte)(argb >> 8), (byte)argb));
         brush.Freeze();
         return brush;
     }
+
+    /// <summary>
+    /// 取当前主题的颜色（深浅两种模式一视同仁）。
+    /// 资源缺失时回退到传入的兜底色值——回退逻辑本身在 <see cref="ThemeManager.Argb"/> 里，
+    /// 这里保留一层同名包装只为让调用点读起来明确。
+    /// </summary>
+    private static uint Pick(string key, uint fallback) => ThemeManager.Argb(key, fallback);
 }

@@ -16,7 +16,7 @@
     <SelfContained>false</SelfContained>
     <!-- exe 图标（同时被资源管理器、任务栏、Alt+Tab 使用） -->
     <ApplicationIcon>Assets\appicon.ico</ApplicationIcon>
-    <Version>0.2.1</Version>
+    <Version>0.2.2</Version>
     <AssemblyName>MateMic</AssemblyName>
     <RootNamespace>MateMic</RootNamespace>
     <LangVersion>latest</LangVersion>
@@ -57,6 +57,14 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="Assets\appicon.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <!--
+      总开关音效（开启 / 关闭各一个 wav）。与图标同样以"文件"方式复制到输出目录，
+      运行时由 Audio\ToggleSoundPlayer 从 Assets\sounds\ 读取。
+      打包脚本会把整个输出目录收进安装包与绿色版，所以 .iss 里无需单独声明。
+    -->
+    <None Update="Assets\sounds\*.wav">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>

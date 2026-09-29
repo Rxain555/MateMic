@@ -37,7 +37,7 @@
 
     <!--
       亚克力可控画刷。默认值 = 支持亚克力时的观感（偏白、只带一点透明），
-      运行时由 WindowEffects.PublishToResources 按"材质是否生效"改写。
+      运行时由 Ui/ThemeManager.cs 的 Apply() 按"材质是否生效 + 深色还是浅色"改写。
       ⚠ 这里刻意保持很白：用户明确要的是"白 / 浅灰"，不是灰玻璃。
     -->
     <SolidColorBrush x:Key="AcrylicWindowTintBrush" Color="#F2FFFFFF" />
@@ -45,7 +45,7 @@
     <SolidColorBrush x:Key="AcrylicGroupBrush" Color="#F2FFFFFF" />
     <SolidColorBrush x:Key="AcrylicCardBrush" Color="#FFFFFFFF" />
 
-    <!-- 语义色（"是否亚克力"切换时会跟着一起被改写） -->
+    <!-- 语义色（与亚克力、深浅模式一起被 Ui/ThemeManager.cs 改写） -->
     <SolidColorBrush x:Key="CardBrush" Color="#FFFFFFFF" />
     <SolidColorBrush x:Key="RowAltBrush" Color="#0FFFFFFF" />
 
@@ -97,6 +97,33 @@
     <SolidColorBrush x:Key="WarningBorderBrush" Color="#4DE0B93C" />
     <SolidColorBrush x:Key="WarningTextBrush" Color="#6B5400" />
 
+    <!--
+      ============================================================================
+      以下键供 ThemeManager 换肤使用（深色模式会覆写它们）。
+      ⚠ 这里的值必须与 Ui/ThemeManager.cs 里的 Light() 保持一致——
+        本文件提供的是"ThemeManager 运行之前"的浅色默认值。
+      ============================================================================
+    -->
+    <SolidColorBrush x:Key="PlaceholderBrush" Color="#9A9A9A" />
+    <SolidColorBrush x:Key="ControlDisabledBrush" Color="#F5F6F8" />
+    <SolidColorBrush x:Key="PrimaryDisabledBrush" Color="#4D9AA3B2" />
+    <SolidColorBrush x:Key="DialogBorderBrush" Color="#FFD2D7DE" />
+    <SolidColorBrush x:Key="SwitchTrackBrush" Color="#D8DCE2" />
+    <SolidColorBrush x:Key="PopupSurfaceBrush" Color="#FFFFFFFF" />
+    <SolidColorBrush x:Key="InputBoxBrush" Color="#EDF0F4" />
+    <SolidColorBrush x:Key="InputBoxDisabledBrush" Color="#4DFFFFFF" />
+    <SolidColorBrush x:Key="SliderFillBrush" Color="#4C93F5" />
+    <SolidColorBrush x:Key="ComboArrowBrush" Color="#6B7280" />
+    <SolidColorBrush x:Key="ExpanderArrowBrush" Color="#8A93A3" />
+    <SolidColorBrush x:Key="RemoveGlyphBrush" Color="#9AA3B0" />
+    <SolidColorBrush x:Key="IconGlyphBrush" Color="#5A5A5A" />
+    <SolidColorBrush x:Key="CaptionGlyphBrush" Color="#4A4F57" />
+    <SolidColorBrush x:Key="CaptionGlyphHoverBrush" Color="#1C1E22" />
+    <SolidColorBrush x:Key="CaptionHoverBrush" Color="#14000000" />
+    <SolidColorBrush x:Key="CaptionPressedBrush" Color="#24000000" />
+    <SolidColorBrush x:Key="SpectrumSlotBrush" Color="#E6E9EE" />
+    <SolidColorBrush x:Key="LevelNeedleBrush" Color="#2F2F2F" />
+
     <!-- ============================ 阴影（用层次代替边框） ============================ -->
     <!-- 卡片：淡淡的低位投影。颜色用中性灰而不是蓝灰，避免在白色卡片下发青发脏 -->
     <DropShadowEffect x:Key="CardShadow" BlurRadius="12" ShadowDepth="1.5" Direction="270"
@@ -112,13 +139,13 @@
     <Style x:Key="LabelText" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="Microsoft YaHei UI, Segoe UI" />
         <Setter Property="FontSize" Value="12" />
-        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
 
     <Style x:Key="SmallText" TargetType="TextBlock" BasedOn="{StaticResource LabelText}">
         <Setter Property="FontSize" Value="11" />
-        <Setter Property="Foreground" Value="{StaticResource SubtleTextBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource SubtleTextBrush}" />
     </Style>
 
     <Style x:Key="SectionTitle" TargetType="TextBlock" BasedOn="{StaticResource LabelText}">
@@ -129,7 +156,7 @@
     <Style x:Key="ColumnTitle" TargetType="TextBlock" BasedOn="{StaticResource LabelText}">
         <Setter Property="FontSize" Value="12" />
         <Setter Property="FontWeight" Value="SemiBold" />
-        <Setter Property="Foreground" Value="{StaticResource SubtleTextBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource SubtleTextBrush}" />
         <Setter Property="HorizontalAlignment" Value="Center" />
         <Setter Property="Margin" Value="0,3,0,5" />
     </Style>
@@ -138,7 +165,7 @@
         <Setter Property="FontFamily" Value="Microsoft YaHei UI, Segoe UI" />
         <Setter Property="FontSize" Value="12" />
         <Setter Property="FontWeight" Value="SemiBold" />
-        <Setter Property="Foreground" Value="{StaticResource SubtleTextBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource SubtleTextBrush}" />
         <Setter Property="HorizontalAlignment" Value="Center" />
         <Setter Property="Margin" Value="0,1,0,7" />
     </Style>
@@ -151,7 +178,7 @@
     -->
     <Style x:Key="GroupContainer" TargetType="Border">
         <Setter Property="Background" Value="{DynamicResource AcrylicGroupBrush}" />
-        <Setter Property="BorderBrush" Value="{StaticResource GroupBorderBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource GroupBorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="10" />
         <Setter Property="Padding" Value="8,6,8,8" />
@@ -165,10 +192,10 @@
     -->
     <Style x:Key="Card" TargetType="Border">
         <Setter Property="Margin" Value="0,0,0,7" />
-        <Setter Property="Effect" Value="{StaticResource CardShadow}" />
+        <Setter Property="Effect" Value="{DynamicResource CardShadow}" />
         <!-- 纯白卡片（原来是上下渐变，已按反馈去掉） -->
         <Setter Property="Background" Value="{DynamicResource CardBrush}" />
-        <Setter Property="BorderBrush" Value="{StaticResource CardBorderBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource CardBorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="9" />
         <Setter Property="Padding" Value="10,8,10,8" />
@@ -189,7 +216,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="Slider">
                     <Grid VerticalAlignment="Center">
-                        <Border Height="5" CornerRadius="2.5" Background="{StaticResource TrackBrush}"
+                        <Border Height="5" CornerRadius="2.5" Background="{DynamicResource TrackBrush}"
                                 VerticalAlignment="Center" />
                         <Track x:Name="PART_Track">
                             <Track.DecreaseRepeatButton>
@@ -198,7 +225,7 @@
                                         <ControlTemplate TargetType="RepeatButton">
                                             <!-- 已填充部分：纯色，不用渐变（渐变观感已被反馈为不佳） -->
                                             <Border Height="5" CornerRadius="2.5" VerticalAlignment="Center"
-                                                    Background="#4C93F5" />
+                                                    Background="{DynamicResource SliderFillBrush}" />
                                         </ControlTemplate>
                                     </RepeatButton.Template>
                                 </RepeatButton>
@@ -224,7 +251,7 @@
                                                                           Opacity="0.35" />
                                                     </Ellipse.Effect>
                                                 </Ellipse>
-                                                <Ellipse Width="14" Height="14" Stroke="#2F7DF6"
+                                                <Ellipse Width="14" Height="14" Stroke="{DynamicResource AccentBrush}"
                                                          StrokeThickness="2" />
                                             </Grid>
                                         </ControlTemplate>
@@ -243,7 +270,7 @@
     <Style x:Key="FlatButton" TargetType="Button">
         <Setter Property="FontFamily" Value="Microsoft YaHei UI, Segoe UI" />
         <Setter Property="FontSize" Value="12" />
-        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         <Setter Property="Padding" Value="13,4,13,4" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="Template">
@@ -255,23 +282,23 @@
                             <DropShadowEffect BlurRadius="6" ShadowDepth="1" Direction="270"
                                               Color="#FF7A8290" Opacity="0.20" />
                         </Border.Effect>
-                        <Border x:Name="Bd" Background="{StaticResource ControlBrush}" BorderThickness="0"
+                        <Border x:Name="Bd" Background="{DynamicResource ControlBrush}" BorderThickness="0"
                                 CornerRadius="6" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Border>
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource ControlHoverBrush}" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ControlHoverBrush}" />
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource ControlPressedBrush}" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ControlPressedBrush}" />
                             <Setter TargetName="Shadow" Property="Effect" Value="{x:Null}" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
-                            <Setter TargetName="Bd" Property="Background" Value="#F5F6F8" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ControlDisabledBrush}" />
                             <Setter TargetName="Shadow" Property="Effect" Value="{x:Null}" />
-                            <Setter Property="Foreground" Value="{StaticResource DisabledBrush}" />
+                            <Setter Property="Foreground" Value="{DynamicResource DisabledBrush}" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -291,7 +318,7 @@
                             <DropShadowEffect BlurRadius="6" ShadowDepth="1" Direction="270"
                                               Color="#FF7A8290" Opacity="0.20" />
                         </Border.Effect>
-                        <Border x:Name="Bd" Background="{StaticResource ControlBrush}" BorderThickness="0"
+                        <Border x:Name="Bd" Background="{DynamicResource ControlBrush}" BorderThickness="0"
                                 CornerRadius="6" Padding="{TemplateBinding Padding}" ClipToBounds="True"
                                 SnapsToDevicePixels="True">
                             <TextBlock Text="{TemplateBinding Content}" TextTrimming="CharacterEllipsis"
@@ -301,14 +328,14 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource ControlHoverBrush}" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ControlHoverBrush}" />
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource ControlPressedBrush}" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ControlPressedBrush}" />
                             <Setter TargetName="Shadow" Property="Effect" Value="{x:Null}" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
-                            <Setter TargetName="Bd" Property="Background" Value="#F5F6F8" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ControlDisabledBrush}" />
                             <Setter TargetName="Shadow" Property="Effect" Value="{x:Null}" />
                         </Trigger>
                     </ControlTemplate.Triggers>
@@ -323,7 +350,7 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
-                    <Border x:Name="Bd" Background="{StaticResource AccentBrush}" CornerRadius="6"
+                    <Border x:Name="Bd" Background="{DynamicResource AccentBrush}" CornerRadius="6"
                             Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
                         <Border.Effect>
                             <DropShadowEffect BlurRadius="8" ShadowDepth="1.5" Direction="270"
@@ -334,14 +361,14 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentHoverBrush}" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentHoverBrush}" />
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentPressedBrush}" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentPressedBrush}" />
                             <Setter TargetName="Bd" Property="Effect" Value="{x:Null}" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
-                            <Setter TargetName="Bd" Property="Background" Value="#4D9AA3B2" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource PrimaryDisabledBrush}" />
                             <Setter TargetName="Bd" Property="Effect" Value="{x:Null}" />
                         </Trigger>
                     </ControlTemplate.Triggers>
@@ -353,7 +380,7 @@
     <!-- ============================ 总开关：胶囊滑块开关 ============================ -->
     <ControlTemplate x:Key="SwitchTemplate" TargetType="CheckBox">
         <Grid Width="38" Height="20">
-            <Border x:Name="Track" CornerRadius="10" Background="#D8DCE2" />
+            <Border x:Name="Track" CornerRadius="10" Background="{DynamicResource SwitchTrackBrush}" />
             <Ellipse x:Name="Knob" Width="16" Height="16" Fill="White" HorizontalAlignment="Left"
                      Margin="2,0,0,0">
                 <Ellipse.Effect>
@@ -364,7 +391,7 @@
         </Grid>
         <ControlTemplate.Triggers>
             <Trigger Property="IsChecked" Value="True">
-                <Setter TargetName="Track" Property="Background" Value="{StaticResource AccentBrush}" />
+                <Setter TargetName="Track" Property="Background" Value="{DynamicResource AccentBrush}" />
                 <Setter TargetName="Knob" Property="HorizontalAlignment" Value="Right" />
                 <Setter TargetName="Knob" Property="Margin" Value="0,0,2,0" />
             </Trigger>
@@ -391,22 +418,22 @@
                 <ControlTemplate TargetType="CheckBox">
                     <StackPanel Orientation="Horizontal">
                         <Grid Width="38" Height="20" VerticalAlignment="Center">
-                            <Border x:Name="Track" CornerRadius="10" Background="#D8DCE2" />
+                            <Border x:Name="Track" CornerRadius="10" Background="{DynamicResource SwitchTrackBrush}" />
                             <Ellipse x:Name="Knob" Width="16" Height="16" Fill="White"
                                      HorizontalAlignment="Left" Margin="2,0,0,0" />
                         </Grid>
                         <TextBlock x:Name="Caption" Text="{TemplateBinding Content}" Margin="7,0,0,0"
                                    FontFamily="Microsoft YaHei UI, Segoe UI" FontSize="12"
-                                   Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" />
+                                   Foreground="{DynamicResource TextBrush}" VerticalAlignment="Center" />
                     </StackPanel>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsChecked" Value="True">
-                            <Setter TargetName="Track" Property="Background" Value="{StaticResource AccentBrush}" />
+                            <Setter TargetName="Track" Property="Background" Value="{DynamicResource AccentBrush}" />
                             <Setter TargetName="Knob" Property="HorizontalAlignment" Value="Right" />
                             <Setter TargetName="Knob" Property="Margin" Value="0,0,2,0" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
-                            <Setter TargetName="Caption" Property="Foreground" Value="{StaticResource DisabledBrush}" />
+                            <Setter TargetName="Caption" Property="Foreground" Value="{DynamicResource DisabledBrush}" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -418,7 +445,7 @@
     <Style x:Key="ChipToggle" TargetType="RadioButton">
         <Setter Property="FontFamily" Value="Microsoft YaHei UI, Segoe UI" />
         <Setter Property="FontSize" Value="11.5" />
-        <Setter Property="Foreground" Value="{StaticResource SubtleTextBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource SubtleTextBrush}" />
         <Setter Property="Margin" Value="0,0,4,0" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="HorizontalAlignment" Value="Stretch" />
@@ -432,7 +459,7 @@
                             <DropShadowEffect BlurRadius="4" ShadowDepth="1" Direction="270"
                                               Color="#FF7A8290" Opacity="0.16" />
                         </Border.Effect>
-                        <Border x:Name="Bd" Background="{StaticResource ChipBrush}" CornerRadius="6"
+                        <Border x:Name="Bd" Background="{DynamicResource ChipBrush}" CornerRadius="6"
                                 Padding="7,4,7,4" SnapsToDevicePixels="True">
                             <ContentPresenter x:Name="Txt" Content="{TemplateBinding Content}"
                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
@@ -440,17 +467,17 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsChecked" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource ChipSelectedBrush}" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ChipSelectedBrush}" />
                             <Setter TargetName="Txt" Property="TextElement.Foreground" Value="White" />
                         </Trigger>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource ControlHoverBrush}" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ControlHoverBrush}" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
-                            <Setter TargetName="Bd" Property="Background" Value="#F5F6F8" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ControlDisabledBrush}" />
                             <Setter TargetName="Shadow" Property="Effect" Value="{x:Null}" />
                             <Setter TargetName="Txt" Property="TextElement.Foreground"
-                                    Value="{StaticResource DisabledBrush}" />
+                                    Value="{DynamicResource DisabledBrush}" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -463,7 +490,7 @@
         <Setter Property="FontFamily" Value="Microsoft YaHei UI, Segoe UI" />
         <Setter Property="FontSize" Value="12" />
         <Setter Property="Height" Value="26" />
-        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ComboBox">
@@ -482,7 +509,7 @@
                                                   Color="#FF7A8290" Opacity="0.14" />
                             </Border.Effect>
                         </Border>
-                        <Border x:Name="Bd" Background="{StaticResource ControlBrush}" BorderThickness="0"
+                        <Border x:Name="Bd" Background="{DynamicResource ControlBrush}" BorderThickness="0"
                                 CornerRadius="6" SnapsToDevicePixels="True" />
                         <ToggleButton x:Name="Toggle" Background="Transparent" BorderThickness="0" Focusable="False"
                                       ClickMode="Press" IsChecked="{Binding IsDropDownOpen, Mode=TwoWay,
@@ -501,10 +528,10 @@
                              两个方向的箭头各一个、切换可见性，不用旋转（旋转方向容易搞错）。 -->
                         <Grid HorizontalAlignment="Right" VerticalAlignment="Center"
                               Width="12" Height="12" Margin="0,0,8,0" IsHitTestVisible="False">
-                            <Path x:Name="ArrowCollapsed" Data="M 8 1 L 3 6 L 8 11" Stroke="#6B7280"
+                            <Path x:Name="ArrowCollapsed" Data="M 8 1 L 3 6 L 8 11" Stroke="{DynamicResource ComboArrowBrush}"
                                   StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
-                            <Path x:Name="ArrowExpanded" Data="M 1 3 L 6 8 L 11 3" Stroke="#6B7280"
+                            <Path x:Name="ArrowExpanded" Data="M 1 3 L 6 8 L 11 3" Stroke="{DynamicResource ComboArrowBrush}"
                                   StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                                   HorizontalAlignment="Center" VerticalAlignment="Center"
                                   Visibility="Collapsed" />
@@ -521,7 +548,7 @@
                                                           Color="#FF7A8290" Opacity="0.26" />
                                     </Border.Effect>
                                 </Border>
-                                <Border Background="#FFFFFFFF" BorderBrush="{StaticResource CardBorderBrush}"
+                                <Border Background="{DynamicResource PopupSurfaceBrush}" BorderBrush="{DynamicResource CardBorderBrush}"
                                         BorderThickness="1" CornerRadius="8" MaxHeight="260"
                                         SnapsToDevicePixels="True">
                                     <ScrollViewer Margin="3,4,3,4">
@@ -533,17 +560,17 @@
                     </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsEnabled" Value="False">
-                            <Setter TargetName="Bd" Property="Background" Value="#66FFFFFF" />
-                            <Setter Property="Foreground" Value="{StaticResource DisabledBrush}" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ControlDisabledBrush}" />
+                            <Setter Property="Foreground" Value="{DynamicResource DisabledBrush}" />
                         </Trigger>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource ControlHoverBrush}" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ControlHoverBrush}" />
                         </Trigger>
                         <!-- 收起：箭头朝左；展开：换成朝下的箭头 -->
                         <Trigger Property="IsDropDownOpen" Value="True">
                             <Setter TargetName="ArrowCollapsed" Property="Visibility" Value="Collapsed" />
                             <Setter TargetName="ArrowExpanded" Property="Visibility" Value="Visible" />
-                            <Setter TargetName="ArrowExpanded" Property="Stroke" Value="{StaticResource AccentBrush}" />
+                            <Setter TargetName="ArrowExpanded" Property="Stroke" Value="{DynamicResource AccentBrush}" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -556,21 +583,21 @@
         <Setter Property="Width" Value="26" />
         <Setter Property="Height" Value="26" />
         <Setter Property="Cursor" Value="Hand" />
-        <Setter Property="Foreground" Value="{StaticResource SubtleTextBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource SubtleTextBrush}" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
-                    <Border x:Name="Bd" Background="{StaticResource ControlBrush}" BorderThickness="0"
+                    <Border x:Name="Bd" Background="{DynamicResource ControlBrush}" BorderThickness="0"
                             CornerRadius="6" SnapsToDevicePixels="True">
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentSoftBrush}" />
-                            <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+                            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentSoftHoverBrush}" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentSoftHoverBrush}" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -581,7 +608,7 @@
     <Style x:Key="FlatComboItem" TargetType="ComboBoxItem">
         <Setter Property="FontFamily" Value="Microsoft YaHei UI, Segoe UI" />
         <Setter Property="FontSize" Value="12" />
-        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         <Setter Property="Padding" Value="9,5,9,5" />
         <Setter Property="Template">
             <Setter.Value>
@@ -592,10 +619,10 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentSoftBrush}" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentSoftBrush}" />
                         </Trigger>
                         <Trigger Property="IsSelected" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentSoftHoverBrush}" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentSoftHoverBrush}" />
                             <Setter Property="FontWeight" Value="SemiBold" />
                         </Trigger>
                     </ControlTemplate.Triggers>
@@ -620,10 +647,10 @@
                 <ControlTemplate TargetType="Button">
                     <Border x:Name="Bd" Background="Transparent" CornerRadius="5">
                         <Grid>
-                            <Path x:Name="ArrowCollapsed" Data="M 6 0 L 1 5 L 6 10" Stroke="#8A93A3"
+                            <Path x:Name="ArrowCollapsed" Data="M 6 0 L 1 5 L 6 10" Stroke="{DynamicResource ExpanderArrowBrush}"
                                   StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                                   StrokeLineJoin="Round" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                            <Path x:Name="ArrowExpanded" Data="M 0 1 L 5 6 L 10 1" Stroke="#8A93A3"
+                            <Path x:Name="ArrowExpanded" Data="M 0 1 L 5 6 L 10 1" Stroke="{DynamicResource ExpanderArrowBrush}"
                                   StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                                   StrokeLineJoin="Round" HorizontalAlignment="Center" VerticalAlignment="Center"
                                   Visibility="Collapsed" />
@@ -635,9 +662,9 @@
                             <Setter TargetName="ArrowExpanded" Property="Visibility" Value="Visible" />
                         </DataTrigger>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource ChipBrush}" />
-                            <Setter TargetName="ArrowCollapsed" Property="Stroke" Value="{StaticResource AccentBrush}" />
-                            <Setter TargetName="ArrowExpanded" Property="Stroke" Value="{StaticResource AccentBrush}" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ChipBrush}" />
+                            <Setter TargetName="ArrowCollapsed" Property="Stroke" Value="{DynamicResource AccentBrush}" />
+                            <Setter TargetName="ArrowExpanded" Property="Stroke" Value="{DynamicResource AccentBrush}" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -668,7 +695,7 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentSoftBrush}" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentSoftBrush}" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -687,7 +714,7 @@
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="FontFamily" Value="Microsoft YaHei UI, Segoe UI" />
         <Setter Property="FontSize" Value="11.5" />
-        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         <!--
           它是"看起来像输入框的按钮"，不是真的文本输入框：
           焦点必须不落在它上面，否则点一下之后系统输入法（IME）会把这里当成文本输入目标，
@@ -699,7 +726,7 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
-                    <Border x:Name="Bd" Background="#EDF0F4" BorderThickness="0"
+                    <Border x:Name="Bd" Background="{DynamicResource InputBoxBrush}" BorderThickness="0"
                             CornerRadius="5" Padding="5,1,5,1" SnapsToDevicePixels="True">
                         <TextBlock x:Name="Label" Text="{TemplateBinding Content}"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"
@@ -708,14 +735,14 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentSoftBrush}" />
-                            <Setter TargetName="Label" Property="Foreground" Value="{StaticResource AccentBrush}" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+                            <Setter TargetName="Label" Property="Foreground" Value="{DynamicResource AccentBrush}" />
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentSoftHoverBrush}" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentSoftHoverBrush}" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
-                            <Setter TargetName="Bd" Property="Background" Value="#4DFFFFFF" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource InputBoxDisabledBrush}" />
                             <Setter TargetName="Bd" Property="Opacity" Value="0.9" />
                             <Setter TargetName="Label" Property="Opacity" Value="0.7" />
                         </Trigger>
@@ -733,7 +760,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
                     <Border x:Name="Bd" Background="Transparent" CornerRadius="5">
-                        <Path x:Name="Cross" Data="M 0 0 L 8 8 M 8 0 L 0 8" Stroke="#9AA3B0" StrokeThickness="1.4"
+                        <Path x:Name="Cross" Data="M 0 0 L 8 8 M 8 0 L 0 8" Stroke="{DynamicResource RemoveGlyphBrush}" StrokeThickness="1.4"
                               StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                               HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Border>
@@ -767,17 +794,17 @@
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
                     <Border x:Name="Bd" Background="Transparent">
-                        <Path x:Name="Glyph" Data="M 0 5 L 10 5" Stroke="#4A4F57" StrokeThickness="1.2"
+                        <Path x:Name="Glyph" Data="M 0 5 L 10 5" Stroke="{DynamicResource CaptionGlyphBrush}" StrokeThickness="1.2"
                               StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                               HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="#14000000" />
-                            <Setter TargetName="Glyph" Property="Stroke" Value="#1C1E22" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource CaptionHoverBrush}" />
+                            <Setter TargetName="Glyph" Property="Stroke" Value="{DynamicResource CaptionGlyphHoverBrush}" />
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="#24000000" />
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource CaptionPressedBrush}" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -794,7 +821,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
                     <Border x:Name="Bd" Background="Transparent">
-                        <Path x:Name="Glyph" Data="M 0 0 L 10 10 M 10 0 L 0 10" Stroke="#4A4F57"
+                        <Path x:Name="Glyph" Data="M 0 0 L 10 10 M 10 0 L 0 10" Stroke="{DynamicResource CaptionGlyphBrush}"
                               StrokeThickness="1.2" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                               HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Border>

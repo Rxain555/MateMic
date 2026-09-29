@@ -9,6 +9,9 @@ namespace MateMic.Ui;
 /// <summary>
 /// 窗口外观：亚克力（Acrylic）背景材质 + 深色标题栏。
 ///
+/// ⚠ **颜色不在这里**：深浅两套配色与所有画刷的写入口都在 <see cref="ThemeManager"/>。
+/// 本文件只负责 DWM 层面的窗口属性（材质、圆角、边框、深浅渲染），不碰任何界面配色。
+///
 /// 做法是 Windows 11 的"系统背景材质"（DwmSetWindowAttribute +
 /// DWMWA_SYSTEMBACKDROP_TYPE）。它把桌面内容采样、模糊后作为窗口背景合成，
 /// 属于系统级合成，比 WPF 里用 <c>AllowsTransparency</c> 自己糊一层要省电，
@@ -61,10 +64,31 @@ public static class WindowEffects
     public static bool IsAcrylicActive { get; private set; }
 
     /// <summary>
+    /// 只更新"窗口按深色还是浅色渲染"这一个属性（DWMWA_USE_IMMERSIVE_DARK_MODE）。
+    /// 用户切换深色模式时调用：界面配色换了，窗口边框与阴影要跟着换。
+    /// 窗口句柄还没建好时静默跳过（此时 ApplyAcrylic 稍后会统一设置）。
+    /// </summary>
+    public static void SetImmersiveDarkMode(Window window, bool dark)
+    {
+        try
+        {
+            var handle = new WindowInteropHelper(window).Handle;
+            if (handle == IntPtr.Zero) return;
+
+            var value = dark ? 1 : 0;
+            DwmSetWindowAttribute(handle, DwmWindowAttribute.UseImmersiveDarkMode, ref value, sizeof(int));
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("设置窗口深浅渲染属性失败（不影响使用）：" + ex.Message);
+        }
+    }
+
+    /// <summary>
     /// 给窗口套上亚克力材质。必须在窗口有句柄之后调用（SourceInitialized / Loaded 均可）。
     /// </summary>
     /// <returns>true = 材质已启用；false = 环境不支持，已退化为不透明。</returns>
-    public static bool ApplyAcrylic(Window window, bool preferDarkTitleBar = false)
+    public static bool ApplyAcrylic(Window window, bool darkUi = false)
     {
         try
         {
@@ -88,9 +112,10 @@ public static class WindowEffects
             DwmSetWindowAttribute(handle, DwmWindowAttribute.BorderColor, ref none, sizeof(int));
             DwmSetWindowAttribute(handle, DwmWindowAttribute.CaptionColor, ref none, sizeof(int));
 
-            // 深色标题栏：字体颜色由系统按这个属性决定。界面是浅色的，
-            // 因此默认要求深色文字（0）；调用方也可显式要求浅色。
-            var darkMode = preferDarkTitleBar ? 1 : 0;
+            // 窗口按深色还是浅色渲染：DWM 用它决定窗口边框、阴影与非客户区文字的颜色。
+            // 本程序的标题栏是自绘的，所以它主要影响边框与阴影——
+            // 深色界面配一圈浅色边框会很割裂，因此这里跟随界面自身的深浅。
+            var darkMode = darkUi ? 1 : 0;
             DwmSetWindowAttribute(handle, DwmWindowAttribute.UseImmersiveDarkMode, ref darkMode, sizeof(int));
 
             // 亚克力（Acrylic = 3）。Mica（2）更省电但只对"不透明背景"有完整表现，
@@ -245,71 +270,9 @@ public static class WindowEffects
         }
     }
 
-    /// <summary>
-    /// 系统是否为深色模式。仅用于决定标题栏文字是深色还是浅色
-    /// （界面本身目前只有浅色一套配色）。
-    /// </summary>
-    public static bool IsSystemDarkMode()
-    {
-        try
-        {
-            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
-                @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
-            return key?.GetValue("AppsUseLightTheme") is int value && value == 0;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// 把"亚克力是否可用"同步给主题资源：可用时用略透明的白（让磨砂隐约透出来），
-    /// 不可用时用不透明色。两套都保持"白 / 浅灰"的整体观感——
-    /// 用户明确反馈要白色浅灰色调，不要灰玻璃。
-    /// 资源键与 Theme.Modern.xaml 一一对应。
-    /// </summary>
-    public static void PublishToResources(ResourceDictionary resources)
-    {
-        if (IsAcrylicActive)
-        {
-            // 白度给到 ~95%：只留一点点桌面透上来当作"材质感"，
-            // 主体依然是干净的白色界面（太透会把界面糊成灰的）。
-            resources["WindowBrush"] = Brush("#F2FFFFFF");
-            resources["AcrylicWindowTintBrush"] = Brush("#F2FFFFFF");
-            resources["AcrylicTopBarBrush"] = Brush("#F7FFFFFF");
-            resources["AcrylicGroupBrush"] = Brush("#F2FFFFFF");
-            resources["AcrylicCardBrush"] = Brush("#FFFFFFFF");
-            resources["CardBrush"] = Brush("#FFFFFFFF");
-            resources["CardGradientBrush"] = Brush("#FFFFFFFF");
-            resources["LevelMaskBrush"] = Brush("#F0F1F3");
-            resources["GroupHighlightBrush"] = Brush("#59FFFFFF");
-            resources["HeaderSurfaceBrush"] = Brush("#FAFBFC");
-            resources["ScrollThumbBrush"] = Brush("#C6CBD3");
-            resources["WindowSurfaceBrush"] = Brush("#F5F6F8");
-        }
-        else
-        {
-            // 不透明回退：与旧主题观感一致，保证任何环境都能正常阅读
-            resources["WindowBrush"] = Brush("#F5F6F8");
-            resources["AcrylicWindowTintBrush"] = Brush("#F5F6F8");
-            resources["AcrylicTopBarBrush"] = Brush("#FFFFFF");
-            resources["AcrylicGroupBrush"] = Brush("#FFFFFF");
-            resources["AcrylicCardBrush"] = Brush("#FFFFFF");
-            resources["CardBrush"] = Brush("#FFFFFF");
-            resources["CardGradientBrush"] = Brush("#FFFFFF");
-            resources["LevelMaskBrush"] = Brush("#EFEFEF");
-            resources["GroupHighlightBrush"] = Brush("#00FFFFFF");
-            resources["HeaderSurfaceBrush"] = Brush("#FAFBFC");
-            resources["ScrollThumbBrush"] = Brush("#C6CBD3");
-            resources["WindowSurfaceBrush"] = Brush("#F5F6F8");
-        }
-    }
-
-    private static SolidColorBrush Brush(string hex)
-    {
-        var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
-        brush.Freeze();
-        return brush;
-    }
+    // 配色已全部移交 Ui/ThemeManager.cs：
+    //   · 原来的 IsSystemDarkMode() 只用来决定标题栏文字深浅，现在改由用户自己的
+    //     「深色模式」开关决定（见 MainWindow.OnDarkModeToggled）；
+    //   · 原来的 PublishToResources() 只处理"亚克力是否生效"那几支画刷，
+    //     现在由 ThemeManager.Apply(resources, dark, acrylicActive) 一并处理。
 }
