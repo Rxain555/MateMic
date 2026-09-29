@@ -1155,7 +1155,12 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             {
                 combo.Items.Add(new ComboBoxItem
                 {
-                    Content = device.IsDefault ? device.Name + "（默认）" : device.Name,
+                    // 刻意**不标**"（默认）"：这里的"默认"指**操作系统**的默认设备。
+                    // 按 MateMic 的正确用法，Windows 的默认录音设备应该被设成 MIXLINE Stream
+                    // （好让游戏/Discord 拿到处理后的话筒），而软件自己的「输入」必须选**物理麦克风**。
+                    // 把系统默认标在列表里只会把用户往错误选项上带，因此不显示
+                    // （用户明确要求；诊断工具里仍保留默认标记，那是用来排查的）。
+                    Content = device.Name,
                     Tag = device,
                     Style = itemStyle,
                     ToolTip = device.Name,
