@@ -926,9 +926,26 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             return;
         }
 
-        CancelHotkeyCapture();
-        if (string.IsNullOrWhiteSpace(gesture)) return;
+        // 总开关这一路：空手势 = 用户按了 Backspace / Delete，语义是**清除**，不是"取消"。
+        //
+        // 早期这里直接 `if (IsNullOrWhiteSpace) return;`，于是空串被丢掉、
+        // 而 CancelHotkeyCapture() 里的 restore 判断又发现 _config.ToggleHotkey 还是旧值，
+        // 就把旧热键原样装了回去 —— 表现成"按 Backspace 和按 Esc 一模一样"（用户反馈的 bug）。
+        //
+        // 顺序讲究：**先把配置清空**再收尾，CancelHotkeyCapture() 里的 restore 判断
+        // 才会因为"配置里已经没有热键"而不去重新注册旧键；随后这一次
+        // RegisterConfiguredHotkeys() 会 UnregisterAll 再全量注册，旧热键就此真正注销。
+        if (string.IsNullOrWhiteSpace(gesture))
+        {
+            _config.ToggleHotkey = string.Empty;
+            CancelHotkeyCapture();
+            RegisterConfiguredHotkeys();
+            SaveConfig();
+            Log.Info("已清除「音频处理」总开关的全局快捷键。");
+            return;
+        }
 
+        CancelHotkeyCapture();
         _config.ToggleHotkey = gesture;
         SetHotkeyButtonText(gesture);
         RegisterConfiguredHotkeys();
