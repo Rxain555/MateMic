@@ -7,18 +7,18 @@
   This project's shell tooling cannot set a BOM, so the fix is: no non-ASCII here.
   If you do need Chinese comments, save the file as UTF-8 WITH BOM and verify with:
       Format-Hex .\make-package.ps1 | Select-Object -First 1     # expect EF BB BF
-  (Background: D:\DSH\知识库\经验\Windows脚本编码.md)
+  (Background: workspace knowledge base - "Windows script encoding / BOM")
 
   LAYOUT-AGNOSTIC VERSION
   -----------------------
   This replaces 打包\make-package.ps1 after the workspace restructure. It detects both
   layouts, so it works before AND after the move:
 
-    OLD (repo root = D:\DSH)             NEW (repo root = D:\DSH\项目库\MateMic\源码)
-      D:\DSH\MateMic\                      ...\源码\MateMic\
-      D:\DSH\MateMic.Windows\              ...\源码\MateMic.Windows\
-      D:\DSH\打包\                          ...\源码\打包\      <- this file lives here
-      D:\DSH\dist\ + D:\DSH\安装包\         ...\构建产物\dist\ + ...\发布包\
+    OLD (repo root = the workspace root)  NEW (repo root = <project>\源码)
+      <root>\MateMic\                       ...\源码\MateMic\
+      <root>\MateMic.Windows\               ...\源码\MateMic.Windows\
+      <root>\打包\                           ...\源码\打包\      <- this file lives here
+      <root>\dist\ + <root>\安装包\          ...\构建产物\dist\ + ...\发布包\
 
   How it tells them apart: it checks whether <parent of 打包>\MateMic\MateMic.csproj
   exists (new layout) or whether that file is two levels higher (old layout).
@@ -44,7 +44,7 @@ $ErrorActionPreference = 'Stop'
 
 # ---------------------------------------------------------------- layout detection
 $pkgDir   = $PSScriptRoot                                  # ...\打包
-$repoRoot = Split-Path -Parent $pkgDir                     # ...\源码   or   D:\DSH
+$repoRoot = Split-Path -Parent $pkgDir                     # ...\源码   or   the workspace root
 $isNew    = Test-Path -LiteralPath (Join-Path $repoRoot 'MateMic\MateMic.csproj')
 $isOld    = (!$isNew) -and (Test-Path -LiteralPath (Join-Path $repoRoot '..\..\MateMic\MateMic.csproj'))
 
