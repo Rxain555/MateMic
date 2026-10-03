@@ -109,3 +109,28 @@ static float MeasureFrequency(float[] samples, int sampleRate)
 
     return 0f;
 }
+
+// 追加：列出 NWaves 里与"变调 / 变声"相关的公开类型，
+// 用来判断能否直接复用（能复用就不必自研，也不引入新依赖）。
+{
+    var asm = typeof(NWaves.Signals.DiscreteSignal).Assembly;
+    Console.WriteLine();
+    Console.WriteLine("[NWaves] 与音高/变声相关的公开类型：");
+    var hits = 0;
+    foreach (var type in asm.GetExportedTypes().OrderBy(x => x.FullName))
+    {
+        var n = type.Name;
+        if (n.Contains("Pitch", StringComparison.OrdinalIgnoreCase)
+            || n.Contains("Psola", StringComparison.OrdinalIgnoreCase)
+            || n.Contains("Vocoder", StringComparison.OrdinalIgnoreCase)
+            || n.Contains("Formant", StringComparison.OrdinalIgnoreCase)
+            || n.Contains("Resampler", StringComparison.OrdinalIgnoreCase)
+            || n.Contains("Stretch", StringComparison.OrdinalIgnoreCase))
+        {
+            Console.WriteLine("   " + type.FullName);
+            hits++;
+        }
+    }
+
+    Console.WriteLine($"   共 {hits} 个");
+}
