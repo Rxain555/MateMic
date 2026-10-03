@@ -34,7 +34,10 @@ public sealed class PsolaPitchShifter
     private const double UnvoicedPeriodMs = 4.0;
 
     private readonly int _sampleRate;
-    private readonly PitchDetector _detector;
+    /// <summary>
+    /// 周期跟踪器。**不能用给电音做音阶吸附的那个 <see cref="PitchDetector"/>**：
+    /// <summary>周期跟踪器（求稳：倍频纠错 + 中值平滑 + 先验范围搜索）。</summary>
+    private readonly PitchTracker _tracker;
 
     /// <summary>输入缓冲：累积待分析的输入样本。</summary>
     private readonly float[] _input = new float[MaxPeriod * 8];
@@ -56,7 +59,7 @@ public sealed class PsolaPitchShifter
     public PsolaPitchShifter(int sampleRate)
     {
         _sampleRate = sampleRate;
-        _detector = new PitchDetector(sampleRate, windowSize: 1024);
+        _tracker = new PitchTracker(sampleRate);
         _currentPeriod = UnvoicedPeriodMs * sampleRate / 1000.0;
         BuildWindow(_window.Length);
     }
@@ -84,7 +87,7 @@ public sealed class PsolaPitchShifter
         _emitted = 0;
         _detectCountdown = 0;
         _currentPeriod = UnvoicedPeriodMs * _sampleRate / 1000.0;
-        _detector.Reset();
+        _tracker.Reset();
         LastDetectedFrequency = 0;
     }
 
@@ -192,32 +195,30 @@ public sealed class PsolaPitchShifter
         _emitted += buffer.Length;
     }
 
-    /// <summary>周期性重估基频；无声/清音段沿用兜底周期（退化成连续复制，不会撕裂）。</summary>
+    /// <summary>
+    /// 周期性重估基频。用 <see cref="PitchTracker"/>（求稳：倍频纠错 + 中值平滑 + 先验范围搜索），
+    /// 并且**分析最新到达的音频**（不能围着 _time 取窗 —— 那是启动延迟之前的位置，
+    /// 围着它取窗会让前瞻条件几乎永不满足，检测几乎从不执行，周期一直停在兜底值）。
+    /// 清音/静音时**沿用上一个周期**而不是跳回兜底值：栅格突然跳变会带来咔哒声，
+    /// 而用上一个周期继续做重叠相加会退化成"逐字复制"，听感是连续的。
+    /// </summary>
     private double UpdatePeriod()
     {
         _detectCountdown -= (int)Math.Max(1, _currentPeriod / 4);
         if (_detectCountdown <= 0)
         {
-            _detectCountdown = 256;                 // 约每 5 ms 检测一次（与波形周期解耦，省 CPU）
-            // ⚠ 必须分析**最新到达**的音频，不能围着 _time 取窗：
-            // _time 恒落后于已到达的输入（那是启动延迟），围着它取窗会让前瞻条件几乎永不满足，
-            // 检测几乎从不执行、周期一直停在兜底值 —— 实测音高偏差就是这么来的。
-            // 周期变化很慢，用最新估计合成当前片段完全够用。
-            var center = _inputCount - 512;
-            if (center >= 512)
+            _detectCountdown = 512;   // 约每 10 ms 估计一次：够跟上颤音，也不吃 CPU
+
+            if (_inputCount >= PitchTracker.WindowSize
+                && _tracker.Feed(_input.AsSpan(_inputCount - PitchTracker.WindowSize, PitchTracker.WindowSize)))
             {
-                var window = _input.AsSpan(center - 512, 1024);                var f0 = _detector.Detect(window);
-                LastDetectedFrequency = f0;
-                if (f0 > 0 && _detector.LastClarity > 0.3f)
-                {
-                    var period = Math.Clamp(_sampleRate / (double)f0, 16, MaxPeriod);
-                    // 平滑周期：脉冲栅格跳变会带来咔哒声
-                    _currentPeriod += (period - _currentPeriod) * 0.5;
-                }
-                else
-                {
-                    _currentPeriod = UnvoicedPeriodMs * _sampleRate / 1000.0;
-                }
+                _currentPeriod = Math.Clamp(_tracker.Period, 16, MaxPeriod);
+                LastDetectedFrequency = (float)(_sampleRate / _currentPeriod);
+            }
+            else if (!_tracker.HasPeriod)
+            {
+                // 还没得到任何可靠周期（启动 / 纯清音）：先用兜底周期跑起来
+                _currentPeriod = UnvoicedPeriodMs * _sampleRate / 1000.0;
             }
         }
 

@@ -267,6 +267,62 @@ static float EnvelopePeak(float[] samples, int sampleRate)
 }
 
 
+// ---------------------------------------------------------------- 基频跟踪器：准不准、稳不稳
+//
+// 判据：对已知频率的信号，估出的周期误差应在 ±1% 以内。
+// 跟踪器稳不住，PSOLA 的脉冲栅格就会漂移，音高必然错 —— 这是上一版音高不准的根因。
+{
+    const int trackFs = 48000;
+    Console.WriteLine("[跟踪器] 已知信号 → 估出的周期（样本 @48k）：");
+
+    var cases = new (string Name, double Hz)[]
+    {
+        ("120 Hz 脉冲串", 120),
+        ("220 Hz 谐波音", 220),
+        ("85 Hz 低音（男声下限）", 85),
+        ("180 Hz + 5 Hz 颤音", 180),
+    };
+
+    foreach (var (name, hz) in cases)
+    {
+        var tracker = new PitchTracker(trackFs);
+        var x = new float[trackFs];
+        // 相位必须**累加**：颤音时频率逐样本变化，若每个样本都用 i % (fs/f0) 算相位，
+        // 相位会跳变，生成的是一段抖动脉冲串而不是颤音（我第一版就犯了这个错）。
+        double phaseAcc = 0;
+        for (var i = 0; i < x.Length; i++)
+        {
+            var t = i / (double)trackFs;
+            var f0 = hz * (1.0 + (name.Contains("颤音") ? 0.02 * Math.Sin(2 * Math.PI * 5 * t) : 0));
+            phaseAcc += f0 / trackFs;
+            var fraction = phaseAcc - Math.Floor(phaseAcc);
+
+            // 脉冲（声门）+ 少量谐波，接近真实浊音
+            double v = fraction < 0.0125 ? 1.0 : 0.0;
+            // 谐波相位必须取"累加相位的整数倍"：f0 变化时 2π·f0·h·t 并不是第 h 次谐波的相位，
+            // 那样写会得到一堆各自扫频的正弦，自相关自然找不到真实周期（我前面就错在这里）。
+            for (var h = 1; h <= 6; h++) v += 0.25 * Math.Sin(2 * Math.PI * h * phaseAcc) / h;
+            x[i] = (float)(0.25 * v);
+        }
+
+        var updates = 0;
+        for (var pos = PitchTracker.WindowSize; pos + 512 <= x.Length; pos += 512)
+        {
+            if (tracker.Feed(x.AsSpan(pos - PitchTracker.WindowSize, PitchTracker.WindowSize))) updates++;
+        }
+
+        var expectedPeriod = trackFs / hz;
+        var estimate = tracker.HasPeriod ? tracker.Period : 0f;
+        var estimateHz = estimate > 0 ? trackFs / estimate : 0;
+        var errorPercent = estimateHz > 0 ? (estimateHz - hz) / hz * 100 : double.NaN;
+        var ok = estimate > 0 && Math.Abs(errorPercent) < 1.0 ? "✓" : "✗";
+        Console.WriteLine($"    {name,-24} 期望 {expectedPeriod,6:0.0} 样本 / {hz,5:0.0} Hz → "
+                          + $"估出 {estimate,6:0.0} 样本 / {estimateHz,5:0.0} Hz"
+                          + $"（误差 {errorPercent,5:+0.0;-0.0;0}%，更新 {updates,3} 次）{ok}");
+    }
+}
+
+
 static float Measure(float[] samples, int sampleRate)
 {
     var size = Math.Min(16384, samples.Length);
