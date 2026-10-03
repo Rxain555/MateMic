@@ -263,8 +263,8 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             _hotkeys.Attach(this);
             _tray.Show("MateMic");
             _tray.ShowRequested += (_, _) => RestoreFromTray();
-            _tray.ToggleProcessingRequested += (_, _) => Dispatcher.BeginInvoke(new Action(ToggleProcessing_Click));
-            _tray.ExitRequested += (_, _) => Dispatcher.BeginInvoke(new Action(ExitApplication));
+            // 托盘右键菜单改为 WPF 侧自绘（Ui\TrayMenuWindow），托盘服务只负责上报"要弹菜单"
+            _tray.MenuRequested += (_, _) => Dispatcher.BeginInvoke(new Action(ShowTrayMenu));
 
             RefreshDeviceLists();
             ApplyConfigToControls();
@@ -2092,6 +2092,19 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             Log.Debug("窗口已最小化到任务栏。");
     }
 
+    /// <summary>
+    /// 弹出托盘右键菜单（Windows 11 风格的自绘窗口，见 <see cref="TrayMenuWindow"/>）。
+    /// 三个菜单项直接复用既有动作方法，「界面开关 / 全局快捷键 / 托盘菜单」三条路径因此行为完全一致
+    /// （总开关那条连提示音效也一起走 OnProcessingToggled）。
+    /// </summary>
+    private void ShowTrayMenu()
+    {
+        var menu = TrayMenuWindow.Open(_config.AudioProcessingEnabled);
+        menu.ShowMainRequested += (_, _) => RestoreFromTray();
+        menu.ToggleProcessingRequested += (_, _) => ToggleProcessing_Click();
+        menu.ExitRequested += (_, _) => ExitApplication();
+    }
+
     private void RestoreFromTray()
     {
         Show();
@@ -2108,6 +2121,8 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         if (_exiting) return;
         _exiting = true;
 
+        // 退出前先收掉可能还开着的托盘菜单，避免留下一个无主的空窗口
+        TrayMenuWindow.CloseOpen();
         SaveWindowPlacement();
         SaveConfig();
         _timer.Stop();

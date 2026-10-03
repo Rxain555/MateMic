@@ -1,0 +1,120 @@
+<Window x:Class="MateMic.Ui.TrayMenuWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="MateMic 菜单"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        AllowsTransparency="True"
+        Background="Transparent"
+        SizeToContent="WidthAndHeight"
+        WindowStartupLocation="Manual"
+        Topmost="True"
+        Opacity="0"
+        FontFamily="Microsoft YaHei UI, Segoe UI"
+        FontSize="14"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        Deactivated="OnDeactivated"
+        PreviewKeyDown="OnPreviewKeyDown">
+
+    <!--
+      Windows 11 风格的托盘右键菜单（参考 TranslucentTB 的 MenuFlyout 观感）。
+      做法与主界面一致：自绘 + 主题画刷（DynamicResource），因此**跟随应用的浅色/深色主题**，
+      而不是像系统原生菜单那样只跟随系统主题。
+
+      为什么不用 WinForms 的 ContextMenuStrip：那是 ToolStrip 渲染（方角、左侧图标栏、旧配色），
+      做不出圆角与亚克力；也不能用系统原生菜单，因为原生菜单的颜色由系统决定，
+      与本应用的「深色模式」开关不同步。
+    -->
+    <Window.Resources>
+        <!-- 菜单项：整行可点、圆角高亮、文本左对齐（对齐到勾选列之后） -->
+        <Style x:Key="MenuItemStyle" TargetType="Button">
+            <Setter Property="Height" Value="36" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Cursor" Value="Arrow" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="4"
+                                Padding="8,0,12,0">
+                            <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ControlHoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ControlPressedBrush}" />
+                            </Trigger>
+                            <!-- 键盘上下键移动焦点时也要有高亮，否则看不出选中了哪一项 -->
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ControlHoverBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="MenuSeparatorStyle" TargetType="Border">
+            <Setter Property="Height" Value="1" />
+            <Setter Property="Margin" Value="10,4,10,4" />
+            <Setter Property="Background" Value="{DynamicResource CardBorderBrush}" />
+        </Style>
+    </Window.Resources>
+
+    <!--
+      Margin 是给投影留的空间：AllowsTransparency 的窗口没有系统阴影，
+      投影由 Border 上的 CardShadow 提供，留不出边距就会被窗口边界裁掉。
+    -->
+    <Border x:Name="Root"
+            Margin="12"
+            MinWidth="196"
+            Background="{DynamicResource PopupSurfaceBrush}"
+            BorderBrush="{DynamicResource DialogBorderBrush}"
+            BorderThickness="1"
+            CornerRadius="8"
+            Padding="4"
+            Effect="{DynamicResource CardShadow}">
+        <Border.RenderTransform>
+            <TranslateTransform x:Name="Slide" />
+        </Border.RenderTransform>
+
+        <StackPanel>
+            <Button x:Name="ShowItem" Style="{StaticResource MenuItemStyle}" Click="OnShowClick">
+                <!-- 左侧留 24 与勾选列对齐，所有菜单项文字才会齐平 -->
+                <TextBlock Margin="24,0,0,0" Text="显示主窗口" VerticalAlignment="Center" />
+            </Button>
+
+            <Button x:Name="ToggleItem" Style="{StaticResource MenuItemStyle}" Click="OnToggleClick">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="24" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="ToggleCheck"
+                               Grid.Column="0"
+                               Text="✓"
+                               FontSize="15"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource AccentBrush}"
+                               Visibility="Collapsed" />
+                    <TextBlock Grid.Column="1"
+                               Text="开关音频处理"
+                               VerticalAlignment="Center" />
+                </Grid>
+            </Button>
+
+            <Border Style="{StaticResource MenuSeparatorStyle}" />
+
+            <Button x:Name="ExitItem" Style="{StaticResource MenuItemStyle}" Click="OnExitClick">
+                <TextBlock Margin="24,0,0,0" Text="退出 MateMic" VerticalAlignment="Center" />
+            </Button>
+        </StackPanel>
+    </Border>
+</Window>

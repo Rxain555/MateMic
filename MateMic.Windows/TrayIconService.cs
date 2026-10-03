@@ -10,37 +10,37 @@ namespace MateMic.Windows;
 /// System.Windows.Forms 与 System.Windows 造成的类型歧义。
 /// 图标使用嵌入的 Assets\appicon.ico，与程序 exe 图标是同一份。
 ///
-/// 菜单外观：**刻意使用系统默认渲染**。
-/// 之前尝试过自绘（浅色圆角高亮 + 无图标栏），实际显示有 bug（背景出现两层），
-/// 而托盘菜单属于"能用、熟悉"优先级高于"好看"的地方，因此退回系统默认外观，
-/// 只保留文案调整。将来若要美化，应引入成熟库（如 MaterialSkin）而不是再手写渲染器。
+/// 菜单：**本类不再负责菜单外观**。右键只上报 <see cref="MenuRequested"/>，
+/// 由 WPF 侧自绘 Windows 11 风格的菜单（<c>Ui\TrayMenuWindow</c>）。
+/// 早先用 WinForms 的 <c>ContextMenuStrip</c>（ToolStrip 渲染：方角、左侧图标栏、
+/// 旧配色），既做不出圆角/亚克力，也跟不上应用的深色模式；自绘渲染器又出过
+/// "两层背景"的 bug，因此改为把菜单做进 WPF 那一侧（那边本来就有完整的主题体系）。
 /// </summary>
 public sealed class TrayIconService : IDisposable
 {
     private NotifyIcon? _icon;
 
+    /// <summary>要求显示主窗口（双击托盘图标）。</summary>
     public event EventHandler? ShowRequested;
-    public event EventHandler? ToggleProcessingRequested;
-    public event EventHandler? ExitRequested;
+
+    /// <summary>右键点了托盘图标：请求弹出菜单（位置由 WPF 侧取当前光标）。</summary>
+    public event EventHandler? MenuRequested;
 
     public void Show(string tooltip)
     {
         if (_icon != null) return;
-
-        var menu = new ContextMenuStrip();
-        menu.Items.Add("显示主窗口", null, (_, _) => ShowRequested?.Invoke(this, EventArgs.Empty));
-        menu.Items.Add("开关音频处理", null, (_, _) => ToggleProcessingRequested?.Invoke(this, EventArgs.Empty));
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("退出 MateMic", null, (_, _) => ExitRequested?.Invoke(this, EventArgs.Empty));
 
         _icon = new NotifyIcon
         {
             Icon = LoadIcon(),
             Text = tooltip.Length > 62 ? tooltip[..62] : tooltip,
             Visible = true,
-            ContextMenuStrip = menu,
         };
         _icon.DoubleClick += (_, _) => ShowRequested?.Invoke(this, EventArgs.Empty);
+        _icon.MouseUp += (_, e) =>
+        {
+            if (e.Button == MouseButtons.Right) MenuRequested?.Invoke(this, EventArgs.Empty);
+        };
     }
 
     /// <summary>从嵌入资源读取图标；资源缺失时退回运行时绘制的兜底图标。</summary>
