@@ -36,6 +36,10 @@ internal static class ScreenCapture
     [DllImport("user32.dll")]
     private static extern IntPtr GetWindowDC(IntPtr hwnd);
 
+    /// <summary>取桌面 DC（hwnd 传 IntPtr.Zero）：分层窗口只能从这里抓。</summary>
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetDC(IntPtr hwnd);
+
     [DllImport("user32.dll")]
     private static extern int ReleaseDC(IntPtr hwnd, IntPtr hdc);
 
@@ -75,6 +79,8 @@ internal static class ScreenCapture
     /// 抓取窗口在屏幕上的合成结果并保存为 PNG。
     /// <param name="mode">
     /// <c>screen</c>（默认）= 从窗口 DC 取"屏幕上已合成的像素"，能看到亚克力材质；
+    /// <c>desktop</c> = 从桌面 DC 取同一区域：**分层窗口（AllowsTransparency=True，例如自绘菜单）
+    /// 必须用这个模式**——那种窗口不往自己的窗口 DC 上画，抓出来会是全透明；
     /// <c>frame</c> = 让窗口自己绘制（PrintWindow），**标题栏的最小化/关闭按钮在这条路径下一定会被画出来**，
     /// 用于核对"系统按钮到底有没有显示"——屏幕抓取时它们可能因为不被重绘而缺失。
     /// </param>
@@ -116,6 +122,7 @@ internal static class ScreenCapture
             return false;
         }
 
+        var fromDesktop = false;
         var windowDc = IntPtr.Zero;
         var memoryDc = IntPtr.Zero;
         var bitmap = IntPtr.Zero;
@@ -124,10 +131,11 @@ internal static class ScreenCapture
         {
             // 用窗口 DC 作为来源：BitBlt 从它取像素时，得到的是屏幕上该区域
             // 已经合成好的内容，因此能看到亚克力/圆角/投影的真实效果。
-            windowDc = GetWindowDC(hwnd);
+            fromDesktop = mode.Equals("desktop", StringComparison.OrdinalIgnoreCase);
+            windowDc = fromDesktop ? GetDC(IntPtr.Zero) : GetWindowDC(hwnd);
             if (windowDc == IntPtr.Zero)
             {
-                Log.Warn("屏幕自检：GetWindowDC 失败。");
+                Log.Warn("屏幕自检：取窗口/桌面 DC 失败。");
                 return false;
             }
 
@@ -151,7 +159,9 @@ internal static class ScreenCapture
                     return false;
                 }
             }
-            else if (!BitBlt(memoryDc, 0, 0, width, height, windowDc, 0, 0, SRCCOPY | CAPTUREBLT))
+            // 桌面 DC 用的是屏幕坐标，要按窗口在屏幕上的位置取偏移
+            else if (!BitBlt(memoryDc, 0, 0, width, height, windowDc,
+                         fromDesktop ? rect.Left : 0, fromDesktop ? rect.Top : 0, SRCCOPY | CAPTUREBLT))
             {
                 Log.Warn("屏幕自检：BitBlt 失败。");
                 return false;
@@ -177,7 +187,7 @@ internal static class ScreenCapture
             if (previous != IntPtr.Zero && memoryDc != IntPtr.Zero) SelectObject(memoryDc, previous);
             if (bitmap != IntPtr.Zero) DeleteObject(bitmap);
             if (memoryDc != IntPtr.Zero) DeleteDC(memoryDc);
-            if (windowDc != IntPtr.Zero) ReleaseDC(hwnd, windowDc);
+            if (windowDc != IntPtr.Zero) ReleaseDC(fromDesktop ? IntPtr.Zero : hwnd, windowDc);
         }
     }
 }

@@ -171,6 +171,41 @@ public partial class App : Application
             };
             preview.Start();
         }
+
+        // 托盘菜单自检：MateMic.exe --traymenucheck <输出图片路径> [--dark]
+        // 打开自绘的托盘菜单（Ui\TrayMenuWindow）抓一张窗口图再退出。
+        // 用途：核对菜单的圆角、配色与勾选态在浅色/深色下是否都正常（--dark 强制深色主题）。
+        var menuCheck = ValueOf(args, "--traymenucheck");
+        if (menuCheck != null)
+        {
+            if (args.Contains("--dark", StringComparer.OrdinalIgnoreCase))
+            {
+                ThemeManager.Apply(Application.Current.Resources, dark: true,
+                    WindowEffects.IsAcrylicActive);
+            }
+
+            var preview = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(150),
+            };
+            var tick = 0;
+            TrayMenuWindow? menu = null;
+            preview.Tick += (_, _) =>
+            {
+                // 菜单是 140ms 淡入动画，等动画走完再抓，否则抓到的是半透明的中间帧
+                if (tick == 1) menu = TrayMenuWindow.Open(processingEnabled: true);
+                if (++tick > 8)
+                {
+                    preview.Stop();
+                    // 菜单是分层窗口（AllowsTransparency=True），只能用 desktop 模式抓
+                    if (menu != null) ScreenCapture.CaptureWindow(menu, menuCheck, "desktop");
+                    try { menu?.Close(); } catch { /* 可能已在关闭流程中，忽略 */ }
+                    Shutdown();
+                    return;
+                }
+            };
+            preview.Start();
+        }
     }
 
     /// <summary>
