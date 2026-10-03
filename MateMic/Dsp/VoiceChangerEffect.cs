@@ -8,12 +8,15 @@ namespace MateMic.Dsp;
 /// 变声（DSP 层）：**变调 + 共振峰独立搬移 + 干湿比**。
 ///
 /// 用 Signalsmith Stretch（官方 MIT；C# 包装 `SignalsmithStretch-CS`，自带 win-x64 原生库约 136 KB）。
-/// 选它的实测依据（见 `tools\dev\StretchProbe`）：
-///   · 变调偏差 ±7 音分内；
-///   · **共振峰可独立搬移** —— 只动共振峰时基频完全不动（这是自研 PSOLA 与
-///     SmbPitchShifter 都做不到的：前者音高未收敛，后者共振峰跟着音高跑 → "只是变了个音"）；
-///   · CPU 仅占实时预算约 0.9%（SmbPitchShifter 约 5.5%）；
-///   · 延迟约等于内部块长，取 960 样本（20 ms），比 SmbPitchShifter 固有的约 37 ms 更低。
+/// 实测结论（`tools\dev\StretchProbe`）：
+///   · **变调与共振峰互不干扰** —— 用纯正弦 + DFT 主频测：变调 +6 时无论共振峰取 0/+4/−4，
+///     主频都是 +6.1 半音；而共振峰取 +4 且变调为 0 时主频完全不动。
+///     （早先"两者会互相干扰"的结论是**测试信号造成的假象**：脉冲串经非线性频率映射后
+///      不再是谐波信号，自相关测频随即失效。判据错了，不是库错了。）
+///   · 变调偏差 ±7 音分内；CPU 约 0.9% 实时预算；延迟约等于内部块长。
+///
+/// 块长的取舍：块越小延迟越低、但频率分辨率越差、音质越"怪"。
+/// 这里取 **2880 样本（60 ms）**：延迟与音质的折中（默认预设是 5760/120 ms，音质最好但延迟大）。
 ///
 /// ⚠ **调用顺序坑（实测）**：必须先调一次预设，再 `Configure` 改块长。
 ///   单独 `Configure`（不先调预设）会得到近乎静音的输出（实测 RMS 0.008、音高测量 2570 音分）。
@@ -25,8 +28,8 @@ public sealed class VoiceChangerEffect : IAudioEffect
     /// <summary>回调块长上限，与 DynamicChain 的 scratch 一致。</summary>
     private const int MaxBlock = 8192;
 
-    /// <summary>内部块长（48 kHz 下 960 样本 = 20 ms）。延迟与质量的实际折中点。</summary>
-    private const int InternalBlockSamples = 960;
+    /// <summary>内部块长（48 kHz 下 2880 样本 = 60 ms）。延迟与音质的折中点。</summary>
+    private const int InternalBlockSamples = 2880;
 
     private readonly VoiceChangerSettings _settings;
     private readonly Stretch _stretch;
@@ -79,6 +82,7 @@ public sealed class VoiceChangerEffect : IAudioEffect
         if (!pitchActive && !formantActive) return buffer.Length;
 
         var mix = Math.Clamp(_settings.Mix, 0f, 100f) / 100f;
+        if (mix < 0.999f) work.CopyTo(_dry);   // 干湿比要混回去，原声先留一份
 
         // 参数有变化时才调原生库（在音频线程上调，避免与 Process 竞争）
         if (semitones != _appliedSemitones)
@@ -89,12 +93,10 @@ public sealed class VoiceChangerEffect : IAudioEffect
 
         if (formant != _appliedFormant)
         {
-            // compensatePitch = true：搬共振峰时补偿音高，保证"只动共振峰"
+            // compensatePitch = true：搬共振峰时补偿音高，实测不会影响已设定的变调量
             _stretch.SetFormantSemitones(formant, true);
             _appliedFormant = formant;
         }
-
-        if (mix < 0.999f) work.CopyTo(_dry);   // 干湿比要混回去，原声先留一份
 
         work.CopyTo(_input);
         _stretch.Process(_input.AsSpan(0, count), _output.AsSpan(0, count));
