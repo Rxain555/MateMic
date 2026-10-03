@@ -84,10 +84,10 @@ public sealed class ToneSettings
 public sealed class VoiceChangerSettings
 {
     /// <summary>变调量（半音）。男→女约 +5~7，女→男约 −5~7。</summary>
-    public float Semitones { get; set; } = 5f;
+    public float Semitones { get; set; } = 6f;
 
-    /// <summary>音色偏移 −50~+50：正值更亮更"细"，负值更暗更"厚"。</summary>
-    public float Timbre { get; set; }
+    /// <summary>共振峰偏移（半音）：正值更"细/年轻"，负值更"厚/低沉"。这是真正的共振峰搬移。</summary>
+    public float FormantSemitones { get; set; }
 
     /// <summary>干湿比 0~100：0 = 完全原声，100 = 完全变声。</summary>
     public float Mix { get; set; } = 100f;

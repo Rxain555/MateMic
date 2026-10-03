@@ -28,6 +28,8 @@
     <ProjectReference Include="..\MateMic.Windows\MateMic.Windows.csproj" />
     <PackageReference Include="NAudio" Version="3.1.0" />
     <PackageReference Include="NWaves" Version="0.9.5" />
+    <!-- 变声：变调 + 共振峰独立搬移（MIT；自带 win-x64 原生库约 136 KB） -->
+    <PackageReference Include="SignalsmithStretch-CS" Version="1.1.2" />
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.20.1" />
   </ItemGroup>
 

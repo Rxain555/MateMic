@@ -481,7 +481,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             GainSlider.Value = _config.Gain.GainDb;
             ToggleVoiceChanger.IsChecked = _config.VoiceChanger.Enabled;
             VoicePitchSlider.Value = _config.VoiceChanger.Semitones;
-            VoiceTimbreSlider.Value = _config.VoiceChanger.Timbre;
+            VoiceFormantSlider.Value = _config.VoiceChanger.FormantSemitones;
             VoiceMixSlider.Value = _config.VoiceChanger.Mix;
 
             ToggleAudioMonitor.IsChecked = _config.Player.AudioMonitor;
@@ -1421,8 +1421,8 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             case "VoiceSemitones":
                 _config.VoiceChanger.Semitones = value;
                 break;
-            case "VoiceTimbre":
-                _config.VoiceChanger.Timbre = value;
+            case "VoiceFormantSemitones":
+                _config.VoiceChanger.FormantSemitones = value;
                 break;
             case "VoiceMix":
                 _config.VoiceChanger.Mix = value;
@@ -1630,12 +1630,12 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         // 变调量是主要手段，音色偏移做辅助：+ 提亮、− 压暗
         var (semitones, timbre) = tag switch
         {
-            "FemaleToMale" => (-5f, -20f),
-            _ => (6f, 22f),
+            "FemaleToMale" => (-5f, -4f),
+            _ => (6f, 4f),
         };
 
         VoicePitchSlider.Value = semitones;
-        VoiceTimbreSlider.Value = timbre;
+        VoiceFormantSlider.Value = timbre;
     }
 
     private void OnUsageGuideClick(object sender, RoutedEventArgs e)

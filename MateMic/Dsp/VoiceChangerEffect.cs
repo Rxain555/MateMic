@@ -1,53 +1,50 @@
-using NAudio.Effects;
 using NAudio.Wave;
 using MateMic.Core;
+using Signalsmith;
 
 namespace MateMic.Dsp;
 
 /// <summary>
-/// 变声（DSP 层）：**变调 + 音色倾斜 + 干湿比**。
+/// 变声（DSP 层）：**变调 + 共振峰独立搬移 + 干湿比**。
 ///
-/// 位置：AI 降噪**之后**（见 <c>AudioEngine.UpdateAllParameters</c> 的链路顺序）——
-/// 先得到干净语音，再做音色变换；噪声会显著影响变调与音色处理的质量。
+/// 用 Signalsmith Stretch（官方 MIT；C# 包装 `SignalsmithStretch-CS`，自带 win-x64 原生库约 136 KB）。
+/// 选它的实测依据（见 `tools\dev\StretchProbe`）：
+///   · 变调偏差 ±7 音分内；
+///   · **共振峰可独立搬移** —— 只动共振峰时基频完全不动（这是自研 PSOLA 与
+///     SmbPitchShifter 都做不到的：前者音高未收敛，后者共振峰跟着音高跑 → "只是变了个音"）；
+///   · CPU 仅占实时预算约 0.9%（SmbPitchShifter 约 5.5%）；
+///   · 延迟约等于内部块长，取 960 样本（20 ms），比 SmbPitchShifter 固有的约 37 ms 更低。
 ///
-/// 设计取向：
-///   · **零模型、零下载、零延迟代价**（除了变调器自身的约 40 ms 固有延迟）；
-///   · 因此它是"装完即用"的那一层兜底，也是将来 AI 变声模块的**地基**
-///     （音高检测 / 变调 / 分块流式三者共用）；
-///   · 只做两个真正有用的方向（男→女、女→男）+ 三个滑条，不做花哨预设
-///     （机器人 / 电话音这类"特效"不属于变声，属于效果器，用户已明确不要）。
+/// ⚠ **调用顺序坑（实测）**：必须先调一次预设，再 `Configure` 改块长。
+///   单独 `Configure`（不先调预设）会得到近乎静音的输出（实测 RMS 0.008、音高测量 2570 音分）。
 ///
-/// ⚠ 诚实的边界：这里的「音色」是**频谱倾斜**（低架 + 2.6 kHz 存在感 + 高架），
-/// 不是真正的**共振峰搬移**。只搬音高会得到"花栗鼠/怪兽"听感，加一点频谱倾斜能明显改善，
-/// 但要做得像"换了个体型"，需要真正的共振峰搬移（重采样 + 反向变调补偿）——列为下一步。
+/// 位置：AI 降噪**之后**（先拿到干净语音再做音色变换）。
 /// </summary>
 public sealed class VoiceChangerEffect : IAudioEffect
 {
-    /// <summary>回调块长上限，与 DynamicChain 的 scratch 一致；超出部分本模块不处理（引擎不会给这么大）。</summary>
+    /// <summary>回调块长上限，与 DynamicChain 的 scratch 一致。</summary>
     private const int MaxBlock = 8192;
 
+    /// <summary>内部块长（48 kHz 下 960 样本 = 20 ms）。延迟与质量的实际折中点。</summary>
+    private const int InternalBlockSamples = 960;
+
     private readonly VoiceChangerSettings _settings;
-    private readonly PitchShifter _shifter;
+    private readonly Stretch _stretch;
     private readonly float[] _dry = new float[MaxBlock];
-    private readonly NAudio.Effects.Equalizer _timbre;
-    private readonly EqualizerBand[] _bands;
+    private readonly float[] _input = new float[MaxBlock];
+    private readonly float[] _output = new float[MaxBlock];
+
+    private float _appliedSemitones = float.NaN;
+    private float _appliedFormant = float.NaN;
 
     public VoiceChangerEffect(WaveFormat format, VoiceChangerSettings settings)
     {
         WaveFormat = format;
         _settings = settings;
-        _shifter = new PitchShifter(format.SampleRate);
 
-        _bands = new[]
-        {
-            EqualizerBand.LowShelf(320f, 0.7f, 0f),      // 厚度
-            EqualizerBand.Peaking(2600f, 1.0f, 0f),      // 存在感（"年轻/明亮"最敏感的一段）
-            EqualizerBand.HighShelf(5200f, 0.7f, 0f),    // 空气感
-        };
-        _timbre = new NAudio.Effects.Equalizer(_bands);
-        _timbre.Configure(format);
-
-        UpdateParameters();
+        _stretch = new Stretch();
+        _stretch.PresetDefault(1, format.SampleRate, false);   // 见类注释：必须先预设
+        _stretch.Configure(1, InternalBlockSamples, InternalBlockSamples / 4, false);
     }
 
     public string Name => "变声";
@@ -56,16 +53,16 @@ public sealed class VoiceChangerEffect : IAudioEffect
 
     public WaveFormat WaveFormat { get; }
 
+    /// <summary>本模块引入的额外延迟（毫秒）。诊断用。</summary>
+    public double LatencyMs
+        => (_stretch.InputLatency() + _stretch.OutputLatency()) * 1000.0 / WaveFormat.SampleRate;
+
+    /// <summary>
+    /// 参数写入点在音频线程（见 <see cref="Read"/>）：原生库不是线程安全的，
+    /// 不能从 UI 线程直接调它的 Set* 方法。这里刻意留空。
+    /// </summary>
     public void UpdateParameters()
     {
-        _shifter.Semitones = Math.Clamp(_settings.Semitones, -12f, 12f);
-
-        // 音色：把 −50~+50 映射成 −1~+1，再分配到三个频段
-        var t = Math.Clamp(_settings.Timbre, -50f, 50f) / 50f;
-        _bands[0].GainDb = -3f * t;
-        _bands[1].GainDb = 5f * t;
-        _bands[2].GainDb = 4f * t;
-        _timbre.Update();
     }
 
     public int Read(Span<float> buffer)
@@ -75,17 +72,33 @@ public sealed class VoiceChangerEffect : IAudioEffect
         var count = Math.Min(buffer.Length, MaxBlock);
         var work = buffer[..count];
 
-        var pitchActive = Math.Abs(_settings.Semitones) > 0.01f;
-        var timbreActive = Math.Abs(_settings.Timbre) > 0.5f;
+        var semitones = Math.Clamp(_settings.Semitones, -12f, 12f);
+        var formant = Math.Clamp(_settings.FormantSemitones, -12f, 12f);
+        var pitchActive = Math.Abs(semitones) > 0.01f;
+        var formantActive = Math.Abs(formant) > 0.01f;
+        if (!pitchActive && !formantActive) return buffer.Length;
+
         var mix = Math.Clamp(_settings.Mix, 0f, 100f) / 100f;
 
-        if (!pitchActive && !timbreActive) return buffer.Length;
+        // 参数有变化时才调原生库（在音频线程上调，避免与 Process 竞争）
+        if (semitones != _appliedSemitones)
+        {
+            _stretch.SetTransposeSemitones(semitones, 0f);
+            _appliedSemitones = semitones;
+        }
 
-        // 干声要先留一份：变调器是就地处理的，混音时原声已经没了
-        if (mix < 0.999f) work.CopyTo(_dry);
+        if (formant != _appliedFormant)
+        {
+            // compensatePitch = true：搬共振峰时补偿音高，保证"只动共振峰"
+            _stretch.SetFormantSemitones(formant, true);
+            _appliedFormant = formant;
+        }
 
-        if (pitchActive) _shifter.Process(work);
-        if (timbreActive) _timbre.Process(work);
+        if (mix < 0.999f) work.CopyTo(_dry);   // 干湿比要混回去，原声先留一份
+
+        work.CopyTo(_input);
+        _stretch.Process(_input.AsSpan(0, count), _output.AsSpan(0, count));
+        _output.AsSpan(0, count).CopyTo(work);
 
         if (mix < 0.999f)
         {

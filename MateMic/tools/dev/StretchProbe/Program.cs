@@ -113,3 +113,84 @@ static float Measure(float[] samples, int sampleRate)
 
     return 0f;
 }
+
+// 组合验证：男→女预设实际使用的 (+6 半音变调, +4 半音共振峰) 同时生效时的表现
+{
+    using var stretch = new Stretch();
+    stretch.PresetDefault(1, 48000, false);
+    stretch.Configure(1, 960, 240, false);
+    // compensatePitch 的语义要实测确认：true 时它会**抵消变调**（实测 +6 变调 + 4 共振峰
+    // 只升了约 1.3 个半音），所以两种取值都测一遍，取"变调准确 + 共振峰也动了"的那个。
+    foreach (var compensate in new[] { true, false })
+    {
+        using var s2 = new Stretch();
+        s2.PresetDefault(1, 48000, false);
+        s2.Configure(1, 960, 240, false);
+        // 顺序假设：SetFormantSemitones 可能覆盖先前的变调设置，试试先设共振峰、再设变调。
+        s2.SetFormantSemitones(4f, compensate);
+        s2.SetTransposeSemitones(6f, 0f);
+
+        var input = PulseThroughResonator(120, 700, 48000);
+        var output = new float[input.Length];
+        for (var offset = 0; offset + 480 <= input.Length; offset += 480)
+            s2.Process(input.AsSpan(offset, 480), output.AsSpan(offset, 480));
+
+        var slice = output.AsSpan(24000, 20480).ToArray();
+        var pitch = Measure(slice, 48000);
+        var expectedPitch = 120 * Math.Pow(2, 6.0 / 12);
+        var expectedFormant = 700 * Math.Pow(2, 4.0 / 12);
+        Console.WriteLine($"[组合/共振峰先设] compensatePitch={compensate,-5} +6 变调 +4 共振峰 → "
+                          + $"基频 {pitch,6:0.0} Hz（期望 {expectedPitch,6:0.0}）"
+                          + $"  包络峰 {EnvelopePeak(slice, 48000),6:0} Hz（期望约 {expectedFormant,6:0}）");
+    }
+}
+
+static float[] PulseThroughResonator(double hz, double formantHz, int length)
+{
+    var samples = new float[length];
+    const double r = 0.985;
+    var w = 2 * Math.PI * formantHz / 48000;
+    var a1 = 2 * r * Math.Cos(w);
+    var a2 = -r * r;
+    double y1 = 0, y2 = 0;
+    var period = (int)Math.Round(48000 / hz);
+    for (var i = 0; i < length; i++)
+    {
+        var pulse = i % period == 0 ? 1.0 : 0.0;
+        var y = pulse + a1 * y1 + a2 * y2;
+        y2 = y1;
+        y1 = y;
+        samples[i] = (float)(0.05 * y);
+    }
+
+    return samples;
+}
+
+static float EnvelopePeak(float[] samples, int sampleRate)
+{
+    const int step = 20;
+    var mags = new double[4000 / step + 1];
+    for (var hz = 200; hz <= 4000; hz += step)
+    {
+        double re = 0, im = 0;
+        for (var i = 0; i < samples.Length; i++)
+        {
+            var phase = 2 * Math.PI * hz * i / sampleRate;
+            re += samples[i] * Math.Cos(phase);
+            im += samples[i] * Math.Sin(phase);
+        }
+
+        mags[hz / step] = Math.Sqrt(re * re + im * im);
+    }
+
+    var best = 0.0;
+    var bestHz = 0;
+    for (var k = 3; k < mags.Length - 3; k++)
+    {
+        double sum = 0;
+        for (var j = -3; j <= 3; j++) sum += mags[k + j];
+        if (sum > best) { best = sum; bestHz = k * step; }
+    }
+
+    return bestHz;
+}
