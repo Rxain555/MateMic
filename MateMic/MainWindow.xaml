@@ -7,7 +7,7 @@
         mc:Ignorable="d"
         Title="MateMic" Height="800" Width="1180"
         WindowStyle="None"
-        ResizeMode="NoResize"
+        ResizeMode="CanMinimize"
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource WindowBrush}"
         FontFamily="Microsoft YaHei UI, Segoe UI" FontSize="12"
@@ -25,6 +25,11 @@
       因此改为：标题栏由我们自己画，只画「最小化 + 关闭」两个按钮，行为精确可控。
       CaptionHeight 给 0：拖动区域由标题栏那一行自己承担（MouseLeftButtonDown 调 DragMove），
       不需要系统再介入，避免与自定义按钮抢命中测试。
+
+      ⚠ ResizeMode 必须留在 CanMinimize（**不能**改回 NoResize）：
+      NoResize 会把 WS_MINIMIZEBOX 一起清掉，于是**点任务栏按钮无法最小化、也没有最小化/还原动画**
+      （2026-10-03 用户报的第二个问题就是这个）。CanMinimize = 有最小化、无最大化、不可拉伸，
+      正好是我们想要的。窗口样式位的自检见 WindowEffects.LogCaptionButtonState。
     -->
     <shell:WindowChrome.WindowChrome>
         <shell:WindowChrome CaptionHeight="0" ResizeBorderThickness="0" CornerRadius="0"

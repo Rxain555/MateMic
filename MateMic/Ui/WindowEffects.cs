@@ -233,14 +233,15 @@ public static class WindowEffects
     }
 
     /// <summary>
-    /// 记录窗口自身的按钮样式位。
+    /// 记录并核对窗口自身的按钮样式位。
     ///
-    /// 标题栏现在是**自绘**的（MainWindow.xaml 用 WindowChrome + WindowStyle=None），
-    /// 只画「最小化 + 关闭」——最大化按钮在 UI 上根本不存在，
-    /// 因此这里不再要求 WS_MINIMIZEBOX（自绘标题栏的窗口本来就没有系统按钮），
-    /// 但仍然核对两条底线：
-    ///   · 窗口不可最大化（WS_MAXIMIZEBOX 未设置）——固定尺寸的前提；
-    ///   · 系统标题栏已关闭（WS_CAPTION 未设置）——否则会出现"两层标题栏"。
+    /// 标题栏是**自绘**的（MainWindow.xaml 用 WindowChrome + WindowStyle=None），
+    /// 但样式位依然要紧 —— 它决定**任务栏按钮**能不能最小化这个窗口：
+    ///   · `WS_MINIMIZEBOX` **必须有**（XAML 里 `ResizeMode="CanMinimize"` 才会有）。
+    ///     少了它，点任务栏图标既不会最小化、也没有最小化/还原的缩放动画
+    ///     （2026-10-03 用户报的第二个问题就是这个）；
+    ///   · `WS_MAXIMIZEBOX` 必须没有 —— 固定尺寸的前提；
+    ///   · `WS_CAPTION` 必须没有 —— 否则会出现"两层标题栏"。
     /// </summary>
     public static void LogCaptionButtonState(Window window)
     {
@@ -255,14 +256,21 @@ public static class WindowEffects
 
             var style = GetWindowStyle(hwnd);
             var hasCaption = (style & WsCaption) == WsCaption;
+            var hasMinimize = (style & WsMinimizeBox) != 0;
             var hasMaximize = (style & WsMaximizeBox) != 0;
             var resizable = (style & WsThickFrame) != 0;
 
             Log.Info($"窗口样式自检：系统标题栏={hasCaption}（应为 False，标题栏是自绘的），" +
+                     $"最小化按钮={hasMinimize}（应为 True，任务栏点击最小化靠它），" +
                      $"最大化按钮={hasMaximize}（应为 False），可拉伸边框={resizable}（应为 False）");
 
             if (hasMaximize) Log.Warn("窗口样式自检：窗口仍可最大化，与「固定尺寸」的设定不符。");
             if (hasCaption) Log.Warn("窗口样式自检：系统标题栏仍然存在，会出现两层标题栏。");
+            if (!hasMinimize)
+            {
+                Log.Warn("窗口样式自检：缺少 WS_MINIMIZEBOX —— 点任务栏按钮将无法最小化，" +
+                         "也没有最小化/还原动画（MainWindow.xaml 的 ResizeMode 应为 CanMinimize）。");
+            }
         }
         catch (Exception ex)
         {
