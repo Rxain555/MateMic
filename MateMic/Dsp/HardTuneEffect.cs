@@ -20,7 +20,7 @@ public enum TuneScale
 /// <summary>
 /// 硬调音（Hard-tune / 电音）：唱歌时那种"电子化人声"。
 ///
-/// ⚠️ 当前状态：**未完成，默认不启用变调**。
+    /// 变调由 <see cref="PitchShifter"/>（NAudio 的 SmbPitchShifter，Bernsee 经典算法）完成，
 /// 基频检测（<see cref="PitchDetector"/>）与音阶吸附已正确工作（自检可验证），
 /// 但相位声码器变调内核（<see cref="Denoise.PhaseVocoderStretcher"/>）尚未调通，
 /// 因此这里只在检测/吸附层工作，不施加音高移动——避免产出错误音高。
@@ -141,13 +141,26 @@ public sealed class HardTuneEffect
         var wanted = detected > 0 ? _targetPitch - referenceMidi : 0.0;
 
         // 4) 吸附速度：RetuneSpeed 越大逼近越快（越大越"电"）
+        //
+        // ⚠ 系数必须按**时长**算，不能按"每块固定比例"算：
+        //   旧实现用固定系数 0.015 + speed*0.42（每块逼近 39%），在 480 样本块（10 ms）下
+        //   等价于 20 ms 的时间常数 —— 变调量在极短时间内跳变，而变调器内部是按帧重建的，
+        //   读取位置跟着跳，听感就是"声音一顿一顿、不连续"（2026-10-03 用户实测反馈）。
+        //   改成时间常数后还有两个附带好处：
+        //     · 换块长行为不变（旧实现在不同回调块长下表现不同）；
+        //     · 最激进也只有约 25 ms，仍然"电"，但不再撕裂。
         var speed = Math.Clamp(RetuneSpeed, 0f, 100f) / 100f;
-        var coefficient = 0.015f + speed * 0.42f;
+        var blockMs = length * 1000.0 / sampleRate;
+        var tauMs = 25.0 + (1.0 - speed) * 95.0;          // 25 ms（最电）… 120 ms（最自然）
+        var coefficient = 1.0 - Math.Exp(-blockMs / tauMs);
         _appliedSemitones += (wanted - _appliedSemitones) * coefficient;
         _appliedSemitones = Math.Clamp(_appliedSemitones, -12, 12);
 
         // 5) 变调（相位声码器，见 Dsp/PitchShifter.cs）
-        if (EnablePitchShift && _shifter != null && Math.Abs(_appliedSemitones) > 0.01)
+        // 变调器**常驻运行**（即使变调量接近 0）：
+        // 按阈值开关它会让内部的相位/FIFO 状态断掉，重新打开时就是一声轻响。
+        // 代价是电音开启期间一直付约 5.5% 的实时预算，换来彻底连续的输出。
+        if (EnablePitchShift && _shifter != null)
         {
             _shifter.Semitones = (float)_appliedSemitones;
             _shifter.Process(buffer);

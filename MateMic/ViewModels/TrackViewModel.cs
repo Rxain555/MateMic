@@ -24,7 +24,7 @@ public sealed class TrackViewModel : INotifyPropertyChanged
     private const double MinimumButtonWidth = 46 + ButtonChromeWidth + WidthSafetyMargin;
 
     private static readonly Typeface ButtonTypeface = new(
-        new FontFamily("Microsoft YaHei UI, Segoe UI"),
+        new FontFamily("/Assets/Fonts/#MiSans Light, Microsoft YaHei UI, Segoe UI"),
         FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
 
     private string _hotkey = string.Empty;

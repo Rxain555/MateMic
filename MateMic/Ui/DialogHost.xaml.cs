@@ -42,7 +42,7 @@ public sealed class DialogHost : Window
         ShowInTaskbar = false;
         SizeToContent = SizeToContent.WidthAndHeight;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        FontFamily = new FontFamily("Microsoft YaHei UI, Segoe UI");
+        FontFamily = ResolveUiFont();
         FontSize = 12;
 
         // 无边框窗口本身是矩形的：把窗口背景做成透明，圆角才真的圆
@@ -89,7 +89,51 @@ public sealed class DialogHost : Window
         };
 
         PreviewKeyDown += OnPreviewKeyDown;
+
     }
+
+    /// <summary>
+    /// 解析界面字体：① App 资源里的 AppFont（主界面用的同一个）→ ② 程序集内嵌的 pack URI → ③ 系统字体。
+    ///
+    /// ⚠ 为什么不能只写相对 URI：**在代码里构造 <see cref="FontFamily"/> 时没有 XAML 的基 URI**，
+    /// "/Assets/Fonts/#MiSans Light" 这种相对路径解析不了，WPF 会**静默**回落到系统字体 ——
+    /// 表现就是"主界面字体换了、弹窗没换"（2026-10-03 用户实测发现）。
+    /// 因此这里改用绝对 pack URI，并把最终用到的字体写进日志，以后不必靠肉眼判断。
+    /// </summary>
+    private static FontFamily ResolveUiFont()
+    {
+        try
+        {
+            if (Application.Current?.TryFindResource("AppFont") is FontFamily fromResources
+                && fromResources.FamilyNames.Count > 0)
+            {
+                Core.Log.Info("对话框字体：使用 AppFont（MiSans）。");
+                return fromResources;
+            }
+        }
+        catch (Exception ex)
+        {
+            Core.Log.Warn("对话框字体：读取 AppFont 失败，改用内嵌字体。" + ex.Message);
+        }
+
+        try
+        {
+            var embedded = new FontFamily("pack://application:,,,/Assets/Fonts/#MiSans Light");
+            if (embedded.FamilyNames.Count > 0)
+            {
+                Core.Log.Info("对话框字体：使用内嵌 MiSans。");
+                return embedded;
+            }
+        }
+        catch (Exception ex)
+        {
+            Core.Log.Warn("对话框字体：加载内嵌字体失败，改用系统字体。" + ex.Message);
+        }
+
+        Core.Log.Warn("对话框字体：回退到系统字体（MiSans 不可用）。");
+        return new FontFamily("Microsoft YaHei UI, Segoe UI");
+    }
+
 
     /// <summary>单按钮提示：确定。</summary>
     public static void Info(Window? owner, string title, string message)

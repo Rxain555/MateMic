@@ -4,13 +4,14 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        xmlns:ui="clr-namespace:MateMic.Ui"
         mc:Ignorable="d"
         Title="MateMic" Height="800" Width="1180"
         WindowStyle="SingleBorderWindow"
         ResizeMode="CanMinimize"
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource WindowBrush}"
-        FontFamily="Microsoft YaHei UI, Segoe UI" FontSize="12"
+        FontFamily="{DynamicResource AppFont}" FontSize="12"
         UseLayoutRounding="True" SnapsToDevicePixels="True"
         Closing="OnClosing" StateChanged="OnStateChanged"
         SourceInitialized="OnSourceInitialized"
@@ -137,6 +138,15 @@
                                 Content="使用指南" Padding="8,3,8,3" Margin="0,0,6,0"
                                 Click="OnUsageGuideClick"
                                 ToolTip="Windows 声音设置、设备选择、MIXLINE 接法" />
+                        <!--
+                          关于：字体 / 降噪模型 / 第三方组件的署名与许可集中放这里。
+                          一是 MiSans 的授权要求"应在软件中特别注明"，
+                          二是用户自己放进 models\ 的模型，其许可与本程序无关，一并讲清楚。
+                        -->
+                        <Button x:Name="AboutButton" Style="{StaticResource ToolbarButton}"
+                                Content="关于" Padding="8,3,8,3" Margin="0,0,6,0"
+                                Click="OnAboutClick"
+                                ToolTip="字体、模型与第三方组件的署名与许可" />
                         <TextBlock x:Name="VersionText" Style="{StaticResource LabelText}"
                                    Text="v0.1.0" VerticalAlignment="Center" />
                     </StackPanel>
@@ -191,9 +201,8 @@
                 <DockPanel>
                     <TextBlock DockPanel.Dock="Top" Style="{StaticResource GroupTitle}" Text="音频处理链" />
 
-                    <!-- 左右不留内边距：右边的 4px 是给滚动条预留的，会让卡片左右不对称。
-                         滚动条按需覆盖在内容上方（Auto 模式的常规做法）。 -->
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,0,6">
+                    <!-- 覆盖式滚动条：滚动条浮在内容上方、不占布局列，因此出现时不会把卡片挤窄。 -->
+                    <ScrollViewer Style="{StaticResource OverlayScrollViewer}" ui:SmoothScroll.Enabled="True" Padding="0,0,0,6">
                         <StackPanel>
                             <!-- 噪声门 -->
                             <Border Style="{StaticResource Card}">
@@ -219,9 +228,17 @@
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="阈值" />
-                                            <Slider x:Name="GateThresholdSlider" Grid.Column="1"
-                                                    Style="{StaticResource FlatSlider}" Minimum="-80" Maximum="0"
-                                                    Value="-55" Tag="GateThreshold" ValueChanged="OnSliderChanged" />
+                                            <Grid Grid.Column="1">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="52" />
+                                                </Grid.ColumnDefinitions>
+                                                <Slider x:Name="GateThresholdSlider" Grid.Column="0" VerticalAlignment="Center"
+                                                        Style="{StaticResource FlatSlider}" Minimum="-80" Maximum="0"
+                                                        Value="-55" Tag="GateThreshold" ValueChanged="OnSliderChanged" />
+                                                <TextBlock Grid.Column="1" Style="{StaticResource SliderValueText}"
+                                                           Text="{Binding Value, ElementName=GateThresholdSlider, StringFormat='{}{0:0} dB'}" />
+                                            </Grid>
                                         </Grid>
                                         <Grid Margin="0,2,0,2">
                                             <Grid.ColumnDefinitions>
@@ -230,9 +247,17 @@
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" Style="{StaticResource LabelText}"
                                                        Text="释放时间" />
-                                            <Slider x:Name="GateReleaseSlider" Grid.Column="1"
-                                                    Style="{StaticResource FlatSlider}" Minimum="10" Maximum="600"
-                                                    Value="150" Tag="GateRelease" ValueChanged="OnSliderChanged" />
+                                            <Grid Grid.Column="1">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="52" />
+                                                </Grid.ColumnDefinitions>
+                                                <Slider x:Name="GateReleaseSlider" Grid.Column="0" VerticalAlignment="Center"
+                                                        Style="{StaticResource FlatSlider}" Minimum="10" Maximum="600"
+                                                        Value="150" Tag="GateRelease" ValueChanged="OnSliderChanged" />
+                                                <TextBlock Grid.Column="1" Style="{StaticResource SliderValueText}"
+                                                           Text="{Binding Value, ElementName=GateReleaseSlider, StringFormat='{}{0:0} ms'}" />
+                                            </Grid>
                                         </Grid>
                                     </StackPanel>
                                 </StackPanel>
@@ -285,9 +310,17 @@
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" Style="{StaticResource LabelText}"
                                                        Text="降噪强度" />
-                                            <Slider x:Name="DenoiseStrengthSlider" Grid.Column="1"
-                                                    Style="{StaticResource FlatSlider}" Minimum="0" Maximum="100"
-                                                    Value="100" Tag="DenoiseStrength" ValueChanged="OnSliderChanged" />
+                                            <Grid Grid.Column="1">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="52" />
+                                                </Grid.ColumnDefinitions>
+                                                <Slider x:Name="DenoiseStrengthSlider" Grid.Column="0" VerticalAlignment="Center"
+                                                        Style="{StaticResource FlatSlider}" Minimum="0" Maximum="100"
+                                                        Value="100" Tag="DenoiseStrength" ValueChanged="OnSliderChanged" />
+                                                <TextBlock Grid.Column="1" Style="{StaticResource SliderValueText}"
+                                                           Text="{Binding Value, ElementName=DenoiseStrengthSlider, StringFormat='{}{0:0}%'}" />
+                                            </Grid>
                                         </Grid>
                                         <Grid Margin="0,2,0,2">
                                             <Grid.ColumnDefinitions>
@@ -296,9 +329,82 @@
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" Style="{StaticResource LabelText}"
                                                        Text="干湿比" />
-                                            <Slider x:Name="DenoiseWetSlider" Grid.Column="1"
+                                            <Grid Grid.Column="1">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="52" />
+                                                </Grid.ColumnDefinitions>
+                                                <Slider x:Name="DenoiseWetSlider" Grid.Column="0" VerticalAlignment="Center"
+                                                        Style="{StaticResource FlatSlider}" Minimum="0" Maximum="100"
+                                                        Value="100" Tag="DenoiseWet" ValueChanged="OnSliderChanged" />
+                                                <TextBlock Grid.Column="1" Style="{StaticResource SliderValueText}"
+                                                           Text="{Binding Value, ElementName=DenoiseWetSlider, StringFormat='{}{0:0}%'}" />
+                                            </Grid>
+                                        </Grid>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 变声（DSP 层）：紧跟 AI 降噪之后。将来接 AI 变声时在同一张卡片里加模式切换 -->
+                            <Border Style="{StaticResource Card}">
+                                <StackPanel>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource SectionTitle}" Text="变声" />
+                                        <CheckBox x:Name="ToggleVoiceChanger" Grid.Column="1"
+                                                  Style="{StaticResource Switch}" Margin="0,0,8,0"
+                                                  Checked="OnEffectToggled" Unchecked="OnEffectToggled" />
+                                        <Button x:Name="ExpandVoiceChanger" Grid.Column="2"
+                                                Style="{StaticResource ExpanderButton}"
+                                                Click="OnExpandClick" Tag="{Binding VoiceChangerExpanded, RelativeSource={RelativeSource AncestorType=Window}}" />
+                                    </Grid>
+                                    <StackPanel x:Name="PanelVoiceChanger" Visibility="Collapsed" Margin="0,6,0,0">
+                                        <UniformGrid Columns="2" Margin="0,0,0,4">
+                                            <RadioButton Style="{StaticResource ChipToggle}" Content="男声→女声" Tag="MaleToFemale" Click="OnVoicePresetSelected" />
+                                            <RadioButton Style="{StaticResource ChipToggle}" Content="女声→男声" Tag="FemaleToMale" Click="OnVoicePresetSelected" />
+                                        </UniformGrid>
+                                        <Grid Margin="0,2,0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="60" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="52" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="变调" />
+                                            <Slider x:Name="VoicePitchSlider" Grid.Column="1" VerticalAlignment="Center"
+                                                    Style="{StaticResource FlatSlider}" Minimum="-12" Maximum="12"
+                                                    Value="5" Tag="VoiceSemitones" ValueChanged="OnSliderChanged" />
+                                            <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
+                                                       Text="{Binding Value, ElementName=VoicePitchSlider, StringFormat='{}{0:+0;-0;0} 半音'}" />
+                                        </Grid>
+                                        <Grid Margin="0,2,0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="60" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="52" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="音色" />
+                                            <Slider x:Name="VoiceTimbreSlider" Grid.Column="1" VerticalAlignment="Center"
+                                                    Style="{StaticResource FlatSlider}" Minimum="-50" Maximum="50"
+                                                    Value="0" Tag="VoiceTimbre" ValueChanged="OnSliderChanged" />
+                                            <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
+                                                       Text="{Binding Value, ElementName=VoiceTimbreSlider, StringFormat='{}{0:+0;-0;0}'}" />
+                                        </Grid>
+                                        <Grid Margin="0,2,0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="60" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="52" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="干湿比" />
+                                            <Slider x:Name="VoiceMixSlider" Grid.Column="1" VerticalAlignment="Center"
                                                     Style="{StaticResource FlatSlider}" Minimum="0" Maximum="100"
-                                                    Value="100" Tag="DenoiseWet" ValueChanged="OnSliderChanged" />
+                                                    Value="100" Tag="VoiceMix" ValueChanged="OnSliderChanged" />
+                                            <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
+                                                       Text="{Binding Value, ElementName=VoiceMixSlider, StringFormat='{}{0:0}%'}" />
                                         </Grid>
                                     </StackPanel>
                                 </StackPanel>
@@ -330,11 +436,19 @@
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" Style="{StaticResource LabelText}"
                                                        Text="目标响度" />
-                                            <Slider x:Name="LoudnessTargetSlider" Grid.Column="1"
-                                                    Style="{StaticResource FlatSlider}" Minimum="-30" Maximum="-8"
-                                                    Value="-20" Tag="LoudnessTarget"
-                                                    ValueChanged="OnSliderChanged"
-                                                    ToolTip="麦克风信号的平均电平要拉到多少 dBFS。说话偏小就把目标调高（如 −16），偏大就调低（如 −24）。" />
+                                            <Grid Grid.Column="1">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="52" />
+                                                </Grid.ColumnDefinitions>
+                                                <Slider x:Name="LoudnessTargetSlider" Grid.Column="0" VerticalAlignment="Center"
+                                                        Style="{StaticResource FlatSlider}" Minimum="-30" Maximum="-8"
+                                                        Value="-20" Tag="LoudnessTarget"
+                                                        ValueChanged="OnSliderChanged"
+                                                        ToolTip="麦克风信号的平均电平要拉到多少 dBFS。说话偏小就把目标调高（如 −16），偏大就调低（如 −24）。" />
+                                                <TextBlock Grid.Column="1" Style="{StaticResource SliderValueText}"
+                                                           Text="{Binding Value, ElementName=LoudnessTargetSlider, StringFormat='{}{0:0} dB'}" />
+                                            </Grid>
                                         </Grid>
                                         <Grid Margin="0,2,0,2">
                                             <Grid.ColumnDefinitions>
@@ -343,10 +457,18 @@
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" Style="{StaticResource LabelText}"
                                                        Text="响应速度" />
-                                            <Slider x:Name="LoudnessSpeedSlider" Grid.Column="1"
-                                                    Style="{StaticResource FlatSlider}" Minimum="1" Maximum="10"
-                                                    Value="5" Tag="LoudnessSpeed" ValueChanged="OnSliderChanged"
-                                                    ToolTip="增益跟随音量变化的快慢。数值越大反应越快（约 2.5 秒 → 0.15 秒）；太快会有明显的抽吸感，太慢会跟不上。" />
+                                            <Grid Grid.Column="1">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="52" />
+                                                </Grid.ColumnDefinitions>
+                                                <Slider x:Name="LoudnessSpeedSlider" Grid.Column="0" VerticalAlignment="Center"
+                                                        Style="{StaticResource FlatSlider}" Minimum="1" Maximum="10"
+                                                        Value="5" Tag="LoudnessSpeed" ValueChanged="OnSliderChanged"
+                                                        ToolTip="增益跟随音量变化的快慢。数值越大反应越快（约 2.5 秒 → 0.15 秒）；太快会有明显的抽吸感，太慢会跟不上。" />
+                                                <TextBlock Grid.Column="1" Style="{StaticResource SliderValueText}"
+                                                           Text="{Binding Value, ElementName=LoudnessSpeedSlider, StringFormat='{}{0:0}/10'}" />
+                                            </Grid>
                                         </Grid>
                                     </StackPanel>
                                 </StackPanel>
@@ -406,17 +528,21 @@
                                                 Click="OnExpandClick" Tag="{Binding EffectExpanded, RelativeSource={RelativeSource AncestorType=Window}}" />
                                     </Grid>
                                     <StackPanel x:Name="PanelCreative" Visibility="Collapsed" Margin="0,6,0,0">
-                                        <UniformGrid x:Name="EffectGrid" Columns="5">
+                                        <UniformGrid x:Name="EffectGrid" Columns="4">
                                             <RadioButton Style="{StaticResource ChipToggle}" Content="混响" Tag="Reverb"
-                                                         Click="OnCreativeEffectSelected" />
+                                                         Margin="0,0,4,4" Click="OnCreativeEffectSelected" />
                                             <RadioButton Style="{StaticResource ChipToggle}" Content="延迟" Tag="Delay"
-                                                         Click="OnCreativeEffectSelected" />
-                                            <RadioButton Style="{StaticResource ChipToggle}" Content="合唱" Tag="Chorus"
-                                                         Click="OnCreativeEffectSelected" />
+                                                         Margin="0,0,4,4" Click="OnCreativeEffectSelected" />
+                                            <RadioButton Style="{StaticResource ChipToggle}" Content="和声" Tag="Harmony"
+                                                         Margin="0,0,4,4" Click="OnCreativeEffectSelected" />
+                                            <RadioButton Style="{StaticResource ChipToggle}" Content="电话" Tag="Telephone"
+                                                         Margin="0,0,4,4" Click="OnCreativeEffectSelected" />
+                                            <RadioButton Style="{StaticResource ChipToggle}" Content="颤音" Tag="Tremolo"
+                                                         Margin="0,0,4,4" Click="OnCreativeEffectSelected" />
                                             <RadioButton Style="{StaticResource ChipToggle}" Content="电音" Tag="Robot"
-                                                         Click="OnCreativeEffectSelected" />
+                                                         Margin="0,0,4,4" Click="OnCreativeEffectSelected" />
                                             <RadioButton Style="{StaticResource ChipToggle}" Content="炸麦" Tag="Megaphone"
-                                                         Click="OnCreativeEffectSelected" />
+                                                         Margin="0,0,4,4" Click="OnCreativeEffectSelected" />
                                         </UniformGrid>
                                         <Grid Margin="0,4,0,0">
                                             <Grid.ColumnDefinitions>
@@ -425,9 +551,17 @@
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" Style="{StaticResource LabelText}"
                                                        Text="效果强度" />
-                                            <Slider x:Name="EffectAmountSlider" Grid.Column="1"
-                                                    Style="{StaticResource FlatSlider}" Minimum="0" Maximum="100"
-                                                    Value="55" Tag="EffectAmount" ValueChanged="OnSliderChanged" />
+                                            <Grid Grid.Column="1">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="52" />
+                                                </Grid.ColumnDefinitions>
+                                                <Slider x:Name="EffectAmountSlider" Grid.Column="0" VerticalAlignment="Center"
+                                                        Style="{StaticResource FlatSlider}" Minimum="0" Maximum="100"
+                                                        Value="55" Tag="EffectAmount" ValueChanged="OnSliderChanged" />
+                                                <TextBlock Grid.Column="1" Style="{StaticResource SliderValueText}"
+                                                           Text="{Binding Value, ElementName=EffectAmountSlider, StringFormat='{}{0:0}%'}" />
+                                            </Grid>
                                         </Grid>
                                     </StackPanel>
                                 </StackPanel>
@@ -458,9 +592,17 @@
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" Style="{StaticResource LabelText}"
                                                        Text="增益强度" />
-                                            <Slider x:Name="GainSlider" Grid.Column="1"
-                                                    Style="{StaticResource FlatSlider}" Minimum="-24" Maximum="24"
-                                                    Value="0" Tag="GainDb" ValueChanged="OnSliderChanged" />
+                                            <Grid Grid.Column="1">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="52" />
+                                                </Grid.ColumnDefinitions>
+                                                <Slider x:Name="GainSlider" Grid.Column="0" VerticalAlignment="Center"
+                                                        Style="{StaticResource FlatSlider}" Minimum="-24" Maximum="24"
+                                                        Value="0" Tag="GainDb" ValueChanged="OnSliderChanged" />
+                                                <TextBlock Grid.Column="1" Style="{StaticResource SliderValueText}"
+                                                           Text="{Binding Value, ElementName=GainSlider, StringFormat='{}{0:+0;-0;0} dB'}" />
+                                            </Grid>
                                         </Grid>
                                     </StackPanel>
                                 </StackPanel>
@@ -564,9 +706,17 @@
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
                                     <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="播放音量" />
-                                    <Slider x:Name="PlayerVolumeSlider" Grid.Column="1"
-                                            Style="{StaticResource FlatSlider}" Minimum="0" Maximum="100"
-                                            Value="80" ValueChanged="OnPlayerVolumeChanged" />
+                                    <Grid Grid.Column="1">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="52" />
+                                        </Grid.ColumnDefinitions>
+                                        <Slider x:Name="PlayerVolumeSlider" Grid.Column="0" VerticalAlignment="Center"
+                                                Style="{StaticResource FlatSlider}" Minimum="0" Maximum="100"
+                                                Value="80" ValueChanged="OnPlayerVolumeChanged" />
+                                        <TextBlock Grid.Column="1" Style="{StaticResource SliderValueText}"
+                                                   Text="{Binding Value, ElementName=PlayerVolumeSlider, StringFormat='{}{0:0}%'}" />
+                                    </Grid>
                                 </Grid>
                                 <Grid Margin="0,6,0,0">
                                     <Grid.ColumnDefinitions>
@@ -603,7 +753,8 @@
                                                HorizontalAlignment="Center" Margin="0,5,0,5" />
                                 </Border>
 
-                                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                <ScrollViewer Grid.Row="1" Style="{StaticResource OverlayScrollViewer}"
+                                              ui:SmoothScroll.Enabled="True">
                                     <ItemsControl x:Name="TrackList">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>

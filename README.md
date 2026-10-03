@@ -71,6 +71,8 @@ dotnet run --project MateMic\MateMic.csproj
 
 ## 致谢
 
+- 界面字体：[MiSans](https://hyperos.mi.com/font)（小米，免费商用；仅作界面显示，未做任何改动）
+
 - 虚拟声卡：[MIXLINE](https://www.logitech.com/) / [VB-Cable](https://vb-audio.com/Cable/)
 - 降噪模型：[DPDFNet](https://github.com/ceva-ip/DPDFNet)、[GTCRN](https://github.com/Xiaobin-Rong/gtcrn)
 - 音频库：[NAudio](https://github.com/naudio/NAudio)、[NWaves](https://github.com/ar1st0crat/NWaves)、[ONNX Runtime](https://onnxruntime.ai/)

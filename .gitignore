@@ -53,3 +53,6 @@ Thumbs.db
 /_*.png
 /_probe_*.txt
 /_commitmsg*.txt
+
+# 开发探针渲染出的试听文件（不入库）
+MateMic/tools/dev/**/*.wav

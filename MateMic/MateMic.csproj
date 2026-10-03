@@ -69,4 +69,15 @@
     </None>
   </ItemGroup>
 
+  <!--
+    界面字体 MiSans Light（小米，免费商用；见 MiSans 官方 FAQ：可嵌入软件，但需在软件中注明）。
+    刻意编成 **Resource**（嵌进程序集）而不是复制成文件：
+    字体是界面的一部分，不该跟着 data\ 或用户误删而消失；WPF 用 "/Assets/Fonts/#家族名" 引用。
+    默认的 None 通配会把这个 ttf 也当成 None，重复包含会报错，所以先 Remove 再 Include。
+  -->
+  <ItemGroup>
+    <None Remove="Assets\Fonts\*.ttf" />
+    <Resource Include="Assets\Fonts\*.ttf" />
+  </ItemGroup>
+
 </Project>

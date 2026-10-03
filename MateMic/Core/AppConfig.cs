@@ -16,12 +16,21 @@ public enum CreativeEffectKind
 {
     Reverb = 0,
     Delay = 1,
-    Chorus = 2,
+    /// <summary>和声：叠一个纯五度声部。**沿用原合唱的枚举值 2**，
+    /// 因此老配置里存的 2 会自动变成"和声"，不需要写迁移代码。</summary>
+    Harmony = 2,
     Robot = 3,
 
     /// <summary>炸麦：麦克风过载模拟（增益前推 + 硬削波降位 + 带通）。</summary>
     Megaphone = 4,
+
+    /// <summary>电话：300–3400 Hz 带通 + 轻饱和，模拟电话/对讲机。</summary>
+    Telephone = 5,
+
+    /// <summary>颤音：约 5 Hz 的周期性音量起伏。</summary>
+    Tremolo = 6,
 }
+
 
 public sealed class NoiseGateSettings
 {
@@ -66,6 +75,24 @@ public sealed class ToneSettings
 
     /// <summary>null 表示用户尚未选择任何音色风格（此时模块不参与处理）。</summary>
     public ToneStyle? Style { get; set; }
+}
+
+/// <summary>
+/// 变声（DSP 层）。刻意做成"一个模块 + 预留 AI 模式"：当前只有音高 / 音色 / 干湿比，
+/// 以后接 AI 变声时在同一张卡片里加模式切换，不新增卡片。
+/// </summary>
+public sealed class VoiceChangerSettings
+{
+    /// <summary>变调量（半音）。男→女约 +5~7，女→男约 −5~7。</summary>
+    public float Semitones { get; set; } = 5f;
+
+    /// <summary>音色偏移 −50~+50：正值更亮更"细"，负值更暗更"厚"。</summary>
+    public float Timbre { get; set; }
+
+    /// <summary>干湿比 0~100：0 = 完全原声，100 = 完全变声。</summary>
+    public float Mix { get; set; } = 100f;
+
+    public bool Enabled { get; set; }
 }
 
 public sealed class CreativeEffectSettings
@@ -135,6 +162,9 @@ public sealed class PanelExpandState
     public bool Tone { get; set; }
     public bool Effect { get; set; }
     public bool Gain { get; set; }
+
+    /// <summary>变声模块的展开状态。</summary>
+    public bool VoiceChanger { get; set; }
 }
 
 public sealed class AppConfig
@@ -180,6 +210,9 @@ public sealed class AppConfig
     public LoudnessSettings Loudness { get; set; } = new();
     public ToneSettings Tone { get; set; } = new();
     public CreativeEffectSettings Effect { get; set; } = new();
+
+    /// <summary>变声（DSP 层）。</summary>
+    public VoiceChangerSettings VoiceChanger { get; set; } = new();
     public GainSettings Gain { get; set; } = new();
     public PlayerSettings Player { get; set; } = new();
 

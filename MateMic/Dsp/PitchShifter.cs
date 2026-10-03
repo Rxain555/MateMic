@@ -26,9 +26,12 @@ public sealed class PitchShifter
     private readonly int _sampleRate;
     private SmbPitchShifter _shifter = new();
 
+    /// <summary>平滑后的变调因子：避免读取位置突跳（听感是"轻轻的啪"一声）。</summary>
+    private float _smoothedFactor = 1f;
+
     public PitchShifter(int sampleRate) => _sampleRate = sampleRate;
 
-    /// <summary>变调量（半音）。0 = 完全旁通。</summary>
+    /// <summary>变调量（半音）。0 表示不变调（仍会经过变调器以保持内部状态连续）。</summary>
     public float Semitones { get; set; }
 
     /// <summary>就地处理一块音频（保持时长）。</summary>
@@ -36,14 +39,18 @@ public sealed class PitchShifter
     {
         if (buffer.Length == 0) return;
 
-        var factor = (float)Math.Pow(2, Math.Clamp(Semitones, -12f, 12f) / 12.0);
-        if (Math.Abs(factor - 1f) < 0.0005f) return;   // 不变调时完全旁通
+        var target = (float)Math.Pow(2, Math.Clamp(Semitones, -12f, 12f) / 12.0);
+        // 变调因子按时间常数平滑（约 15 ms）：
+        // 因突跳而"跳读"会撕裂波形，听感就是一声轻响；平滑后只是滑过去，听不出来。
+        var dt = buffer.Length / (float)_sampleRate;
+        var coefficient = 1f - MathF.Exp(-dt / 0.015f);
+        _smoothedFactor += (target - _smoothedFactor) * coefficient;
 
         // SmbPitchShifter 就地处理，内部保有多帧重叠缓冲，支持逐块改变 pitchFactor
         // （硬调音每帧的变调量都在变，正好需要这个能力）。
-        _shifter.PitchShift(factor, buffer.Length, FftFrameSize, Oversampling, _sampleRate, buffer);
+        _shifter.PitchShift(_smoothedFactor, buffer.Length, FftFrameSize, Oversampling, _sampleRate, buffer);
     }
 
     /// <summary>清空内部重叠缓冲。切换效果类型或重启链路时调用。</summary>
-    public void Reset() => _shifter = new SmbPitchShifter();
+    public void Reset() { _shifter = new SmbPitchShifter(); _smoothedFactor = 1f; }
 }

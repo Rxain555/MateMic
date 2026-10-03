@@ -11,7 +11,7 @@
         WindowStartupLocation="Manual"
         Topmost="True"
         Opacity="0"
-        FontFamily="Microsoft YaHei UI, Segoe UI"
+        FontFamily="{DynamicResource AppFont}"
         FontSize="14"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True"

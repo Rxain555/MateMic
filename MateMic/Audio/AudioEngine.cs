@@ -65,6 +65,8 @@ public sealed class AudioEngine : IDisposable
 
         NoiseGate = new NoiseGateEffect(Format, config.NoiseGate);
         Denoise = new DenoiseEffect(Format, config.Denoise, new SpectralDenoiseModel());
+        // 变声紧跟在降噪之后：先拿到干净语音，再做音色变换
+        VoiceChanger = new VoiceChangerEffect(Format, config.VoiceChanger);
         Loudness = new LoudnessBalanceEffect(Format, config.Loudness);
         Tone = new ToneStyleEffect(Format, config.Tone);
         Creative = new CreativeEffect(Format, config.Effect);
@@ -99,6 +101,9 @@ public sealed class AudioEngine : IDisposable
 
     public NoiseGateEffect NoiseGate { get; }
     public DenoiseEffect Denoise { get; }
+
+    /// <summary>变声（DSP 层，位于 AI 降噪之后）。</summary>
+    public VoiceChangerEffect VoiceChanger { get; }
     public LoudnessBalanceEffect Loudness { get; }
     public ToneStyleEffect Tone { get; }
     public CreativeEffect Creative { get; }
@@ -730,7 +735,7 @@ public sealed class AudioEngine : IDisposable
     {
         var desired = new List<IAudioEffect>
         {
-            NoiseGate, Denoise, Loudness, Tone, Creative, Gain,
+            NoiseGate, Denoise, VoiceChanger, Loudness, Tone, Creative, Gain,
         }.Where(e => e.Enabled).ToList();
 
         var current = Chain.Effects;
@@ -761,6 +766,7 @@ public sealed class AudioEngine : IDisposable
     {
         NoiseGate.Enabled = _config.NoiseGate.Enabled;
         Denoise.Enabled = _config.Denoise.Enabled;
+        VoiceChanger.Enabled = _config.VoiceChanger.Enabled;
         Loudness.Enabled = _config.Loudness.Enabled;
         // 音色风格 / 效果器：开关打开但未选择预设时不进入处理链，等价于关闭
         Tone.Enabled = _config.Tone.Enabled && _config.Tone.Style.HasValue;
@@ -769,6 +775,7 @@ public sealed class AudioEngine : IDisposable
 
         NoiseGate.UpdateParameters();
         Denoise.UpdateParameters();
+        VoiceChanger.UpdateParameters();
         Loudness.UpdateParameters();
         Tone.UpdateParameters();
         Creative.UpdateParameters();
@@ -778,7 +785,7 @@ public sealed class AudioEngine : IDisposable
 
         // 把实际生效的链路记进日志，便于排查"重启后模块没生效"这类问题
         Log.Info($"处理链状态：总开关={_config.AudioProcessingEnabled}，" +
-                 $"噪声门={NoiseGate.Enabled}，降噪={Denoise.Enabled}（{Denoise.ModelName}），" +
+                 $"噪声门={NoiseGate.Enabled}，降噪={Denoise.Enabled}（{Denoise.ModelName}），变声={VoiceChanger.Enabled}，" +
                  $"响度={Loudness.Enabled}，音色={Tone.Enabled}，效果={Creative.Enabled}，增益={Gain.Enabled}");
     }
 

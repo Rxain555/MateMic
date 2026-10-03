@@ -479,6 +479,10 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
             ToggleGain.IsChecked = _config.Gain.Enabled;
             GainSlider.Value = _config.Gain.GainDb;
+            ToggleVoiceChanger.IsChecked = _config.VoiceChanger.Enabled;
+            VoicePitchSlider.Value = _config.VoiceChanger.Semitones;
+            VoiceTimbreSlider.Value = _config.VoiceChanger.Timbre;
+            VoiceMixSlider.Value = _config.VoiceChanger.Mix;
 
             ToggleAudioMonitor.IsChecked = _config.Player.AudioMonitor;
             ToggleLoop.IsChecked = _config.Player.Loop;
@@ -1272,6 +1276,10 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     public bool EffectExpanded { get => _effectExpanded; private set => SetExpanded(ref _effectExpanded, value, nameof(EffectExpanded)); }
     public bool GainExpanded { get => _gainExpanded; private set => SetExpanded(ref _gainExpanded, value, nameof(GainExpanded)); }
 
+    private bool _voiceChangerExpanded;
+    /// <summary>变声模块是否展开。</summary>
+    public bool VoiceChangerExpanded { get => _voiceChangerExpanded; private set => SetExpanded(ref _voiceChangerExpanded, value, nameof(VoiceChangerExpanded)); }
+
     private void SetExpanded(ref bool field, bool value, string propertyName)
     {
         if (field == value) return;
@@ -1293,6 +1301,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             "ExpandTone" => ToneGrid,
             "ExpandEffect" => PanelCreative,
             "ExpandGain" => PanelGain,
+            "ExpandVoiceChanger" => PanelVoiceChanger,
             _ => null,
         };
 
@@ -1327,6 +1336,10 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                 GainExpanded = expanded;
                 _config.Panels.Gain = expanded;
                 break;
+            case "ExpandVoiceChanger":
+                VoiceChangerExpanded = expanded;
+                _config.Panels.VoiceChanger = expanded;
+                break;
         }
 
         SaveConfig();   // 展开状态也持久化，下次启动保持原样
@@ -1344,6 +1357,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         Apply(ToneGrid, _config.Panels.Tone);
         Apply(PanelCreative, _config.Panels.Effect);
         Apply(PanelGain, _config.Panels.Gain);
+        Apply(PanelVoiceChanger, _config.Panels.VoiceChanger);
 
         // 箭头朝向完全由 XAML 里的 Tag 绑定驱动（见 Ui/Theme.xaml 的 ExpanderButton）。
         // 这里**不能**再写 arrow.Tag = true：给已有 OneWay 绑定的依赖属性赋局部值会
@@ -1354,6 +1368,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         ToneExpanded = _config.Panels.Tone;
         EffectExpanded = _config.Panels.Effect;
         GainExpanded = _config.Panels.Gain;
+        VoiceChangerExpanded = _config.Panels.VoiceChanger;
     }
 
     private void OnEffectToggled(object sender, RoutedEventArgs e)
@@ -1366,6 +1381,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         _config.Tone.Enabled = ToggleTone.IsChecked == true;
         _config.Effect.Enabled = ToggleEffect.IsChecked == true;
         _config.Gain.Enabled = ToggleGain.IsChecked == true;
+        _config.VoiceChanger.Enabled = ToggleVoiceChanger.IsChecked == true;
 
         _engine.UpdateAllParameters();
         SaveConfig();
@@ -1401,6 +1417,15 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                 break;
             case "GainDb":
                 _config.Gain.GainDb = value;
+                break;
+            case "VoiceSemitones":
+                _config.VoiceChanger.Semitones = value;
+                break;
+            case "VoiceTimbre":
+                _config.VoiceChanger.Timbre = value;
+                break;
+            case "VoiceMix":
+                _config.VoiceChanger.Mix = value;
                 break;
             default:
                 return;
@@ -1594,6 +1619,25 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     /// 使用指南：把"三个设备到底该选什么"和基本操作讲清楚。
     /// 这是新人最容易卡住的地方——输入/输出/监听三栏在没有 MIXLINE 概念之前完全无从下手。
     /// </summary>
+    /// <summary>
+    /// 变声预设：只留两个真正有用的方向（男→女、女→男）。
+    /// 机器人 / 电话音那类属于「效果器」而不是变声，用户已明确不要。
+    /// </summary>
+    private void OnVoicePresetSelected(object sender, RoutedEventArgs e)
+    {
+        if (sender is not RadioButton { Tag: string tag }) return;
+
+        // 变调量是主要手段，音色偏移做辅助：+ 提亮、− 压暗
+        var (semitones, timbre) = tag switch
+        {
+            "FemaleToMale" => (-5f, -20f),
+            _ => (6f, 22f),
+        };
+
+        VoicePitchSlider.Value = semitones;
+        VoiceTimbreSlider.Value = timbre;
+    }
+
     private void OnUsageGuideClick(object sender, RoutedEventArgs e)
     {
         const string guide =
@@ -1609,6 +1653,26 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             "将 MateMic 节点连接至 MIXLINE Stream 节点";
 
         DialogHost.Info(this, "MateMic 使用指南", guide);
+    }
+
+    /// <summary>
+    /// 关于：把"必须声明的东西"集中在一处 —— 界面字体（MiSans 的授权要求）、
+    /// 内置降噪模型、用户自备模型的许可归属、第三方组件。版本号与工具栏显示同一个来源。
+    /// </summary>
+    private void OnAboutClick(object sender, RoutedEventArgs e)
+        => DialogHost.Info(this, "关于 MateMic", AboutText());
+
+    private static string AboutText()
+    {
+        var version = typeof(MainWindow).Assembly.GetName().Version;
+        var text = version == null ? "v?" : "v" + version.ToString(3);
+
+        return
+            "MateMic " + text + "   ·   MIT 许可\n" +
+            "https://github.com/Rxain555/MateMic\n\n" +
+            "界面字体 MiSans（小米，免费商用）。\n" +
+            "内置 3 个 ONNX 降噪模型；自备模型的许可由模型提供方决定。\n" +
+            "第三方组件：NAudio / NWaves / ONNX Runtime（均 MIT）。";
     }
 
     // =============================================================== 播放器

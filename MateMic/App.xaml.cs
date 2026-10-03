@@ -206,6 +206,7 @@ public partial class App : Application
             };
             preview.Start();
         }
+
     }
 
     /// <summary>

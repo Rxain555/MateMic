@@ -137,7 +137,7 @@
 
     <!-- ============================ 文本 ============================ -->
     <Style x:Key="LabelText" TargetType="TextBlock">
-        <Setter Property="FontFamily" Value="Microsoft YaHei UI, Segoe UI" />
+        <Setter Property="FontFamily" Value="{DynamicResource AppFont}" />
         <Setter Property="FontSize" Value="12" />
         <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         <Setter Property="VerticalAlignment" Value="Center" />
@@ -162,7 +162,7 @@
     </Style>
 
     <Style x:Key="GroupTitle" TargetType="TextBlock">
-        <Setter Property="FontFamily" Value="Microsoft YaHei UI, Segoe UI" />
+        <Setter Property="FontFamily" Value="{DynamicResource AppFont}" />
         <Setter Property="FontSize" Value="12" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Foreground" Value="{DynamicResource SubtleTextBrush}" />
@@ -208,7 +208,23 @@
     </Style>
 
     <!-- ============================ 滑块 ============================ -->
-    <Style x:Key="FlatSlider" TargetType="Slider">
+    <!--
+  界面字体：MiSans Light（小米，免费商用）以 WPF 资源方式嵌在程序集里，
+  URI 里的 #MiSans Light 是字体内部的家族名（不是文件名）。
+  末尾带上系统字体作为兜底：万一资源没加载成功，界面也不会变成默认宋体。
+-->
+<FontFamily x:Key="AppFont">/Assets/Fonts/#MiSans Light, Microsoft YaHei UI, Segoe UI</FontFamily>
+
+<!-- 滑条右侧的数值：等宽数字 + 右对齐 + 固定列宽，拖动时数字不会左右跳动 -->
+<Style x:Key="SliderValueText" TargetType="TextBlock">
+  <Setter Property="Foreground" Value="{DynamicResource SubtleTextBrush}" />
+  <Setter Property="VerticalAlignment" Value="Center" />
+  <Setter Property="HorizontalAlignment" Value="Right" />
+  <Setter Property="TextAlignment" Value="Right" />
+  <Setter Property="Margin" Value="8,0,0,0" />
+  <Setter Property="Typography.NumeralAlignment" Value="Tabular" />
+</Style>
+<Style x:Key="FlatSlider" TargetType="Slider">
         <Setter Property="Height" Value="20" />
         <Setter Property="VerticalAlignment" Value="Center" />
         <Setter Property="IsMoveToPointEnabled" Value="True" />
@@ -268,7 +284,7 @@
     <!-- ============================ 按钮 ============================ -->
     <!-- 基础按钮：无边框、扁平、悬浮时轻微"抬升"（投影 + 背景变亮） -->
     <Style x:Key="FlatButton" TargetType="Button">
-        <Setter Property="FontFamily" Value="Microsoft YaHei UI, Segoe UI" />
+        <Setter Property="FontFamily" Value="{DynamicResource AppFont}" />
         <Setter Property="FontSize" Value="12" />
         <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         <Setter Property="Padding" Value="13,4,13,4" />
@@ -423,7 +439,7 @@
                                      HorizontalAlignment="Left" Margin="2,0,0,0" />
                         </Grid>
                         <TextBlock x:Name="Caption" Text="{TemplateBinding Content}" Margin="7,0,0,0"
-                                   FontFamily="Microsoft YaHei UI, Segoe UI" FontSize="12"
+                                   FontFamily="{DynamicResource AppFont}" FontSize="12"
                                    Foreground="{DynamicResource TextBrush}" VerticalAlignment="Center" />
                     </StackPanel>
                     <ControlTemplate.Triggers>
@@ -443,7 +459,7 @@
 
     <!-- ============================ 单选小按钮（音色风格 / 效果器） ============================ -->
     <Style x:Key="ChipToggle" TargetType="RadioButton">
-        <Setter Property="FontFamily" Value="Microsoft YaHei UI, Segoe UI" />
+        <Setter Property="FontFamily" Value="{DynamicResource AppFont}" />
         <Setter Property="FontSize" Value="11.5" />
         <Setter Property="Foreground" Value="{DynamicResource SubtleTextBrush}" />
         <Setter Property="Margin" Value="0,0,4,0" />
@@ -487,7 +503,7 @@
 
     <!-- ============================ 下拉框 ============================ -->
     <Style x:Key="FlatCombo" TargetType="ComboBox">
-        <Setter Property="FontFamily" Value="Microsoft YaHei UI, Segoe UI" />
+        <Setter Property="FontFamily" Value="{DynamicResource AppFont}" />
         <Setter Property="FontSize" Value="12" />
         <Setter Property="Height" Value="26" />
         <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
@@ -606,7 +622,7 @@
     </Style>
 
     <Style x:Key="FlatComboItem" TargetType="ComboBoxItem">
-        <Setter Property="FontFamily" Value="Microsoft YaHei UI, Segoe UI" />
+        <Setter Property="FontFamily" Value="{DynamicResource AppFont}" />
         <Setter Property="FontSize" Value="12" />
         <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         <Setter Property="Padding" Value="9,5,9,5" />
@@ -712,7 +728,7 @@
     -->
     <Style x:Key="InputBoxButton" TargetType="Button">
         <Setter Property="Cursor" Value="Hand" />
-        <Setter Property="FontFamily" Value="Microsoft YaHei UI, Segoe UI" />
+        <Setter Property="FontFamily" Value="{DynamicResource AppFont}" />
         <Setter Property="FontSize" Value="11.5" />
         <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         <!--
@@ -841,6 +857,31 @@
     </Style>
 
     <!-- ============================ 滚动条（细圆角，融入浅色卡片） ============================ -->
+    <!--
+      覆盖式滚动条（Overlay）：滚动条**浮在内容上方**，不占布局列。
+      WPF 自带模板里滚动条是单独一列，Auto 模式一旦出现就会把内容挤窄 ——
+      这就是"元素超出区域时列表向左挤一下"的来源（2026-10-03 用户反馈）。
+      这里把 ScrollContentPresenter 与 ScrollBar 放在同一个 Grid 单元格里，
+      滚动条用 HorizontalAlignment=Right 叠在上面，因此内容宽度恒定不动。
+    -->
+    <Style x:Key="OverlayScrollViewer" TargetType="ScrollViewer">
+        <!-- 像素级滚动：配合滚轮平滑动画，否则按项滚动会一格一跳 -->
+        <Setter Property="CanContentScroll" Value="False" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ScrollViewer">
+                    <Grid Background="{TemplateBinding Background}">
+                        <ScrollContentPresenter x:Name="PART_ScrollContentPresenter"
+                                                Margin="{TemplateBinding Padding}"
+                                                Content="{TemplateBinding Content}"
+                                                ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                CanContentScroll="{TemplateBinding CanContentScroll}" />
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <Style x:Key="SlimScrollBarThumb" TargetType="Thumb">
         <Setter Property="Template">
             <Setter.Value>
@@ -851,8 +892,16 @@
         </Setter>
     </Style>
 
+    <!--
+      滚动条（现代做法，参考 VS Code / macOS 的覆盖式滚动条）：
+        · **常显 8px、压在内容上**是上一版的问题 —— 会盖住卡片右侧的文字和展开按钮；
+        · 现在改成：命中区域 12px（好抓）＋ 可见滑块只有 5px（细）＋ 平时完全透明、
+          鼠标进入滚动区域才淡入（滚轮滚动时鼠标必然在区域内，所以滚动时一定可见）；
+        · 内容侧留固定 12px 边距（见 MainWindow 的 OverlayScrollViewer 用法），
+          因此滑块永远落在留白里，不会压到任何文字或按钮，内容也不会被挤动。
+    -->
     <Style TargetType="ScrollBar">
-        <Setter Property="Width" Value="8" />
+        <Setter Property="Width" Value="12" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="Template">
             <Setter.Value>
@@ -878,13 +927,29 @@
                                 </RepeatButton>
                             </Track.IncreaseRepeatButton>
                             <Track.Thumb>
-                                <Thumb Style="{StaticResource SlimScrollBarThumb}" />
+                                <Thumb>
+                                    <Thumb.Template>
+                                        <ControlTemplate TargetType="Thumb">
+                                            <Border x:Name="Bar" Width="5" HorizontalAlignment="Center"
+                                                    Background="{DynamicResource ScrollThumbBrush}" CornerRadius="3" />
+                                            <ControlTemplate.Triggers>
+                                                <!-- 抓住时变粗一点，给一点"被按住"的反馈 -->
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="Bar" Property="Width" Value="7" />
+                                                </Trigger>
+                                                <Trigger Property="IsDragging" Value="True">
+                                                    <Setter TargetName="Bar" Property="Width" Value="7" />
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Thumb.Template>
+                                </Thumb>
                             </Track.Thumb>
                         </Track>
                     </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="Orientation" Value="Horizontal">
-                            <Setter Property="Height" Value="8" />
+                            <Setter Property="Height" Value="12" />
                             <Setter Property="Width" Value="Auto" />
                         </Trigger>
                     </ControlTemplate.Triggers>
