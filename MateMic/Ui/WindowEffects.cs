@@ -148,10 +148,12 @@ public static class WindowEffects
 
     // ---- 标题栏按钮自检用的窗口样式位 ----
     private const int GwlStyle = -16;
+    private const int GwlExStyle = -20;
     private const long WsMinimizeBox = 0x00020000L;
     private const long WsMaximizeBox = 0x00010000L;
     private const long WsThickFrame = 0x00040000L;
     private const long WsCaption = 0x00C00000L;
+    private const long WsExLayered = 0x00080000L;
 
     private const uint SwpNomove = 0x0002;
     private const uint SwpNosize = 0x0001;
@@ -175,6 +177,9 @@ public static class WindowEffects
 
     private static long GetWindowStyle(IntPtr hwnd)
         => IntPtr.Size == 8 ? GetWindowLongPtr64(hwnd, GwlStyle).ToInt64() : GetWindowLong32(hwnd, GwlStyle);
+
+    private static long GetWindowExStyle(IntPtr hwnd)
+        => IntPtr.Size == 8 ? GetWindowLongPtr64(hwnd, GwlExStyle).ToInt64() : GetWindowLong32(hwnd, GwlExStyle);
 
     private static void SetWindowStyle(IntPtr hwnd, long style)
     {
@@ -235,13 +240,14 @@ public static class WindowEffects
     /// <summary>
     /// 记录并核对窗口自身的按钮样式位。
     ///
-    /// 标题栏是**自绘**的（MainWindow.xaml 用 WindowChrome + WindowStyle=None），
-    /// 但样式位依然要紧 —— 它决定**任务栏按钮**能不能最小化这个窗口：
-    ///   · `WS_MINIMIZEBOX` **必须有**（XAML 里 `ResizeMode="CanMinimize"` 才会有）。
-    ///     少了它，点任务栏图标既不会最小化、也没有最小化/还原的缩放动画
-    ///     （2026-10-03 用户报的第二个问题就是这个）；
+    /// 标题栏是**自绘**的，但样式位依然要紧 —— 它决定任务栏与 DWM 怎么对待这个窗口：
+    ///   · `WS_MINIMIZEBOX` **必须有**（XAML 里 `ResizeMode="CanMinimize"` 才会有）：
+    ///     少了它，点任务栏图标不会最小化；
+    ///   · `WS_CAPTION` **必须有**（`WindowStyle="SingleBorderWindow"` 才会有）：
+    ///     少了它，**最小化/还原就没有 DWM 过渡动画**（窗口"一下就没了"）。
+    ///     可见边框由 WindowChrome 的 CaptionHeight=0 去掉，所以带 WS_CAPTION 也不会露出系统标题栏；
     ///   · `WS_MAXIMIZEBOX` 必须没有 —— 固定尺寸的前提；
-    ///   · `WS_CAPTION` 必须没有 —— 否则会出现"两层标题栏"。
+    ///   · `WS_THICKFRAME` 必须没有 —— 不允许拉伸。
     /// </summary>
     public static void LogCaptionButtonState(Window window)
     {
@@ -259,17 +265,28 @@ public static class WindowEffects
             var hasMinimize = (style & WsMinimizeBox) != 0;
             var hasMaximize = (style & WsMaximizeBox) != 0;
             var resizable = (style & WsThickFrame) != 0;
+            var exStyle = GetWindowExStyle(hwnd);
+            var layered = (exStyle & WsExLayered) != 0;
 
-            Log.Info($"窗口样式自检：系统标题栏={hasCaption}（应为 False，标题栏是自绘的），" +
-                     $"最小化按钮={hasMinimize}（应为 True，任务栏点击最小化靠它），" +
+            Log.Info($"窗口样式自检：WS_CAPTION={hasCaption}（应为 True，最小化/还原的 DWM 动画靠它；" +
+                     $"可见边框由 WindowChrome 去掉），最小化按钮={hasMinimize}（应为 True），" +
                      $"最大化按钮={hasMaximize}（应为 False），可拉伸边框={resizable}（应为 False）");
+            Log.Info($"窗口扩展样式自检：分层窗口(WS_EX_LAYERED)={layered}（应为 False，分层窗口没有最小化动画）。");
 
             if (hasMaximize) Log.Warn("窗口样式自检：窗口仍可最大化，与「固定尺寸」的设定不符。");
-            if (hasCaption) Log.Warn("窗口样式自检：系统标题栏仍然存在，会出现两层标题栏。");
+            if (!hasCaption)
+            {
+                Log.Warn("窗口样式自检：缺少 WS_CAPTION —— 最小化/还原将没有 DWM 过渡动画" +
+                         "（MainWindow.xaml 的 WindowStyle 应为 SingleBorderWindow）。");
+            }
             if (!hasMinimize)
             {
-                Log.Warn("窗口样式自检：缺少 WS_MINIMIZEBOX —— 点任务栏按钮将无法最小化，" +
-                         "也没有最小化/还原动画（MainWindow.xaml 的 ResizeMode 应为 CanMinimize）。");
+                Log.Warn("窗口样式自检：缺少 WS_MINIMIZEBOX —— 点任务栏按钮将无法最小化" +
+                         "（MainWindow.xaml 的 ResizeMode 应为 CanMinimize）。");
+            }
+            if (layered)
+            {
+                Log.Warn("窗口样式自检：窗口是分层窗口（WS_EX_LAYERED）—— 这类窗口没有最小化/还原动画。");
             }
         }
         catch (Exception ex)

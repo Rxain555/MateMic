@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Windows.Interop;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -30,6 +31,12 @@ public partial class TrayMenuWindow : Window
 
     /// <summary>防止"关闭"与"执行动作"互相触发（关闭会引发 Deactivated）。</summary>
     private bool _closing;
+
+    /// <summary>低层鼠标钩子句柄；菜单打开期间才装着，Zero 表示没装。</summary>
+    private IntPtr _mouseHook = IntPtr.Zero;
+
+    /// <summary>必须持有委托实例：否则会被 GC 回收，钩子回调直接崩（与 Core\ShortcutKeyCapture 同理）。</summary>
+    private LowLevelMouseProc? _mouseProc;
 
     /// <summary>点了「显示主窗口」。</summary>
     public event EventHandler? ShowMainRequested;
@@ -117,6 +124,14 @@ public partial class TrayMenuWindow : Window
         // 打开时**不**预选任何一项（与系统菜单一致）：高亮只在鼠标移入或按上下键之后出现。
         // 否则菜单一出现就有一项处于"选中"状态，顺手按个回车就把那一项触发了。
         Focus();
+
+        // 托盘右键的输入属于本进程，因此这里可以正当地把菜单设为前台窗口。
+        // **只有成为前台窗口，点别处时才会收到 Deactivated** —— 否则菜单会赖着不走
+        // （2026-10-03 用户报的"点菜单外不消失"）。拿不到前台权限时由鼠标钩子兜底。
+        var hwnd = new WindowInteropHelper(this).Handle;
+        var toForeground = SetForegroundWindow(hwnd);
+        InstallMouseHook();
+        Log.Info($"托盘菜单：已显示（{width:0}×{height:0}，置前台={toForeground}，IsActive={IsActive}）");
     }
 
     private void OnDeactivated(object? sender, EventArgs e) => CloseOnce();
@@ -196,7 +211,129 @@ public partial class TrayMenuWindow : Window
     {
         if (_closing) return;
         _closing = true;
+        RemoveMouseHook();
         try { Close(); } catch { /* 已经在关闭流程里，忽略 */ }
+    }
+
+    /// <summary>兜底再收一次钩子：窗口若因别的原因关闭（例如程序退出），也不能把钩子留在这。</summary>
+    protected override void OnClosed(EventArgs e)
+    {
+        RemoveMouseHook();
+        base.OnClosed(e);
+    }
+
+    // ---------------------------------------------------------------- 点菜单外即关（兜底路径）
+    //
+    // 为什么不能只靠 Deactivated：菜单未必拿得到前台权限 —— 那时它永远不会失活，
+    // 点别处也就永远不关。低层鼠标钩子只"观察"不"拦截"（不会吞掉那次点击），
+    // 点到菜单矩形之外就关，与系统菜单的行为一致。
+
+    private const int WH_MOUSE_LL = 14;
+    private const int WM_LBUTTONDOWN = 0x0201;
+    private const int WM_RBUTTONDOWN = 0x0204;
+    private const int WM_MBUTTONDOWN = 0x0207;
+
+    private delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct HookPoint
+    {
+        public int X;
+        public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MsllHookStruct
+    {
+        public HookPoint Point;
+        public uint MouseData;
+        public uint Flags;
+        public uint Time;
+        public IntPtr ExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WinRect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint threadId);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool UnhookWindowsHookEx(IntPtr hook);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr CallNextHookEx(IntPtr hook, int nCode, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr GetModuleHandle(string? moduleName);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetWindowRect(IntPtr hwnd, out WinRect rect);
+
+    private void InstallMouseHook()
+    {
+        try
+        {
+            _mouseProc = OnLowLevelMouse;
+            _mouseHook = SetWindowsHookEx(WH_MOUSE_LL, _mouseProc, GetModuleHandle(null), 0);
+            if (_mouseHook == IntPtr.Zero)
+            {
+                Log.Warn("托盘菜单：鼠标钩子安装失败，点菜单外关闭将只依赖窗口失活。");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("托盘菜单：安装鼠标钩子异常：" + ex.Message);
+        }
+    }
+
+    private void RemoveMouseHook()
+    {
+        if (_mouseHook == IntPtr.Zero) return;
+        try { UnhookWindowsHookEx(_mouseHook); } catch { /* 忽略 */ }
+        _mouseHook = IntPtr.Zero;
+        _mouseProc = null;
+    }
+
+    private IntPtr OnLowLevelMouse(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        if (nCode >= 0)
+        {
+            var message = wParam.ToInt32();
+            if (message == WM_LBUTTONDOWN || message == WM_RBUTTONDOWN || message == WM_MBUTTONDOWN)
+            {
+                var info = Marshal.PtrToStructure<MsllHookStruct>(lParam);
+                if (!IsInsideMenu(info.Point))
+                {
+                    // 钩子回调里不要直接关窗口（此刻还在消息处理中），交给 Dispatcher 收尾
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (_closing) return;
+                        Log.Info("托盘菜单：点到菜单外，关闭。");
+                        CloseOnce();
+                    }));
+                }
+            }
+        }
+
+        return CallNextHookEx(_mouseHook, nCode, wParam, lParam);
+    }
+
+    private bool IsInsideMenu(HookPoint point)
+    {
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero) return false;
+        if (!GetWindowRect(hwnd, out var rect)) return false;
+        return point.X >= rect.Left && point.X < rect.Right && point.Y >= rect.Top && point.Y < rect.Bottom;
     }
 
     [StructLayout(LayoutKind.Sequential)]

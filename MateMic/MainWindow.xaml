@@ -6,7 +6,7 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         mc:Ignorable="d"
         Title="MateMic" Height="800" Width="1180"
-        WindowStyle="None"
+        WindowStyle="SingleBorderWindow"
         ResizeMode="CanMinimize"
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource WindowBrush}"
@@ -27,9 +27,16 @@
       不需要系统再介入，避免与自定义按钮抢命中测试。
 
       ⚠ ResizeMode 必须留在 CanMinimize（**不能**改回 NoResize）：
-      NoResize 会把 WS_MINIMIZEBOX 一起清掉，于是**点任务栏按钮无法最小化、也没有最小化/还原动画**
-      （2026-10-03 用户报的第二个问题就是这个）。CanMinimize = 有最小化、无最大化、不可拉伸，
-      正好是我们想要的。窗口样式位的自检见 WindowEffects.LogCaptionButtonState。
+      NoResize 会把 WS_MINIMIZEBOX 一起清掉，于是**点任务栏按钮无法最小化**，
+      也没有最小化/还原动画（2026-10-03 用户报的问题）。CanMinimize = 有最小化、无最大化、不可拉伸。
+
+      ⚠ WindowStyle **必须留在 SingleBorderWindow（不能改回 None）**：
+      最小化 / 还原的 **DWM 过渡动画需要窗口带 WS_CAPTION**，而 WindowStyle=None 会把它清掉 ——
+      表现就是"窗口一下就没了 / 一下就出现，没有向任务栏收缩或从任务栏展开的动画"
+      （2026-10-03 用户报的第二个问题）。可见的边框与标题栏由下面的 WindowChrome 去掉：
+      CaptionHeight=0 + UseAeroCaptionButtons=False，WPF 会把整个窗口当客户区处理，
+      因此加了 WS_CAPTION 也不会出现系统标题栏或系统按钮。
+      窗口样式位的自检见 WindowEffects.LogCaptionButtonState（应看到 系统标题栏=True）。
     -->
     <shell:WindowChrome.WindowChrome>
         <shell:WindowChrome CaptionHeight="0" ResizeBorderThickness="0" CornerRadius="0"
