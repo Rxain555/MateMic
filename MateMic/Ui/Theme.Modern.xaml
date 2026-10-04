@@ -72,6 +72,10 @@
     <SolidColorBrush x:Key="GroupBorderBrush" Color="#0D000000" />
     <!-- 三栏分区底：比窗口底色只深一点点，用来替代原来的"分组容器外壳"（层级减负） -->
     <SolidColorBrush x:Key="RegionBackgroundBrush" Color="#07000000" />
+    <!-- 频谱图底色与柱色：两套主题各一份（深色模式必须单独给，否则透明画布会透出白卡片底）。
+         柱色刻意用**不透明**的浅蓝：带 alpha 时"每根柱边缘 + 1px 重叠"会叠出更深的竖条。 -->
+    <SolidColorBrush x:Key="SpectrumBackgroundBrush" Color="#F2F4F7" />
+    <SolidColorBrush x:Key="SpectrumBarBrush" Color="#9CC0F7" />
     <SolidColorBrush x:Key="ControlBorderBrush" Color="#18000000" />
     <SolidColorBrush x:Key="ControlHoverBorderBrush" Color="#2A000000" />
 

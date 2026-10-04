@@ -68,16 +68,14 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     /// <summary>程序内部改下拉框选择时置位，避免把"我们的刷新"当成"用户换了设备"。</summary>
     private bool _suppressDeviceSelection;
 
-    /// <summary>频谱柱（48 根）与底槽，以及复用的频带缓冲；底槽给出"满量程"参照。</summary>
+    /// <summary>频谱柱（48 根）与复用的频带缓冲。背景由画布的主题底色提供，不再画底槽。</summary>
     private readonly Rectangle[] _inputBars = new Rectangle[SpectrumBars];
     private readonly Rectangle[] _outputBars = new Rectangle[SpectrumBars];
-    private readonly Rectangle[] _inputTracks = new Rectangle[SpectrumBars];
-    private readonly Rectangle[] _outputTracks = new Rectangle[SpectrumBars];
     private readonly float[] _inputBands = new float[SpectrumBars];
     private readonly float[] _outputBands = new float[SpectrumBars];
 
-    /// <summary>底部固定频率刻度的容器（Grid，位置只随宽度重排，不随音频数据变化）。</summary>
-    private readonly Grid[] _axisGrids = new Grid[2];
+    /// <summary>底部对数频率刻度的文字（Canvas 精确摆放，只随宽度重排）。</summary>
+    private readonly TextBlock[][] _axisLabels = { new TextBlock[6], new TextBlock[6] };
     private readonly List<TrackViewModel> _tracks = new();
 
     private bool _loading = true;
@@ -104,12 +102,25 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         ApplyCaptionIcon();
         RestoreWindowPlacement();
         VersionText.Text = App.VersionText;
-        BuildSpectrumBars(InputSpectrumCanvas, _inputBars, _inputTracks);
-        BuildSpectrumBars(OutputSpectrumCanvas, _outputBars, _outputTracks);
-        BuildSpectrumAxis(InputAxisCanvas);
-        BuildSpectrumAxis(OutputAxisCanvas);
-        LevelTrack.SizeChanged += (_, _) => BuildLevelScale();
+        BuildSpectrumBars(InputSpectrumCanvas, _inputBars);
+        BuildSpectrumBars(OutputSpectrumCanvas, _outputBars);
+        BuildSpectrumAxis(InputAxisCanvas, _axisLabels[0]);
+        BuildSpectrumAxis(OutputAxisCanvas, _axisLabels[1]);
         BuildLevelScale();
+
+        // 构造期这些画布的 ActualWidth 还是 0，上面几次调用都会提前返回；SizeChanged 也不保证会补上。
+        // 因此在窗口布局完成的 Loaded 里再排一次 —— 这是"刻度反复不出现"的根治手段。
+        Loaded += (_, _) =>
+        {
+            LayoutSpectrumBars(InputSpectrumCanvas, _inputBars);
+            LayoutSpectrumBars(OutputSpectrumCanvas, _outputBars);
+            BuildSpectrumAxis(InputAxisCanvas, _axisLabels[0]);
+            BuildSpectrumAxis(OutputAxisCanvas, _axisLabels[1]);
+            BuildLevelScale();
+            Log.Info($"[布局自检] Loaded 后重排：频谱画布 {InputSpectrumCanvas.ActualWidth:0}×{InputSpectrumCanvas.ActualHeight:0}，"
+                     + $"刻度画布 {InputAxisCanvas.ActualWidth:0}×{InputAxisCanvas.ActualHeight:0}，"
+                     + $"刻度子元素 {InputAxisCanvas.Children.Count}");
+        };
 
         TrackList.ItemsSource = _tracks;
         LoadTracksFromConfig();
@@ -527,37 +538,36 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     /// 静态画刷，不随每帧变化，因此不给 30 fps 的渲染循环加开销。
     /// </summary>
     /// <summary>
-    /// 频谱柱的纯色填充（2026-10-04：按反馈去掉渐变，改用单一主题蓝并略微降低不透明度，
-    /// 让柱子在白底上"实"但不刺眼）。
+    /// 频谱柱的填充色：走**动态资源**，深浅两套主题各有一份
+    /// （浅色 #9CC0F7、深色 #7FB2F7，都是不透明的浅蓝）。
+    ///
+    /// ⚠ 必须**完全不透明**：早先用带 alpha 的颜色（#B0…），相邻柱那 1px 重叠会叠出更深的竖条，
+    /// 看着像"柱之间还有分隔"。现在把"想要多浅"直接做进颜色值，重叠也不变色。
     /// </summary>
-    private static Brush SpectrumBarBrush()
-    {
-        var brush = new SolidColorBrush(Color.FromArgb(0xD8, 0x2F, 0x7D, 0xF6));
-        brush.Freeze();
-        return brush;
-    }
+    private Brush SpectrumBarBrush()
+        => LookupBrush("SpectrumBarBrush", Color.FromRgb(0x9C, 0xC0, 0xF7));
 
     /// <summary>
-    /// 建频谱柱：48 根矩形（+48 个底槽）直接放进 Canvas，位置与宽度只在尺寸变化时重排。
-    /// 纯色填充、无渐变、无描边（细边框指的是柱子之间不留缝，柱子本身不画边）。
+    /// 建频谱柱：48 根矩形，**不再画底槽**。
+    ///
+    /// 用户问"竖块之间的分隔有什么含义"——没有含义：那是每根柱子下面各垫了一根浅灰底槽
+    /// （48 根紧挨着），相邻底槽在交界处形成了竖线。已整体删除；背景改由画布自己的主题底色提供。
     /// </summary>
-    private void BuildSpectrumBars(Canvas canvas, Rectangle[] bars, Rectangle[] tracks)
+    private void BuildSpectrumBars(Canvas canvas, Rectangle[] bars)
     {
         canvas.Children.Clear();
 
         for (var i = 0; i < bars.Length; i++)
         {
-            var track = new Rectangle { Fill = LookupBrush("SpectrumSlotBrush", Color.FromRgb(0xE6, 0xE9, 0xEE)) };
-            tracks[i] = track;
-            canvas.Children.Add(track);
-
             var bar = new Rectangle { Fill = SpectrumBarBrush() };
+            // 关掉边缘混合：否则相邻柱子即使重叠也会在接缝处半透明，看着仍像有分隔
+            RenderOptions.SetEdgeMode(bar, EdgeMode.Aliased);
             bars[i] = bar;
             canvas.Children.Add(bar);
         }
 
-        canvas.SizeChanged += (_, _) => LayoutSpectrumBars(canvas, bars, tracks);
-        LayoutSpectrumBars(canvas, bars, tracks);
+        canvas.SizeChanged += (_, _) => LayoutSpectrumBars(canvas, bars);
+        LayoutSpectrumBars(canvas, bars);
     }
 
     private Brush LookupBrush(string key, Color fallback)
@@ -569,10 +579,14 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     }
 
     /// <summary>
-    /// 柱子铺满整个宽度、彼此不留缝（原来柱宽只占 62%，看着"细"且像条形码）。
-    /// 底槽画满高度作为背景参照，柱子从底部往上长。
+    /// 频谱柱布局：铺满宽度、**整像素对齐并相互重叠 1px**。
+    ///
+    /// 为什么必须重叠：每根矩形独立渲染并按亚像素位置抗锯齿，边缘像素会被半透明化；
+    /// 即使数学上"紧贴"，相邻两根之间也会露出一条背景色的细缝（用户反馈的"柱之间还有分隔"）。
+    /// 做法：左右边界各自四舍五入到整像素，宽度 = 右边界 − 左边界 + 1（多出的 1px 盖住接缝），
+    /// 再用 SnapsToDevicePixels + EdgeMode.Aliased 关掉边缘混合。
     /// </summary>
-    private static void LayoutSpectrumBars(Canvas canvas, Rectangle[] bars, Rectangle[] tracks)
+    private static void LayoutSpectrumBars(Canvas canvas, Rectangle[] bars)
     {
         var width = canvas.ActualWidth;
         var height = canvas.ActualHeight;
@@ -582,18 +596,12 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
         for (var i = 0; i < bars.Length; i++)
         {
-            var left = i * slot;
-            var barWidth = Math.Max(1.0, slot);      // 相邻柱子紧贴，不留缝
-
-            if (tracks[i] != null)
-            {
-                tracks[i].Width = barWidth;
-                tracks[i].Height = height;
-                Canvas.SetLeft(tracks[i], left);
-                Canvas.SetTop(tracks[i], 0);
-            }
+            var left = Math.Round(i * slot);
+            var right = Math.Round((i + 1) * slot);
+            var barWidth = Math.Max(1.0, right - left + 1);   // +1 与右邻重叠，消除接缝
 
             bars[i].Width = barWidth;
+            bars[i].SnapsToDevicePixels = true;
             Canvas.SetLeft(bars[i], left);
         }
     }
@@ -615,40 +623,49 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     }
 
     /// <summary>
-    /// 底部频率刻度：**位置固定的文字**，只随宽度重排，不随音频数据变化。
-    /// 用 Grid + 固定列宽 + 单元格对齐来摆，比在 Canvas 上手算坐标可靠
-    /// （上一版在 Canvas 里量测文字宽度，结果整组没渲染出来）。
+    /// 底部频率刻度：**对数定位**（按 <see cref="HzToX"/> 算真实位置），用 Canvas 精确摆放。
+    ///
+    /// 上一版用 Grid 星号列等分摆放 —— 对数刻度不是等分，所以位置是错的
+    /// （例如 100 Hz 真实在 15% 宽度处，等分列却放在 8%；16 kHz 在 100% 却放在 92%）。
+    /// 文字位置只随宽度重排，不随音频数据变化。
     /// </summary>
-    private void BuildSpectrumAxis(Grid axis)
+    private void BuildSpectrumAxis(Canvas axis, TextBlock[] labels)
     {
+        // ⚠ 必须先挂 SizeChanged 再判断宽度：构造期画布的 ActualWidth 还是 0，
+        // 若先 `if (width <= 2) return;` 就会**在挂钩之前返回**，之后尺寸变好时没人重排，
+        // 刻度永远不出现（这正是"刻度反复看不见"的真正原因）。
+        axis.SizeChanged += (_, _) => BuildSpectrumAxis(axis, labels);
+
         axis.Children.Clear();
-        axis.ColumnDefinitions.Clear();
+        var width = axis.ActualWidth;
+        if (width <= 2) return;
 
-        var columns = new (string Text, HorizontalAlignment Align)[]
+        var ticks = new[] { 100f, 300f, 1000f, 3000f, 8000f, 16000f };
+
+        for (var i = 0; i < ticks.Length && i < labels.Length; i++)
         {
-            ("100",   HorizontalAlignment.Left),
-            ("300",   HorizontalAlignment.Left),
-            ("1k",    HorizontalAlignment.Center),
-            ("3k",    HorizontalAlignment.Center),
-            ("8k",    HorizontalAlignment.Center),
-            ("16 kHz", HorizontalAlignment.Right),
-        };
-
-        for (var i = 0; i < columns.Length; i++)
-        {
-            axis.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
             var label = new TextBlock
             {
-                Text = columns[i].Text,
+                Text = ticks[i] >= 1000 ? $"{ticks[i] / 1000:0.#}k" : $"{ticks[i]:0}",
                 FontSize = 9.5,
                 Foreground = LookupBrush("SubtleTextBrush", Color.FromRgb(0x63, 0x6A, 0x76)),
-                HorizontalAlignment = columns[i].Align,
-                VerticalAlignment = VerticalAlignment.Bottom,
-                Margin = new Thickness(0, 0, 4, 0),
             };
-            Grid.SetColumn(label, i);
+            label.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            var w = label.DesiredSize.Width;
+
+            labels[i] = label;
+            Canvas.SetLeft(label, Math.Clamp(HzToX(ticks[i], width) - w / 2, 0, Math.Max(0, width - w)));
+            Canvas.SetTop(label, 0);
             axis.Children.Add(label);
+        }
+
+        // 自检专用：刻度反复"看不见"，用数据自证它确实被创建、且位置是按对数算的
+        if (IsSelfCheckMode)
+        {
+            var info = string.Join(" ", ticks.Select((t, i) => i < labels.Length && labels[i] != null
+                ? $"{labels[i]!.Text}@{(int)Canvas.GetLeft(labels[i]!)}"
+                : "—"));
+            Log.Info($"[刻度自检] 画布宽={width:0} 子元素={axis.Children.Count} 高度={axis.ActualHeight:0} → {info}");
         }
     }
 
@@ -671,17 +688,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         }
     }
 
-    /// <summary>顶部读数：有效值 + 峰值。位置固定（固定宽度列），数值变化不影响布局。</summary>
-    private void UpdateSpectrumReadout(SpectrumAnalyzer analyzer, float[] scratch,
-                                       TextBlock rmsText, TextBlock peakText)
-    {
-        var count = Math.Min(analyzer.BandCount, scratch.Length);
-        analyzer.CopyBands(scratch, count);
-
-        rmsText.Text = $"有效 {FormatDb(LinearToDb(analyzer.Rms))}";
-        peakText.Text = $"峰值 {FormatDb(LinearToDb(analyzer.Peak))}";
-    }
-
     private static double LinearToDb(float linear)
         => linear <= 1e-6f ? -120 : 20 * Math.Log10(linear);
 
@@ -698,10 +704,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         _engine.UpdateAnalysis();
 
         UpdateSpectrumBars(InputSpectrumCanvas, _inputBars, _engine.InputSpectrum, _inputBands);
-        UpdateSpectrumReadout(_engine.InputSpectrum, _inputBands, InputRmsText, InputPeakText);
-
         UpdateSpectrumBars(OutputSpectrumCanvas, _outputBars, _engine.OutputSpectrum, _outputBands);
-        UpdateSpectrumReadout(_engine.OutputSpectrum, _outputBands, OutputRmsText, OutputPeakText);
 
         UpdateLevelMeter();
     }
@@ -729,12 +732,13 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         var rmsDb = LinearToDb(_engine.OutputSpectrum.Rms);
         var peakDb = LinearToDb(_engine.OutputSpectrum.Peak);
 
-        // 峰值保持：跟涨、慢落（12 dB/秒）
+        // 峰值保持（用户要的语义：黑线**短暂停留在最近几秒的最高电平处**）：
+        // 比当前保持值高就立刻跟上去，否则按 6 dB/s 缓慢回落 —— 约 2-3 秒内还能看到刚才的峰值。
         var now = Stopwatch.GetTimestamp();
         if (_levelPeakTicks == 0) _levelPeakTicks = now;
         var elapsed = (now - _levelPeakTicks) / (double)Stopwatch.Frequency;
         _levelPeakTicks = now;
-        _levelPeakDb = Math.Max(peakDb, _levelPeakDb - 12.0 * elapsed);
+        _levelPeakDb = Math.Max(peakDb, _levelPeakDb - 6.0 * elapsed);
         if (_levelPeakDb < MeterFloorDb) _levelPeakDb = MeterFloorDb;
 
         // 遮罩从右往左盖住"高于当前电平"的部分
@@ -743,8 +747,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
         var peakAt = Math.Clamp(width * DbToFraction(_levelPeakDb), 0, Math.Max(0, width - 2));
         LevelPeak.Margin = new Thickness(peakAt, 0, 0, 0);
-
-        LevelReadout.Text = $"{FormatDb(rmsDb)} / 峰 {FormatDb(peakDb)}";
     }
 
     /// <summary>把 dB 映射到 0…1 的位置（-60 dBFS 在左、0 dBFS 在右）。</summary>
@@ -752,8 +754,17 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         => Math.Clamp((db - MeterFloorDb) / (MeterCeilingDb - MeterFloorDb), 0, 1);
 
     /// <summary>电平条上方的 dB 刻度（-48 / -36 / -24 / -12 / 0），静态绘制，仅随尺寸重建。</summary>
+    private bool _levelScaleHooked;
+
     private void BuildLevelScale()
     {
+        // 与频谱刻度同样的坑：先挂钩、后判断宽度（构造期宽度为 0）
+        if (!_levelScaleHooked)
+        {
+            _levelScaleHooked = true;
+            LevelTrack.SizeChanged += (_, _) => BuildLevelScale();
+        }
+
         LevelScaleCanvas.Children.Clear();
         var width = LevelTrack.ActualWidth;
         if (width <= 1) return;

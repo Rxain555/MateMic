@@ -663,8 +663,8 @@
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
 
-                                                                        <!-- 输入 频谱（2026-10-04 第三次改版）：**柱状图**（按反馈从连续曲线改回），
-                             去掉渐变与网格、加粗柱子、细边框；底部频率刻度与顶部读数**位置固定**，不随数据变化。 -->
+                                                                                                <!-- 输入 频谱（2026-10-04 第四次改版）：柱状图 + 对数频率刻度；
+                             读数（有效值/峰值）已按反馈删除；画布自带主题底色（修深色模式）。 -->
                         <Border Grid.Row="0" Style="{StaticResource Card}" Padding="8,5,8,7">
                             <Grid>
                                 <Grid.RowDefinitions>
@@ -673,33 +673,23 @@
                                     <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
 
-                                <!-- 顶部读数：三列固定宽度区，文字变化不会顶动其它元素 -->
-                                <Grid Grid.Row="0" Margin="0,0,0,4">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Style="{StaticResource LabelText}" Text="输入"
-                                               FontWeight="SemiBold" FontSize="11.5"
-                                               Foreground="{DynamicResource TextBrush}" />
-                                    <TextBlock x:Name="InputRmsText" Grid.Column="1" Style="{StaticResource LabelText}"
-                                               FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center"
-                                               TextAlignment="Right" MinWidth="86" />
-                                    <TextBlock x:Name="InputPeakText" Grid.Column="2" Style="{StaticResource LabelText}"
-                                               FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center"
-                                               TextAlignment="Right" MinWidth="86" />
-                                </Grid>
+                                <TextBlock Grid.Row="0" Style="{StaticResource LabelText}" Text="输入"
+                                           FontWeight="SemiBold" FontSize="11.5" Margin="0,0,0,4"
+                                           Foreground="{DynamicResource TextBrush}" />
 
-                                <Canvas x:Name="InputSpectrumCanvas" Grid.Row="1" ClipToBounds="True" />
+                                <!-- 频谱画布自带主题底色：深色模式下不会再透出白卡片底 -->
+                                <Border Grid.Row="1" CornerRadius="4" ClipToBounds="True"
+                                        Background="{DynamicResource SpectrumBackgroundBrush}">
+                                    <Canvas x:Name="InputSpectrumCanvas" ClipToBounds="True" />
+                                </Border>
 
-                                <!-- 底部频率刻度：固定文字，只随宽度重排 -->
-                                <Grid x:Name="InputAxisCanvas" Grid.Row="2" Height="14" Margin="0,3,0,0" />
+                                <!-- 底部频率刻度：对数定位，用 Canvas 精确摆放（Grid 等分列放不准） -->
+                                <Canvas x:Name="InputAxisCanvas" Grid.Row="2" Height="14" Margin="0,4,0,0" ClipToBounds="True" />
                             </Grid>
                         </Border>
 
-                                                                        <!-- 输出 频谱（2026-10-04 第三次改版）：**柱状图**（按反馈从连续曲线改回），
-                             去掉渐变与网格、加粗柱子、细边框；底部频率刻度与顶部读数**位置固定**，不随数据变化。 -->
+                                                                                                <!-- 输出 频谱（2026-10-04 第四次改版）：柱状图 + 对数频率刻度；
+                             读数（有效值/峰值）已按反馈删除；画布自带主题底色（修深色模式）。 -->
                         <Border Grid.Row="1" Style="{StaticResource Card}" Padding="8,5,8,7">
                             <Grid>
                                 <Grid.RowDefinitions>
@@ -708,80 +698,64 @@
                                     <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
 
-                                <!-- 顶部读数：三列固定宽度区，文字变化不会顶动其它元素 -->
-                                <Grid Grid.Row="0" Margin="0,0,0,4">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Style="{StaticResource LabelText}" Text="输出"
-                                               FontWeight="SemiBold" FontSize="11.5"
-                                               Foreground="{DynamicResource TextBrush}" />
-                                    <TextBlock x:Name="OutputRmsText" Grid.Column="1" Style="{StaticResource LabelText}"
-                                               FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center"
-                                               TextAlignment="Right" MinWidth="86" />
-                                    <TextBlock x:Name="OutputPeakText" Grid.Column="2" Style="{StaticResource LabelText}"
-                                               FontSize="10.5" Margin="10,0,0,0" VerticalAlignment="Center"
-                                               TextAlignment="Right" MinWidth="86" />
-                                </Grid>
+                                <TextBlock Grid.Row="0" Style="{StaticResource LabelText}" Text="输出"
+                                           FontWeight="SemiBold" FontSize="11.5" Margin="0,0,0,4"
+                                           Foreground="{DynamicResource TextBrush}" />
 
-                                <Canvas x:Name="OutputSpectrumCanvas" Grid.Row="1" ClipToBounds="True" />
+                                <!-- 频谱画布自带主题底色：深色模式下不会再透出白卡片底 -->
+                                <Border Grid.Row="1" CornerRadius="4" ClipToBounds="True"
+                                        Background="{DynamicResource SpectrumBackgroundBrush}">
+                                    <Canvas x:Name="OutputSpectrumCanvas" ClipToBounds="True" />
+                                </Border>
 
-                                <!-- 底部频率刻度：固定文字，只随宽度重排 -->
-                                <Grid x:Name="OutputAxisCanvas" Grid.Row="2" Height="14" Margin="0,3,0,0" />
+                                <!-- 底部频率刻度：对数定位，用 Canvas 精确摆放（Grid 等分列放不准） -->
+                                <Canvas x:Name="OutputAxisCanvas" Grid.Row="2" Height="14" Margin="0,4,0,0" ClipToBounds="True" />
                             </Grid>
                         </Border>
 
-                                                                        <!-- 电平表（2026-10-04 第三次改版）：
-                             用户明确指出这条**不是进度条，而是"音量合不合适"的参照尺**（绿=合适、黄=偏大、红=过载）。
-                             所以底色是**固定铺满的绿黄红渐变**（不动），用一个从右往左的遮罩表示"当前有多响"：
-                             越响遮罩越窄、露出的绿色越多。
-                             右侧读数放在**固定宽度列**里，文字变化不会再带动电平平条的长短。 -->
+                                                                                                <!-- 电平表（2026-10-04 第四次改版）：
+                             用户指出这条是**判断音量合不合适的参照尺**（绿=合适、黄=偏大、红=过载），
+                             底色固定铺满绿→黄→红，用从右往左的遮罩表示当前电平。
+
+                             圆角修正：上一版给"填充条"和"遮罩"各自设了 RadiusX/RadiusY，
+                             两者在交界处各带一半圆角，看起来像"右端向左凹"。现在改为
+                             **两个矩形都画满、由外层 Border 的 CornerRadius + ClipToBounds 统一裁边**，
+                             右端就只剩外轮廓的圆角了。
+                             读数已按反馈删除（把电平条撑长的元凶一并消失）。 -->
                         <Border Grid.Row="2" Background="Transparent" BorderThickness="0"
-                                Margin="0,7,0,3" Padding="0">
+                                Margin="0,8,0,2" Padding="0">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
 
                                 <!-- dB 刻度短横线（-48 / -36 / -24 / -12 / 0） -->
-                                <Canvas x:Name="LevelScaleCanvas" Grid.Row="0" Grid.Column="0" Height="9"
+                                <Canvas x:Name="LevelScaleCanvas" Grid.Row="0" Height="9"
                                         VerticalAlignment="Bottom" ClipToBounds="True" />
 
-                                <!-- 尺度主体：固定渐变底 + 遮罩 + 峰值指针 -->
-                                <Grid Grid.Row="1" Grid.Column="0" x:Name="LevelTrack" Height="16">
-                                    <Rectangle RadiusX="3" RadiusY="3">
-                                        <Rectangle.Fill>
-                                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-                                                <GradientStop Color="#F26B6B" Offset="0" />
-                                                <GradientStop Color="#F26B6B" Offset="0.45" />
-                                                <GradientStop Color="#F2C744" Offset="0.62" />
-                                                <GradientStop Color="#F2C744" Offset="0.82" />
-                                                <GradientStop Color="#5CD65C" Offset="0.92" />
-                                                <GradientStop Color="#5CD65C" Offset="1" />
-                                            </LinearGradientBrush>
-                                        </Rectangle.Fill>
-                                    </Rectangle>
-                                    <Rectangle x:Name="LevelMaskRect" HorizontalAlignment="Right"
-                                               RadiusX="3" RadiusY="3" Width="0"
-                                               Fill="{DynamicResource LevelMaskBrush}" Opacity="0.82"
-                                               IsHitTestVisible="False" />
-                                    <Rectangle x:Name="LevelPeak" Width="2" Height="16"
-                                               Fill="{DynamicResource TextBrush}" Opacity="0.7"
-                                               HorizontalAlignment="Left" VerticalAlignment="Center"
-                                               IsHitTestVisible="False" />
-                                </Grid>
-
-                                <TextBlock x:Name="LevelReadout" Grid.Row="0" Grid.Column="1" Grid.RowSpan="2"
-                                           Style="{StaticResource LabelText}" FontSize="10.5"
-                                           Margin="10,0,0,0" VerticalAlignment="Center"
-                                           TextAlignment="Right" MinWidth="150" Text="—" />
+                                <Border Grid.Row="1" CornerRadius="4" ClipToBounds="True" Height="16">
+                                    <Grid x:Name="LevelTrack">
+                                        <Rectangle>
+                                            <Rectangle.Fill>
+                                                <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                                    <GradientStop Color="#F26B6B" Offset="0" />
+                                                    <GradientStop Color="#F26B6B" Offset="0.45" />
+                                                    <GradientStop Color="#F2C744" Offset="0.62" />
+                                                    <GradientStop Color="#F2C744" Offset="0.82" />
+                                                    <GradientStop Color="#5CD65C" Offset="0.92" />
+                                                    <GradientStop Color="#5CD65C" Offset="1" />
+                                                </LinearGradientBrush>
+                                            </Rectangle.Fill>
+                                        </Rectangle>
+                                        <Rectangle x:Name="LevelMaskRect" HorizontalAlignment="Right"
+                                                   Width="0" Fill="{DynamicResource LevelMaskBrush}"
+                                                   Opacity="0.82" IsHitTestVisible="False" />
+                                        <Rectangle x:Name="LevelPeak" Width="2" Height="16"
+                                                   Fill="{DynamicResource TextBrush}" Opacity="0.7"
+                                                   HorizontalAlignment="Left" IsHitTestVisible="False" />
+                                    </Grid>
+                                </Border>
                             </Grid>
                         </Border></Grid>
                 </DockPanel>
