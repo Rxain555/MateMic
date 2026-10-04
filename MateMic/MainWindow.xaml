@@ -216,7 +216,7 @@
                     </Grid>
 
                     <!-- 覆盖式滚动条：滚动条浮在内容上方、不占布局列，因此出现时不会把卡片挤窄。 -->
-                    <ScrollViewer Style="{StaticResource OverlayScrollViewer}" ui:SmoothScroll.Enabled="True" Padding="0,0,0,6">
+                    <ScrollViewer x:Name="LeftScroll" Style="{StaticResource OverlayScrollViewer}" ui:SmoothScroll.Enabled="True" Padding="0,0,0,6">
                         <StackPanel>
                             <!-- 噪声门 -->
                             <Border Style="{StaticResource Card}">
@@ -517,7 +517,7 @@
                                                 Style="{StaticResource ExpanderButton}"
                                                 Click="OnExpandClick" Tag="{Binding ToneExpanded, RelativeSource={RelativeSource AncestorType=Window}}" />
                                     </Grid>
-                                    <UniformGrid x:Name="ToneGrid" Columns="6" Margin="0,6,0,0"
+                                    <UniformGrid x:Name="ToneGrid" Columns="3" Margin="0,6,0,0"
                                                  Visibility="Collapsed">
                                         <RadioButton Style="{StaticResource ChipToggle}" Content="清亮" Tag="Bright"
                                                      Click="OnToneSelected" />

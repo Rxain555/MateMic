@@ -653,7 +653,10 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             {
                 Text = ticks[i] >= 1000 ? $"{ticks[i] / 1000:0.#}k" : $"{ticks[i]:0}",
                 FontSize = 9.5,
-                FontFamily = new FontFamily("Consolas, Cascadia Mono, Segoe UI"),   // 等宽数字，视觉更整齐
+                // 不设 FontFamily：跟随窗口的 AppFont（MiSans），与全局字体一致。
+                // 之前这里硬编码了 Consolas/Cascadia Mono，所以刻度看起来"没用 MiSans"——
+                // 不是字号太小导致的回退，是我显式指定的。等宽在这个尺度上收益也有限，
+                // 实测 MiSans 的数字自然宽 23px，比等宽的 30px 还窄，不会挤到相邻刻度。
                 Foreground = LookupBrush("SubtleTextBrush", Color.FromRgb(0x63, 0x6A, 0x76)),
             };
             label.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
@@ -672,6 +675,180 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             var info = string.Join(" ", labels.Where(l => l != null)
                                               .Select(l => $"{l!.Text}@{(int)Canvas.GetLeft(l)}"));
             Log.Info($"[刻度自检] 画布宽={width:0} 子元素={axis.Children.Count} → {info}");
+        }
+    }
+
+    /// <summary>
+    /// 自检专用：**异步**逐个模块点击展开，每次等 400 ms（动画 220/160 ms）后再读结果。
+    ///
+    /// 踩过的坑：一开始在 OnExpandClick 返回后**同一帧**就读旋转角，结果全都是"朝左"，
+    /// 看着像箭头动画坏了——其实动画还没开始跑，基线就是 90°。**测量必须在动画结束后**。
+    /// </summary>
+    public void CheckExpanders()
+    {
+        var items = new (string Name, Button Button, FrameworkElement Panel)[]
+        {
+            ("噪声门", ExpandGate, PanelGate),
+            ("AI 降噪", ExpandDenoise, PanelDenoise),
+            ("响度平衡", ExpandLoudness, PanelLoudness),
+            ("音色风格", ExpandTone, ToneGrid),
+            ("效果器", ExpandEffect, PanelCreative),
+            ("增益", ExpandGain, PanelGain),
+            ("DSP 变声", ExpandVoiceChanger, PanelVoiceChanger),
+        };
+
+        // 两轮：第 1 轮按各自**初始状态取反**（本来就是展开的先收起），第 2 轮再全部取反回来。
+        // 一开始假设"第 1 轮 = 全部展开"，结果配置里本来就展开的三项被点成了收起、报 ✗ ——
+        // 那是我的假设错了，不是程序错了。
+        var pass = 0;
+        var index = 0;
+        var pending = default(Button);
+        var wasVisible = false;
+        var timer = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(400),
+        };
+
+        timer.Tick += (_, _) =>
+        {
+            if (pending != null)
+            {
+                var entry = items[index - 1];
+                var arrow = FindDescendant<System.Windows.Shapes.Path>(pending, "Arrow");
+                var dir = arrow?.Data is Geometry g
+                    ? DescribeArrowDirection(g, arrow.RenderTransform, out _)
+                    : "?";
+
+                // 每一轮都"取反"，所以期望值 = 点击前状态的相反
+                var expectedOpen = !wasVisible;
+                var expected = expectedOpen ? "朝下" : "朝左";
+                var ok = entry.Panel.Visibility == (expectedOpen ? Visibility.Visible : Visibility.Collapsed)
+                         && dir == expected
+                         && (expectedOpen ? entry.Panel.ActualHeight > 0.5 : entry.Panel.ActualHeight < 0.5);
+                Log.Info($"[展开自检] 第{pass + 1}轮 {entry.Name}：{wasVisible switch { true => "展开", false => "收起" }} → "
+                         + $"{(expectedOpen ? "展开" : "收起")}｜面板={entry.Panel.Visibility}"
+                         + $"｜Tag={pending.Tag}｜箭头{dir}（期望{expected}）{(ok ? " ✓" : " ✗")}"
+                         + $"｜内容高={entry.Panel.ActualHeight:0.#}｜动画残留={_panelAnimations.ContainsKey(pending)}");
+            }
+
+            if (index >= items.Length)
+            {
+                if (pass == 0)
+                {
+                    pass = 1;
+                    index = 0;
+                    pending = null;          // ⚠ 必须清掉：否则下一拍会去取 items[index-1] = items[-1] 而抛异常
+                    Log.Info("[展开自检] ---- 第 1 轮完成，开始第 2 轮（全部反向）----");
+                    return;
+                }
+                timer.Stop();
+                Log.Info("[展开自检] ==== 结束 ====");
+                return;
+            }
+
+            pending = items[index].Button;
+            wasVisible = items[index].Panel.Visibility == Visibility.Visible;
+            OnExpandClick(pending, new RoutedEventArgs());
+            index++;
+        };
+
+        Log.Info("[展开自检] ==== 两轮逐个点击（每轮取反），每次等 400ms 读结果 ====");
+        timer.Start();
+    }
+
+    /// <summary>自检专用：量出各 chip 容器的真实可用宽度与每个 chip 的实际宽度，用于判断是否被挤压。</summary>
+    public void MeasureChips()
+    {
+        void Dump(string name, Panel host)
+        {
+            var width = host.ActualWidth;
+            var chips = host.Children.OfType<FrameworkElement>().ToList();
+            var sizes = chips.Select(c =>
+            {
+                try
+                {
+                    var tl = c.TransformToAncestor(this).Transform(new Point(0, 0));
+                    return $"{c.ActualWidth:0.#}×{c.ActualHeight:0.#}@{tl.X:0}";
+                }
+                catch { return $"{c.ActualWidth:0.#}×{c.ActualHeight:0.#}"; }
+            });
+            var cols = host is System.Windows.Controls.Primitives.UniformGrid ug ? ug.Columns : -1;
+            // 文字自然宽度（含模板里 Padding 7+7）：用来判断 chip 宽度是否真的不够
+            var textWidths = chips.Select(c => c is ContentControl cc && cc.Content is string s
+                ? new FormattedText(s, System.Globalization.CultureInfo.CurrentCulture,
+                        FlowDirection.LeftToRight,
+                        new Typeface(cc.FontFamily, cc.FontStyle, cc.FontWeight, cc.FontStretch),
+                        cc.FontSize, Brushes.Black,
+                        VisualTreeHelper.GetDpi(this).PixelsPerDip).Width
+                : double.NaN).ToList();
+            var needed = textWidths.Where(w => !double.IsNaN(w)).Select(w => w + 14).ToList();
+            Log.Info($"[尺寸自检] {name}：容器宽={width:0.#}｜列数={cols}｜子项={chips.Count}"
+                     + $"｜每个 chip {" "}{string.Join("  ", sizes)}");
+            Log.Info($"[尺寸自检] {name}：文字自然宽 {string.Join(" / ", textWidths.Select(w => $"{w:0.#}"))}"
+                     + $"｜加内边距后需要 {string.Join(" / ", needed.Select(w => $"{w:0.#}"))}"
+                     + $"｜chip 实际 {(chips.Count > 0 ? chips[0].ActualWidth : 0):0.#}"
+                     + $" ⇒ {(needed.Count > 0 && chips.Count > 0 && needed[0] > chips[0].ActualWidth ? "放不下" : "放得下")}");
+        }
+
+        Dump("音色风格 ToneGrid", ToneGrid);
+        Dump("效果器 EffectGrid", EffectGrid);
+
+        // 左栏纵向空间是否够：滚动区视口 vs 内容自然高度，以及各卡片被分配到的实际高度
+        if (LeftScroll != null)
+        {
+            var viewport = LeftScroll.ViewportHeight;
+            var extent = LeftScroll.ExtentHeight;
+            Log.Info($"[纵向自检] 左栏滚动区：视口高={viewport:0.#}｜内容高={extent:0.#}"
+                     + $"｜可滚动={(LeftScroll.ScrollableHeight > 0.5 ? "是" : "否")}"
+                     + $"｜卡住={extent > viewport + 0.5 && LeftScroll.ScrollableHeight <= 0.5}");
+
+            var cards = new List<FrameworkElement>();
+            void Walk(DependencyObject node)
+            {
+                var n = VisualTreeHelper.GetChildrenCount(node);
+                for (var i = 0; i < n; i++)
+                {
+                    var child = VisualTreeHelper.GetChild(node, i);
+                    if (child is Border b && b.Style == (Style)FindResource("Card")) cards.Add(b);
+                    else Walk(child);
+                }
+            }
+            Walk(LeftRegion);
+            Log.Info($"[纵向自检] 左栏共 {cards.Count} 张卡片，实际高度："
+                     + string.Join("  ", cards.Select(c => $"{c.ActualHeight:0.#}"))
+                     + $"｜合计 {cards.Sum(c => c.ActualHeight + c.Margin.Top + c.Margin.Bottom):0.#}");
+
+            // 逐张卡片带标题报告，便于看"哪一张"被压（只看高度数字分不清是哪张）
+            foreach (var card in cards)
+            {
+                var title = Descendants(card).OfType<TextBlock>()
+                    .FirstOrDefault(t => t.Style == (Style)FindResource("SectionTitle"))?.Text ?? "(无标题)";
+                var panelName = Descendants(card).OfType<FrameworkElement>()
+                    .FirstOrDefault(e => e.Name is "PanelGate" or "PanelDenoise" or "PanelLoudness"
+                                              or "ToneGrid" or "PanelCreative" or "PanelGain"
+                                              or "PanelVoiceChanger")?.Name ?? "-";
+                var panelHeight = Descendants(card).OfType<FrameworkElement>()
+                    .FirstOrDefault(e => e.Name == panelName)?.ActualHeight ?? double.NaN;
+                Log.Info($"[纵向自检] 卡片「{title}」高={card.ActualHeight:0.#}"
+                         + $"｜内容区 {panelName} 高={(double.IsNaN(panelHeight) ? 0 : panelHeight):0.#}"
+                         + $"｜可见={(Descendants(card).OfType<FrameworkElement>().FirstOrDefault(e => e.Name == panelName)?.Visibility.ToString() ?? "-")}");
+            }
+        }
+        else
+        {
+            Log.Info("[纵向自检] 左栏没有 ScrollViewer —— 内容超高时只能被压缩/裁切");
+        }
+    }
+
+    /// <summary>自检专用：枚举某元素下的全部视觉子元素。</summary>
+    private static IEnumerable<DependencyObject> Descendants(DependencyObject root)
+    {
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            yield return child;
+            foreach (var deeper in Descendants(child)) yield return deeper;
         }
     }
 

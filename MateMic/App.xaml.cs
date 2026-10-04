@@ -77,7 +77,7 @@ public partial class App : Application
         base.OnStartup(e);
 
         // 音频链路诊断：MateMic.exe --audiocheck [秒数] [输出设备关键字] [输入设备关键字]
-        if (args.Contains("--audiocheck", StringComparer.OrdinalIgnoreCase))
+        if (HasFlag(args, "--audiocheck"))
         {
             AudioDiagnostics.Run(args);
             Shutdown();
@@ -86,7 +86,7 @@ public partial class App : Application
 
         // 快捷键录入通路自检：MateMic.exe --imecheck
         // 验证中文输入法不会拦截录入（曾经反复复发的那个问题），退出码 0=通过。
-        if (args.Contains("--imecheck", StringComparer.OrdinalIgnoreCase))
+        if (HasFlag(args, "--imecheck"))
         {
             ImeDiagnostics.Run();
             Shutdown();
@@ -96,7 +96,7 @@ public partial class App : Application
         // 设备热插拔自检：MateMic.exe --devicecheck [秒数]
         // 不开音频流，只订阅设备变更通知并打印前后设备清单。
         // 运行期间手动拔插麦克风即可验证"能否立刻发现、能否识别插回"。
-        if (args.Contains("--devicecheck", StringComparer.OrdinalIgnoreCase))
+        if (HasFlag(args, "--devicecheck"))
         {
             var exitCode = DeviceDiagnostics.Run(args);
             Shutdown(exitCode);
@@ -107,14 +107,14 @@ public partial class App : Application
         // 设备切换演练：应用照常运行时，过几秒自动切换一次系统默认录音设备再切回来。
         // 用途：验证"默认设备变化 / 设备集合变化"能否真的驱动音频流恢复——
         // 不依赖手动拔插，因此可重复、可自动化。
-        var switchTest = args.Contains("--switchtest", StringComparer.OrdinalIgnoreCase);
+        var switchTest = HasFlag(args, "--switchtest");
 
         // 主窗口构造兜底：XAML 解析失败时给出明确提示并退出，
         // 而不是让异常处理框把进程挂在后台（自检/自动化场景下会表现为“卡住”）。
         // 自检标志必须在构造 MainWindow **之前**确定：窗口在 SourceInitialized 里
         // 就据此决定要不要套亚克力材质（RenderTargetBitmap 抓不到 DWM 合成的材质，
         // 所以只有纯 --selfcheck 截图才需要跳过；--screen 抓的是屏幕，材质必须真开）。
-        IsSelfCheckRun = args.Contains("--selfcheck", StringComparer.OrdinalIgnoreCase) &&
+        IsSelfCheckRun = HasFlag(args, "--selfcheck") &&
                          ScreenModeOf(args) == null;
         try
         {
@@ -122,7 +122,7 @@ public partial class App : Application
             // 这种情况下不弹主窗口，直接把窗口收进托盘。
             var main = new MainWindow
             {
-                StartMinimizedToTray = args.Contains("--autostart", StringComparer.OrdinalIgnoreCase),
+                StartMinimizedToTray = HasFlag(args, "--autostart"),
             };
             MainWindow = main;
             main.Show();
@@ -144,16 +144,20 @@ public partial class App : Application
         var selfCheck = ValueOf(args, "--selfcheck");
         if (selfCheck != null)
         {
-            var expandAll = args.Contains("--expanded", StringComparer.OrdinalIgnoreCase);
+            // ⚠ 必须精确匹配：Contains 是子串匹配，"--expandcheck" 里含有 "--expanded"，
+// 会让逐项检查的自检先被"全部展开"，导致后续点击变成"收起"（测试工具自己制造假故障）。
+            var expandAll = args.Any(a => string.Equals(a, "--expanded", StringComparison.OrdinalIgnoreCase));
             var screenMode = ScreenModeOf(args);
             var preview = new System.Windows.Threading.DispatcherTimer
             {
                 Interval = TimeSpan.FromMilliseconds(200),
             };
             var tick = 0;
+            // 逐项展开自检要走两轮共 14 次点击（每次 400ms），需要更长的存活时间
+            var tickLimit = HasFlag(args, "--expandcheck") ? 90 : 24;
             preview.Tick += (_, _) =>
             {
-                if (++tick > 24)
+                if (++tick > tickLimit)
                 {
                     preview.Stop();
                     if (screenMode != null && MainWindow is MainWindow target)
@@ -169,6 +173,9 @@ public partial class App : Application
                     if (tick == 2 && expandAll) window.ExpandAllForSelfCheck();
                     // 动画是 160 ms，等到第 5 拍（约 1 s）再读角度，确保停在终值
                     if (tick == 5) window.LogExpanderAngles();
+                    if (tick == 6 && HasFlag(args, "--expandcheck"))
+                        window.CheckExpanders();
+                    if (tick == 8) window.MeasureChips();
                     window.FeedSelfCheckSignal((float)(tick / 24.0));
                 }
             };
@@ -181,7 +188,7 @@ public partial class App : Application
         var menuCheck = ValueOf(args, "--traymenucheck");
         if (menuCheck != null)
         {
-            if (args.Contains("--dark", StringComparer.OrdinalIgnoreCase))
+            if (HasFlag(args, "--dark"))
             {
                 ThemeManager.Apply(Application.Current.Resources, dark: true,
                     WindowEffects.IsAcrylicActive);
@@ -224,13 +231,23 @@ public partial class App : Application
                 return arg["--screen=".Length..];
         }
 
-        return args.Contains("--screen", StringComparer.OrdinalIgnoreCase) ? "screen" : null;
+        return HasFlag(args, "--screen") ? "screen" : null;
     }
 
     /// <summary>
     /// 设备切换演练：6 秒后把默认录音设备切到另一台、再过 6 秒切回来，最后退出。
     /// 全程只依赖系统接口，不需要拔插硬件，因此可以反复执行来验证恢复链路。
     /// </summary>
+    /// <summary>
+    /// 命令行开关的**精确**匹配（忽略大小写）。
+    ///
+    /// 不能用 `args.Contains("--x")`：那是**子串**匹配，`--expandcheck` 里含有 `--expanded`，
+    /// 会让"逐项展开检查"的自检先被"全部展开"，后续点击就变成收起，制造出假故障
+    /// （这个坑真踩过：日志里出现 3 个 ✗，排查半天发现是测试工具自己的问题）。
+    /// </summary>
+    private static bool HasFlag(string[] args, string flag)
+        => args.Any(a => string.Equals(a, flag, StringComparison.OrdinalIgnoreCase));
+
     private void RunSwitchTest()
     {
         Log.Info("==== 设备切换演练开始（--switchtest）====");
