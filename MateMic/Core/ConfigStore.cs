@@ -25,6 +25,13 @@ public sealed class ConfigStore
     public static string ModelsDirectory => Path.Combine(Root, "models");
     public static string RecordingsDirectory => Path.Combine(Root, "recordings");
     public static string RuntimeDirectory => Path.Combine(Root, "runtime");
+
+    /// <summary>
+    /// 组件目录（AI 变声引擎、音色模型等按需安装的大文件）。
+    /// **刻意与 <see cref="ModelsDirectory"/>（降噪模型）分开**：两者性质不同，
+    /// 分开后卸载/清理只需删一个子树，也不会让降噪模型的扫描去碰变声的大文件。
+    /// </summary>
+    public static string ComponentsDirectory => Path.Combine(Root, "components");
     public static string LogsDirectory => Path.Combine(Root, "logs");
     public static string ConfigPath => Path.Combine(Root, "config.json");
 
@@ -144,6 +151,7 @@ public sealed class ConfigStore
         Directory.CreateDirectory(ModelsDirectory);
         Directory.CreateDirectory(RecordingsDirectory);
         Directory.CreateDirectory(RuntimeDirectory);
+        Directory.CreateDirectory(ComponentsDirectory);
         Directory.CreateDirectory(LogsDirectory);
         MigrateLegacyDataIfNeeded();
         MigrateFromLocalAppDataIfNeeded();

@@ -10,6 +10,9 @@
         WindowStyle="SingleBorderWindow"
         ResizeMode="CanMinimize"
         WindowStartupLocation="CenterScreen"
+        AllowDrop="True"
+        PreviewDragOver="OnWindowDragOver"
+        Drop="OnWindowDrop"
         Background="{DynamicResource WindowBrush}"
         FontFamily="{DynamicResource AppFont}" FontSize="12"
         UseLayoutRounding="True" SnapsToDevicePixels="True"
@@ -363,6 +366,18 @@
                                                 Click="OnExpandClick" Tag="{Binding VoiceChangerExpanded, RelativeSource={RelativeSource AncestorType=Window}}" />
                                     </Grid>
                                     <StackPanel x:Name="PanelVoiceChanger" Visibility="Collapsed" Margin="0,6,0,0">
+                                        <!-- AI 变声引擎/音色是"按需安装的组件"，不随安装包分发 -->
+                                        <Grid Margin="0,0,0,6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock x:Name="VoiceComponentHint" Grid.Column="0" Style="{StaticResource LabelText}"
+                                                       TextWrapping="Wrap" Text="AI 变声组件：未安装" />
+                                            <Button Grid.Column="1" Style="{StaticResource ToolbarButton}" Content="安装组件…"
+                                                    Padding="8,3,8,3" Click="OnInstallComponentClick"
+                                                    ToolTip="也可以直接把组件文件拖进本窗口" />
+                                        </Grid>
                                         <Grid Margin="0,2,0,2">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="60" />

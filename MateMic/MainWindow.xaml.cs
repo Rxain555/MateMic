@@ -482,6 +482,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             VoicePitchSlider.Value = _config.VoiceChanger.Semitones;
             VoiceFormantSlider.Value = _config.VoiceChanger.FormantSemitones;
             VoiceGenderSlider.Value = _config.VoiceChanger.GenderFactor;
+            RefreshVoiceComponents();
             VoiceMixSlider.Value = _config.VoiceChanger.Mix;
 
             ToggleAudioMonitor.IsChecked = _config.Player.AudioMonitor;
@@ -641,6 +642,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             (ExpandTone, ToneGrid),
             (ExpandEffect, PanelCreative),
             (ExpandGain, PanelGain),
+            (ExpandVoiceChanger, PanelVoiceChanger),
         };
 
         foreach (var (button, panel) in panels)
@@ -1691,8 +1693,72 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
         if (dialog.ShowDialog(this) != true) return;
 
-        foreach (var file in dialog.FileNames)
+        AddAudioFiles(dialog.FileNames);
+    }
+
+    // =============================================================== 拖放与组件
+
+    /// <summary>拖放支持的音频扩展名（与「添加音频文件」对话框的过滤器保持一致）。</summary>
+    private static readonly HashSet<string> AudioExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".wav", ".mp3", ".m4a", ".aac", ".wma", ".flac", ".ogg",
+    };
+
+    private static bool IsAudioFile(string path) => AudioExtensions.Contains(Path.GetExtension(path));
+
+    /// <summary>把拖入的路径摊平成文件（文件夹只取顶层，避免误扫整个磁盘）。</summary>
+    private static IEnumerable<string> ExpandDroppedPaths(IEnumerable<string> paths)
+    {
+        foreach (var path in paths)
         {
+            if (Directory.Exists(path))
+            {
+                foreach (var file in Directory.EnumerateFiles(path)) yield return file;
+            }
+            else if (File.Exists(path))
+            {
+                yield return path;
+            }
+        }
+    }
+
+    private void OnWindowDragOver(object sender, DragEventArgs e)
+    {
+        e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// 统一入口：拖进窗口的内容按类型分流 —— 音频进播放列表，组件（manifest.json + 分段）走安装。
+    /// 组件是"按需安装的大文件"，拖放是最省事的安装方式（也提供「安装组件…」按钮）。
+    /// </summary>
+    private void OnWindowDrop(object sender, DragEventArgs e)
+    {
+        if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
+        if (e.Data.GetData(DataFormats.FileDrop) is not string[] dropped || dropped.Length == 0) return;
+        e.Handled = true;
+
+        var files = ExpandDroppedPaths(dropped).ToList();
+        var audio = files.Where(IsAudioFile).ToList();
+        var others = files.Where(f => !IsAudioFile(f)).ToList();
+
+        if (audio.Count > 0)
+        {
+            var added = AddAudioFiles(audio);
+            Log.Info($"拖入音频 {audio.Count} 个，新增 {added} 个到播放列表");
+        }
+
+        // 组件按"拖进来的原始路径"整体交给安装器（它自己会摊平文件夹、找清单、按段拼接）
+        if (others.Count > 0) InstallVoiceComponents(dropped);
+    }
+
+    /// <summary>把音频文件加进播放列表（对话框与拖放共用）。返回真正新增的数量。</summary>
+    private int AddAudioFiles(IEnumerable<string> paths)
+    {
+        var added = 0;
+        foreach (var file in paths)
+        {
+            if (!File.Exists(file)) continue;
             if (_tracks.Any(t => string.Equals(t.FilePath, file, StringComparison.OrdinalIgnoreCase))) continue;
 
             var model = new PlayerTrack
@@ -1703,12 +1769,58 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             };
             _config.Player.Tracks.Add(model);
             _tracks.Add(new TrackViewModel(model));
+            added++;
         }
 
-        TrackList.Items.Refresh();
-        UpdateTrackListHint();
-        SaveConfig();
+        if (added > 0)
+        {
+            TrackList.Items.Refresh();
+            UpdateTrackListHint();
+            SaveConfig();
+        }
+
+        return added;
     }
+
+    private void OnInstallComponentClick(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "选择组件文件（可多选；也可以直接把文件拖进窗口）",
+            Multiselect = true,
+            Filter = "组件文件|manifest.json;*.part*;*.zip|所有文件|*.*",
+        };
+
+        if (dialog.ShowDialog(this) != true) return;
+        InstallVoiceComponents(dialog.FileNames);
+    }
+
+    /// <summary>安装组件：校验 + 分段拼接 + 落盘，成功后刷新引擎状态。</summary>
+    private void InstallVoiceComponents(IEnumerable<string> paths)
+    {
+        var result = VoiceComponentInstaller.Install(paths);
+        if (result.Ok) RefreshVoiceComponents();
+        DialogHost.Info(this, result.Ok ? "组件已安装" : "组件安装失败", result.Message);
+    }
+
+    /// <summary>刷新变声卡片的"AI 引擎组件"提示（启动时与安装后都会调）。</summary>
+    private void RefreshVoiceComponents()
+    {
+        var installed = VoiceComponentInstaller.LoadInstalled(ConfigStore.ComponentsDirectory);
+        if (installed.Count == 0)
+        {
+            VoiceComponentHint.Text = "AI 变声组件：未安装（把下载的组件文件拖进窗口即可安装）";
+            return;
+        }
+
+        var engines = installed.Where(m => !string.Equals(m.Kind, "model", StringComparison.OrdinalIgnoreCase)).ToList();
+        var models = installed.Where(m => string.Equals(m.Kind, "model", StringComparison.OrdinalIgnoreCase)).ToList();
+
+        VoiceComponentHint.Text = engines.Count == 0
+            ? $"AI 变声组件：已装 {models.Count} 个音色，但还没有引擎"
+            : $"AI 变声组件：引擎 {string.Join("、", engines.Select(m => m.Name))}；音色 {models.Count} 个";
+    }
+
 
     private void OnTrackHotkeyClick(object sender, RoutedEventArgs e)
     {
