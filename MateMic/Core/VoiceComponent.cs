@@ -244,6 +244,15 @@ public static class VoiceComponentInstaller
                 }
             }
 
+            var assembledSize = new FileInfo(assembled).Length;
+
+            // 4b) 载荷是 zip（引擎组件含编码器与基频两个模型）就解包到同目录，
+            //     然后删掉压缩包——几百 MB 的东西不要占双份空间
+            if (Path.GetExtension(assembled).Equals(".zip", StringComparison.OrdinalIgnoreCase))
+            {
+                ZipFile.ExtractToDirectory(assembled, targetDir, overwriteFiles: true);
+                TryDelete(assembled);
+            }
             // 5) 清单也放一份到落盘目录，便于下次扫描
             var manifestCopy = Path.Combine(targetDir, ManifestFileName);
             if (!string.Equals(manifestPath, manifestCopy, StringComparison.OrdinalIgnoreCase))
@@ -251,7 +260,7 @@ public static class VoiceComponentInstaller
                 File.Copy(manifestPath, manifestCopy, overwrite: true);
             }
 
-            var sizeMb = new FileInfo(assembled).Length / 1024.0 / 1024.0;
+            var sizeMb = assembledSize / 1024.0 / 1024.0;
             var where = dryRun ? "（自检：未写入模型目录）" : targetDir;
             Log.Info($"组件安装成功：{manifest.Name} {manifest.Version} → {assembled}（{sizeMb:0.0} MB）");
             return new VoiceComponentInstallResult(

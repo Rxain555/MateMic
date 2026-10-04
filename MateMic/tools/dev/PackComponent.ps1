@@ -26,9 +26,25 @@ $ErrorActionPreference = 'Stop'
 
 if (-not (Test-Path -LiteralPath $Source)) { throw "找不到源文件：$Source" }
 $sourceItem = Get-Item -LiteralPath $Source
-if ($sourceItem.PSIsContainer) { throw "源路径是目录而不是文件：$Source" }
 $source = $sourceItem.FullName
-$size = [int64]$sourceItem.Length      # 注意：不要用 $source.Length —— 那是路径字符串的长度
+
+if ($sourceItem.PSIsContainer) {
+    # 目录：先打成一个"不压缩"的 zip 载荷（ONNX 压缩不了多少，store 更快也更省心）
+    New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zipName = "$Id.zip"
+    $zipPath = Join-Path $OutDir $zipName
+    if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
+    [System.IO.Compression.ZipFile]::CreateFromDirectory(
+        $source, $zipPath, [System.IO.Compression.CompressionLevel]::NoCompression, $false)
+    Write-Host "目录已打成 zip 载荷：$zipName（$([math]::Round((Get-Item -LiteralPath $zipPath).Length / 1MB, 1)) MB）"
+    $source = $zipPath
+    $size = [int64](Get-Item -LiteralPath $zipPath).Length
+}
+else {
+    $size = [int64]$sourceItem.Length      # 注意：不要用 $source.Length —— 那是路径字符串的长度
+}
+
 $fileName = Split-Path -Leaf $source
 
 if (-not $OutDir) { $OutDir = Join-Path (Split-Path -Parent $source) ($Id + '-component') }
