@@ -806,7 +806,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             var x = Math.Round(width * DbToFraction(db)) + 0.5;
             var tick = new System.Windows.Shapes.Line
             {
-                X1 = x, X2 = x, Y1 = 6, Y2 = 11,
+                X1 = x, X2 = x, Y1 = 3, Y2 = 6,
                 Stroke = brush,
                 StrokeThickness = 1,
                 SnapsToDevicePixels = true,

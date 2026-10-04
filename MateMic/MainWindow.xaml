@@ -688,7 +688,7 @@
 
                                                                                                 <!-- 输出 频谱（2026-10-04 第四次改版）：柱状图 + 对数频率刻度；
                              读数（有效值/峰值）已按反馈删除；画布自带主题底色（修深色模式）。 -->
-                        <Border Grid.Row="1" Style="{StaticResource Card}" Padding="8,5,8,7">
+                        <Border Grid.Row="1" Style="{StaticResource Card}" Padding="8,5,8,2" Margin="0,0,0,0">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto" />
@@ -718,16 +718,19 @@
                              **两个矩形都画满、由外层 Border 的 CornerRadius + ClipToBounds 统一裁边**，
                              右端就只剩外轮廓的圆角了。
                              读数已按反馈删除（把电平条撑长的元凶一并消失）。 -->
+                        <!-- 顶部间距为 0、并配合输出卡片的底内边距一起收：
+                             视觉上的"远"主要来自卡片投影（CardShadow 在卡片下方渲染约 10px 柔和阴影），
+                             只调 Margin 数值的收效有限。 -->
                         <Border Grid.Row="2" Background="Transparent" BorderThickness="0"
-                                Margin="0,2,0,2" Padding="0">
+                                Margin="0,0,0,2" Padding="0">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
 
-                                <!-- dB 刻度短横线（-48 / -36 / -24 / -12 / 0） -->
-                                <Canvas x:Name="LevelScaleCanvas" Grid.Row="0" Height="9"
+                                <!-- dB 刻度短横线（-48 / -36 / -24 / -12 / 0）：高度收窄，让整块更贴上方卡片 -->
+                                <Canvas x:Name="LevelScaleCanvas" Grid.Row="0" Height="6"
                                         VerticalAlignment="Bottom" ClipToBounds="True" />
 
                                 <Border Grid.Row="1" CornerRadius="4" ClipToBounds="True" Height="16">
