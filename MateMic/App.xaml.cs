@@ -176,6 +176,7 @@ public partial class App : Application
                     if (tick == 6 && HasFlag(args, "--expandcheck"))
                         window.CheckExpanders();
                     if (tick == 8) window.MeasureChips();
+                    if (tick == 10 && HasFlag(args, "--collapsecheck")) window.CheckCollapseExpand();
                     window.FeedSelfCheckSignal((float)(tick / 24.0));
                 }
             };

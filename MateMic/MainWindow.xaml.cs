@@ -756,6 +756,69 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         timer.Start();
     }
 
+    /// <summary>
+    /// 自检专用：**只针对音色风格**，按"收起 → 展开"这条实际路径逐拍采样。
+    ///
+    /// 用户报告的现象是"打开时展开是正常的，收起后再展开就展不完全"，
+    /// 所以必须按这个顺序测，并逐拍记录高度，才能看出卡在哪一拍。
+    /// </summary>
+    public void CheckCollapseExpand()
+    {
+        var panel = ToneGrid;
+        var button = ExpandTone;
+        var step = 0;
+        var timer = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(120),
+        };
+
+        void Report(string stage)
+        {
+            var arrow = FindDescendant<System.Windows.Shapes.Path>(button, "Arrow");
+            var dir = arrow?.Data is Geometry g
+                ? DescribeArrowDirection(g, arrow.RenderTransform, out _)
+                : "?";
+            // 卡片高度：ToneGrid 的祖先是 Card Border
+            var card = Descendants(this).OfType<Border>()
+                .FirstOrDefault(b => b.Style == (Style)FindResource("Card") && Descendants(b).Contains(panel));
+            Log.Info($"[收起展开自检] {stage}：面板={panel.Visibility}"
+                     + $"｜面板高={panel.ActualHeight:0.#}（Height 属性={(double.IsNaN(panel.Height) ? "NaN" : panel.Height.ToString("0.#"))}）"
+                     + $"｜箭头{dir}｜Tag={button.Tag}"
+                     + $"｜卡片高={(card?.ActualHeight ?? -1):0.#}"
+                     + $"｜动画残留={_panelAnimations.ContainsKey(button)}");
+        }
+
+        // 从确定的状态开始：先保证是收起态（启动配置可能本来就是展开）
+        if (panel.Visibility == Visibility.Visible)
+            OnExpandClick(button, new RoutedEventArgs());
+
+        Report("初始（已确保为收起态）");
+        timer.Tick += (_, _) =>
+        {
+            switch (step)
+            {
+                case 2:
+                    Report("收起动画应已结束");
+                    break;
+                case 3:
+                    OnExpandClick(button, new RoutedEventArgs());     // 关键路径：从收起态再展开
+                    break;
+                case 5:
+                    Report("再展开后 ~240ms");
+                    break;
+                case 7:
+                    Report("再展开后 ~480ms（应完全展开）");
+                    timer.Stop();
+                    Log.Info("[收起展开自检] ==== 结束 ====");
+                    return;
+            }
+            step++;
+        };
+
+        Log.Info("[收起展开自检] ==== 开始（仅音色风格）====");
+        timer.Start();
+    }
+
     /// <summary>自检专用：量出各 chip 容器的真实可用宽度与每个 chip 的实际宽度，用于判断是否被挤压。</summary>
     public void MeasureChips()
     {
@@ -1887,13 +1950,59 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         }
 
         // ---- 量测自然高度 ----
+        //
+        // ⚠ 这里是"**收起后再展开只长到几像素（按钮被压成一条）**"的根因
+        //   —— 已用 --measureprobe 逐策略验证。
+        //
+        //   收起动画结束后虽然写了 `panel.Height = double.NaN`，但**动画时钟并没有被移除**，
+        //   它继续把 Height 钉在动画终值 0 上（赋 NaN 会被动画时钟覆盖，等于没生效）。
+        //   于是量这个元素时它的高度是 0 ⇒ 内容量测高度全被压成 0 ⇒ DesiredSize 只剩 Margin
+        //   （实测 ToneGrid 得到 6.4 = Margin 6），动画目标高度就是这个 6.4，
+        //   展开只长 6px，看起来就是被压扁的一条。
+        //
+        //   因此量测前必须 **显式移除动画时钟**：BeginAnimation(HeightProperty, null)。
+        //   实测：移除后 DesiredSize=29.6、UpdateLayout 后 ActualHeight=23.2（正确值）。
         var wasVisible = panel.Visibility == Visibility.Visible;
+        panel.BeginAnimation(FrameworkElement.HeightProperty, null);   // ★ 关键：摘掉动画时钟
+        panel.ClearValue(FrameworkElement.HeightProperty);             // 清掉残留的本地值
         panel.Visibility = Visibility.Visible;
-        panel.Height = double.NaN;
+        panel.InvalidateMeasure();
+        for (var node = VisualTreeHelper.GetParent(panel); node != null; node = VisualTreeHelper.GetParent(node))
+        {
+            if (node is UIElement ui) ui.InvalidateMeasure();
+        }
         panel.UpdateLayout();
+
         var target = panel.ActualHeight;
-        if (target <= 0.5 || double.IsNaN(target)) target = panel.DesiredSize.Height;
-        if (target <= 0.5) target = 1;                       // 极端兜底，避免 0 时长动画
+        var source = "ActualHeight";
+        if (double.IsNaN(target) || target <= 0.5)
+        {
+            target = panel.DesiredSize.Height;
+            source = "DesiredSize";
+        }
+        if (double.IsNaN(target) || target <= 0.5)
+        {
+            // 极端兜底：以"无限高度"单独量一次（DesiredSize 已含自身 Margin，不再重复相加）
+            panel.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            target = panel.DesiredSize.Height;
+            source = "无限量测";
+        }
+        if (double.IsNaN(target) || target <= 0.5)
+        {
+            target = 1;
+            source = "兜底1px";
+            // 这条说明量测彻底失败，展开必然不满；打进日志便于以后一眼看出
+            Log.Info($"[展开动画] {button.Name}：自然高度量测失败，退回 1px"
+                     + $"（ActualHeight={panel.ActualHeight:0.#} DesiredSize={panel.DesiredSize.Height:0.#}"
+                     + $" Height属性={(double.IsNaN(panel.Height) ? "NaN" : panel.Height.ToString("0.#"))}）");
+        }
+
+        if (IsSelfCheckMode)
+        {
+            Log.Info($"[展开动画] {button.Name}：目标高={target:0.#}（来源 {source}）"
+                     + $"｜量测前可见={wasVisible}｜ActualHeight={panel.ActualHeight:0.#}"
+                     + $" DesiredSize={panel.DesiredSize.Height:0.#}");
+        }
 
         panel.Height = 0;                                    // 回到动画起点（此时还没画到屏幕上）
         panel.Visibility = wasVisible ? Visibility.Visible : Visibility.Collapsed;

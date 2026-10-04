@@ -517,7 +517,7 @@
                                                 Style="{StaticResource ExpanderButton}"
                                                 Click="OnExpandClick" Tag="{Binding ToneExpanded, RelativeSource={RelativeSource AncestorType=Window}}" />
                                     </Grid>
-                                    <UniformGrid x:Name="ToneGrid" Columns="3" Margin="0,6,0,0"
+                                    <UniformGrid x:Name="ToneGrid" Columns="6" Margin="0,6,0,0"
                                                  Visibility="Collapsed">
                                         <RadioButton Style="{StaticResource ChipToggle}" Content="清亮" Tag="Bright"
                                                      Click="OnToneSelected" />
@@ -553,7 +553,7 @@
                                                 Click="OnExpandClick" Tag="{Binding EffectExpanded, RelativeSource={RelativeSource AncestorType=Window}}" />
                                     </Grid>
                                     <StackPanel x:Name="PanelCreative" Visibility="Collapsed" Margin="0,6,0,0">
-                                        <UniformGrid x:Name="EffectGrid" Columns="4">
+                                        <UniformGrid x:Name="EffectGrid" Columns="6">
                                             <RadioButton Style="{StaticResource ChipToggle}" Content="混响" Tag="Reverb"
                                                          Margin="0,0,4,4" Click="OnCreativeEffectSelected" />
                                             <RadioButton Style="{StaticResource ChipToggle}" Content="延迟" Tag="Delay"
