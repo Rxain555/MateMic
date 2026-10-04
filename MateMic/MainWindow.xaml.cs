@@ -544,8 +544,13 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     /// ⚠ 必须**完全不透明**：早先用带 alpha 的颜色（#B0…），相邻柱那 1px 重叠会叠出更深的竖条，
     /// 看着像"柱之间还有分隔"。现在把"想要多浅"直接做进颜色值，重叠也不变色。
     /// </summary>
+    /// <summary>
+    /// 频谱柱的填充色：**与按钮/滑条同一个主题强调蓝**（用户要求统一观感）。
+    ///
+    /// ⚠ 必须完全不透明：带 alpha 时相邻柱那 1px 重叠会叠出更深的竖条。
+    /// </summary>
     private Brush SpectrumBarBrush()
-        => LookupBrush("SpectrumBarBrush", Color.FromRgb(0x7F, 0xA3, 0xDC));
+        => LookupBrush("AccentBrush", Color.FromRgb(0x2F, 0x7D, 0xF6));
 
     /// <summary>
     /// 建频谱柱：48 根矩形，**不再画底槽**。
@@ -608,21 +613,30 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
     /// <summary>
     /// 频段范围（与 OutputStage 的频带划分一致）：40 Hz – 16 kHz。
-    /// 现在底部刻度是"等高居中"摆放（不按对数对齐），因此只作为文档保留，说明六条标签覆盖的大致区间。
+    /// 底部刻度的六个标签就落在这个区间内，按对数定位。
     /// </summary>
     private const float SpectrumLowHz = 40f;
     private const float SpectrumHighHz = 16000f;
+
+    /// <summary>把频率映射到画布 x（对数刻度，与频带划分方式一致）。</summary>
+    private static double HzToX(double hz, double width)
+    {
+        var lo = Math.Log10(SpectrumLowHz);
+        var hi = Math.Log10(SpectrumHighHz);
+        var t = (Math.Log10(Math.Clamp(hz, SpectrumLowHz, SpectrumHighHz)) - lo) / (hi - lo);
+        return Math.Clamp(t, 0, 1) * width;
+    }
 
     /// <summary>dBFS 显示范围：0 dBFS 在顶部，-60 dBFS 在底部。</summary>
     private const float MeterCeilingDb = 0f;
     private const float MeterFloorDb = -60f;
 
     /// <summary>
-    /// 底部频率刻度：**等高居中摆放**（每段宽度均分、文字居中），文字用等宽数字保证对齐。
+    /// 底部频率刻度：**按真实对数位置摆放**（不是等高居中）。
     ///
-    /// 2026-10-04 第三次调整：先是按对数定位（位置准，但右侧几条挤在一起、观感失衡），
-    /// 按用户要求改为等高居中 —— 它表达的是"大致频段"，不追求逐条对齐。
-    /// 文字位置只随宽度重排，不随音频数据变化。
+    /// 2026-10-04 反复过一轮：先按对数定位（正确）→ 被误解为"要居中"而改成等高 →
+    /// 用户澄清"刻度肯定要按真实位置" → 恢复对数。
+    /// 位置用 <see cref="HzToX"/> 算出后减去文字半宽，使刻度数字**中心**对齐频率位置。
     /// </summary>
     private void BuildSpectrumAxis(Canvas axis, TextBlock[] labels)
     {
@@ -634,7 +648,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         if (width <= 2) return;
 
         var ticks = new[] { 100f, 300f, 1000f, 3000f, 8000f, 16000f };
-        var slot = width / ticks.Length;
 
         for (var i = 0; i < ticks.Length && i < labels.Length; i++)
         {
@@ -642,25 +655,25 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             {
                 Text = ticks[i] >= 1000 ? $"{ticks[i] / 1000:0.#}k" : $"{ticks[i]:0}",
                 FontSize = 9.5,
-                FontFamily = new FontFamily("Consolas, Cascadia Mono, Segoe UI"),   // 等宽数字，六个标签对齐
+                FontFamily = new FontFamily("Consolas, Cascadia Mono, Segoe UI"),   // 等宽数字，视觉更整齐
                 Foreground = LookupBrush("SubtleTextBrush", Color.FromRgb(0x63, 0x6A, 0x76)),
             };
-
-            // 固定宽度 + 居中对齐 ⇒ 水平居中由 WPF 负责，不用手算文字宽度
-            label.Width = slot;
-            label.TextAlignment = TextAlignment.Center;
+            label.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            var w = label.DesiredSize.Width;
 
             labels[i] = label;
-            Canvas.SetLeft(label, i * slot);
+            // 让文字中心落在该频率的真实对数位置；两端做夹紧，避免越界被裁
+            Canvas.SetLeft(label, Math.Clamp(HzToX(ticks[i], width) - w / 2, 0, Math.Max(0, width - w)));
             Canvas.SetTop(label, 0);
             axis.Children.Add(label);
         }
 
-        // 自检专用：刻度曾反复"看不见"，这里用数据自证它确实被创建
+        // 自检专用：刻度曾反复"看不见"，用数据自证它确实被创建、且位置是按对数算的
         if (IsSelfCheckMode)
         {
-            var info = string.Join(" ", labels.Where(l => l != null).Select(l => l!.Text));
-            Log.Info($"[刻度自检] 画布宽={width:0} 子元素={axis.Children.Count} 高度={axis.ActualHeight:0} → {info}");
+            var info = string.Join(" ", labels.Where(l => l != null)
+                                              .Select(l => $"{l!.Text}@{(int)Canvas.GetLeft(l)}"));
+            Log.Info($"[刻度自检] 画布宽={width:0} 子元素={axis.Children.Count} → {info}");
         }
     }
 

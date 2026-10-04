@@ -675,6 +675,7 @@
 
                                 <TextBlock Grid.Row="0" Style="{StaticResource LabelText}" Text="输入"
                                            FontWeight="SemiBold" FontSize="11.5" Margin="0,0,0,4"
+                                           HorizontalAlignment="Center"
                                            Foreground="{DynamicResource TextBrush}" />
 
                                 <!-- 2026-10-04：按反馈去掉频谱的专属底色，直接用卡片底作为背景 -->
@@ -697,6 +698,7 @@
 
                                 <TextBlock Grid.Row="0" Style="{StaticResource LabelText}" Text="输出"
                                            FontWeight="SemiBold" FontSize="11.5" Margin="0,0,0,4"
+                                           HorizontalAlignment="Center"
                                            Foreground="{DynamicResource TextBrush}" />
 
                                 <!-- 2026-10-04：按反馈去掉频谱的专属底色，直接用卡片底作为背景 -->
@@ -734,12 +736,15 @@
                                             <Rectangle.Fill>
                                                 <!-- 左 = 绿（电平低、音量偏小）→ 黄 → 右 = 红（电平高、偏大/过载）。
                                                      2026-10-04：原先左红右绿是反的，已按用户确认的语义调换。 -->
+                                                <!-- 左绿 → 黄 → 右红，配额按"合不合适"分档：
+                                                     绿 = 到 -18 dBFS（正常说话的区间）、黄 = -18…-6、红 = -6…0（偏大/过载）。
+                                                     2026-10-04：原先是把三段配额照搬旧版（红占 45%、绿仅 8%），换方向后就成了"红一大截、绿一点"。 -->
                                                 <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
                                                     <GradientStop Color="#5CD65C" Offset="0" />
-                                                    <GradientStop Color="#5CD65C" Offset="0.08" />
-                                                    <GradientStop Color="#F2C744" Offset="0.18" />
-                                                    <GradientStop Color="#F2C744" Offset="0.38" />
-                                                    <GradientStop Color="#F26B6B" Offset="0.55" />
+                                                    <GradientStop Color="#5CD65C" Offset="0.60" />
+                                                    <GradientStop Color="#F2C744" Offset="0.70" />
+                                                    <GradientStop Color="#F2C744" Offset="0.86" />
+                                                    <GradientStop Color="#F26B6B" Offset="0.90" />
                                                     <GradientStop Color="#F26B6B" Offset="1" />
                                                 </LinearGradientBrush>
                                             </Rectangle.Fill>

@@ -118,7 +118,6 @@ public static class ThemeManager
         ["HairlineBrush"] = "#12000000",
         ["GroupBorderBrush"] = "#0D000000",
         ["RegionBackgroundBrush"] = "#07000000",
-        ["SpectrumBarBrush"] = "#7FA3DC",
         ["ControlBorderBrush"] = "#18000000",
         ["ControlHoverBorderBrush"] = "#2A000000",
         // 自绘对话框（DialogHost）的边框：它是无边框窗口**唯一**的轮廓，
@@ -202,7 +201,6 @@ public static class ThemeManager
         ["HairlineBrush"] = "#12FFFFFF",
         ["GroupBorderBrush"] = "#0FFFFFFF",
         ["RegionBackgroundBrush"] = "#08FFFFFF",
-        ["SpectrumBarBrush"] = "#6E90C4",
         ["ControlBorderBrush"] = "#1AFFFFFF",
         ["ControlHoverBorderBrush"] = "#33FFFFFF",
         ["DialogBorderBrush"] = "#FF3E444D",

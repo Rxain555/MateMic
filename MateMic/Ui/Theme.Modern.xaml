@@ -72,9 +72,6 @@
     <SolidColorBrush x:Key="GroupBorderBrush" Color="#0D000000" />
     <!-- 三栏分区底：比窗口底色只深一点点，用来替代原来的"分组容器外壳"（层级减负） -->
     <SolidColorBrush x:Key="RegionBackgroundBrush" Color="#07000000" />
-    <!-- 频谱柱色：**不透明**（带 alpha 时相邻柱的 1px 重叠会叠出更深的竖条）。
-         2026-10-04 按反馈再压暗一档，柱子看起来更有"分量"、深色模式下也不刺眼。 -->
-    <SolidColorBrush x:Key="SpectrumBarBrush" Color="#7FA3DC" />
     <SolidColorBrush x:Key="ControlBorderBrush" Color="#18000000" />
     <SolidColorBrush x:Key="ControlHoverBorderBrush" Color="#2A000000" />
 
