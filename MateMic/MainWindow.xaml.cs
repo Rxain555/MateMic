@@ -482,6 +482,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             ToggleVoiceChanger.IsChecked = _config.VoiceChanger.Enabled;
             VoicePitchSlider.Value = _config.VoiceChanger.Semitones;
             VoiceFormantSlider.Value = _config.VoiceChanger.FormantSemitones;
+            VoiceGenderSlider.Value = _config.VoiceChanger.GenderFactor;
             VoiceMixSlider.Value = _config.VoiceChanger.Mix;
 
             ToggleAudioMonitor.IsChecked = _config.Player.AudioMonitor;
@@ -1424,6 +1425,9 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             case "VoiceFormantSemitones":
                 _config.VoiceChanger.FormantSemitones = value;
                 break;
+            case "VoiceGender":
+                _config.VoiceChanger.GenderFactor = value;
+                break;
             case "VoiceMix":
                 _config.VoiceChanger.Mix = value;
                 break;
@@ -1627,15 +1631,13 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     {
         if (sender is not RadioButton { Tag: string tag }) return;
 
-        // 变调量是主要手段，音色偏移做辅助：+ 提亮、− 压暗
-        var (semitones, timbre) = tag switch
-        {
-            "FemaleToMale" => (-5f, -4f),
-            _ => (6f, 4f),
-        };
+        // 男↔女交给「性别因子」：它会把基频分布搬到目标性别（均值 + 离散度），
+        // 比单纯变调自然；手动变调与共振峰留 0，避免重复叠加。
+        var gender = tag == "FemaleToMale" ? -80f : 80f;
 
-        VoicePitchSlider.Value = semitones;
-        VoiceFormantSlider.Value = timbre;
+        VoiceGenderSlider.Value = gender;
+        VoicePitchSlider.Value = 0;
+        VoiceFormantSlider.Value = 0;
     }
 
     private void OnUsageGuideClick(object sender, RoutedEventArgs e)

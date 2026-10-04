@@ -89,6 +89,12 @@ public sealed class VoiceChangerSettings
     /// <summary>共振峰偏移（半音）：正值更"细/年轻"，负值更"厚/低沉"。这是真正的共振峰搬移。</summary>
     public float FormantSemitones { get; set; }
 
+    /// <summary>
+    /// 性别因子 −100…+100：负值更低沉、正值更清亮。
+    /// 它不是简单的整体移位，而是把基频**分布**搬到目标性别（均值按它移动、离散度归一化）。
+    /// </summary>
+    public float GenderFactor { get; set; }
+
     /// <summary>干湿比 0~100：0 = 完全原声，100 = 完全变声。</summary>
     public float Mix { get; set; } = 100f;
 

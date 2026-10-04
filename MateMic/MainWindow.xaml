@@ -386,6 +386,20 @@
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="52" />
                                             </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="性别"
+                                                       ToolTip="负值更低沉、正值更清亮。按你的基频分布自动适配，比单纯变调自然。" />
+                                            <Slider x:Name="VoiceGenderSlider" Grid.Column="1" VerticalAlignment="Center"
+                                                    Style="{StaticResource FlatSlider}" Minimum="-100" Maximum="100"
+                                                    Value="0" Tag="VoiceGender" ValueChanged="OnSliderChanged" />
+                                            <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
+                                                       Text="{Binding Value, ElementName=VoiceGenderSlider, StringFormat='{}{0:+0;-0;0}'}" />
+                                        </Grid>
+                                        <Grid Margin="0,2,0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="60" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="52" />
+                                            </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="共振峰" />
                                             <Slider x:Name="VoiceFormantSlider" Grid.Column="1" VerticalAlignment="Center"
                                                     Style="{StaticResource FlatSlider}" Minimum="-12" Maximum="12"
