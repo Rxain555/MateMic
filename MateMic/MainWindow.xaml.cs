@@ -111,7 +111,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             RefreshTrackHighlight();
         }));
 
-
         _player.LoopEnabled = _config.Player.Loop;
         _player.SetVolumePercent(_config.Player.Volume);
         _engine.MicMixer.SetPlayer(_player.Output);
@@ -1601,7 +1600,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         }
     }
 
-
     private void OnOpenModelsFolderClick(object sender, RoutedEventArgs e)
     {
         try
@@ -1623,22 +1621,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     /// 使用指南：把"三个设备到底该选什么"和基本操作讲清楚。
     /// 这是新人最容易卡住的地方——输入/输出/监听三栏在没有 MIXLINE 概念之前完全无从下手。
     /// </summary>
-    /// <summary>
-    /// 变声预设：只留两个真正有用的方向（男→女、女→男）。
-    /// 机器人 / 电话音那类属于「效果器」而不是变声，用户已明确不要。
-    /// </summary>
-    private void OnVoicePresetSelected(object sender, RoutedEventArgs e)
-    {
-        if (sender is not RadioButton { Tag: string tag }) return;
-
-        // 男↔女交给「性别因子」：它会把基频分布搬到目标性别（均值 + 离散度），
-        // 比单纯变调自然；手动变调与共振峰留 0，避免重复叠加。
-        var gender = tag == "FemaleToMale" ? -80f : 80f;
-
-        VoiceGenderSlider.Value = gender;
-        VoicePitchSlider.Value = 0;
-        VoiceFormantSlider.Value = 0;
-    }
 
     private void OnUsageGuideClick(object sender, RoutedEventArgs e)
     {

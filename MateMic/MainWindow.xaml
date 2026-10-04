@@ -363,10 +363,6 @@
                                                 Click="OnExpandClick" Tag="{Binding VoiceChangerExpanded, RelativeSource={RelativeSource AncestorType=Window}}" />
                                     </Grid>
                                     <StackPanel x:Name="PanelVoiceChanger" Visibility="Collapsed" Margin="0,6,0,0">
-                                        <UniformGrid Columns="2" Margin="0,0,0,4">
-                                            <RadioButton Style="{StaticResource ChipToggle}" Content="男声→女声" Tag="MaleToFemale" Click="OnVoicePresetSelected" />
-                                            <RadioButton Style="{StaticResource ChipToggle}" Content="女声→男声" Tag="FemaleToMale" Click="OnVoicePresetSelected" />
-                                        </UniformGrid>
                                         <Grid Margin="0,2,0,2">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="60" />
@@ -386,7 +382,7 @@
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="52" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="性别"
+                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="声线"
                                                        ToolTip="负值更低沉、正值更清亮。按你的基频分布自动适配，比单纯变调自然。" />
                                             <Slider x:Name="VoiceGenderSlider" Grid.Column="1" VerticalAlignment="Center"
                                                     Style="{StaticResource FlatSlider}" Minimum="-100" Maximum="100"
