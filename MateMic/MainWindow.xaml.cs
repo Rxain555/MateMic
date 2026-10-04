@@ -117,9 +117,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             BuildSpectrumAxis(InputAxisCanvas, _axisLabels[0]);
             BuildSpectrumAxis(OutputAxisCanvas, _axisLabels[1]);
             BuildLevelScale();
-            Log.Info($"[布局自检] Loaded 后重排：频谱画布 {InputSpectrumCanvas.ActualWidth:0}×{InputSpectrumCanvas.ActualHeight:0}，"
-                     + $"刻度画布 {InputAxisCanvas.ActualWidth:0}×{InputAxisCanvas.ActualHeight:0}，"
-                     + $"刻度子元素 {InputAxisCanvas.Children.Count}");
+            LogLayoutGeometry();
         };
 
         TrackList.ItemsSource = _tracks;
@@ -674,6 +672,76 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             var info = string.Join(" ", labels.Where(l => l != null)
                                               .Select(l => $"{l!.Text}@{(int)Canvas.GetLeft(l)}"));
             Log.Info($"[刻度自检] 画布宽={width:0} 子元素={axis.Children.Count} → {info}");
+        }
+    }
+
+    /// <summary>
+    /// 自检专用：把关键元素**相对窗口的左右坐标**打进日志，用来核对间距是否对称。
+    ///
+    /// 用户反馈"小卡片与左边框的间距"和"与频谱卡片的间距"看着不等 —— 这种问题靠看截图猜不准，
+    /// 这里直接算：最左卡片左边界、最左卡片右边界（含投影外扩）、中栏卡片左边界、
+    /// 最右卡片右边界，以及窗口宽度，全部换算成"距窗口左边多少像素"。
+    /// </summary>
+    private void LogLayoutGeometry()
+    {
+        if (!IsSelfCheckMode) return;
+
+        double Left(FrameworkElement e)
+        {
+            if (e.ActualWidth <= 0) return double.NaN;
+            try { return e.TransformToAncestor(this).Transform(new Point(0, 0)).X; }
+            catch { return double.NaN; }
+        }
+
+        double Right(FrameworkElement e)
+        {
+            if (e.ActualWidth <= 0) return double.NaN;
+            try { return e.TransformToAncestor(this).Transform(new Point(e.ActualWidth, 0)).X; }
+            catch { return double.NaN; }
+        }
+
+        // 三个分区容器的真实坐标（含各自 Padding）⇒ 直接算两处间距
+        var leftStart = Left(LeftRegion);
+        var leftEnd = Right(LeftRegion);
+        var midStart = Left(MidRegion);
+        var rightStart = Left(RightRegion);
+        var rightEnd = Right(RightRegion);
+
+        // **卡片本身**的坐标才是肉眼看到的边界（容器还有 Padding）
+        FrameworkElement? FirstCard(DependencyObject root)
+        {
+            var count = VisualTreeHelper.GetChildrenCount(root);
+            for (var i = 0; i < count; i++)
+            {
+                var child = VisualTreeHelper.GetChild(root, i);
+                if (child is Border b && b.Style == (Style)FindResource("Card")) return b;
+                if (child is FrameworkElement fe && fe.Name != "Arrow")
+                {
+                    var deeper = FirstCard(child);
+                    if (deeper != null) return deeper;
+                }
+            }
+            return null;
+        }
+
+        var lc = FirstCard(LeftRegion);
+        var mc = FirstCard(MidRegion);
+        var rc = FirstCard(RightRegion);
+
+        Log.Info($"[布局测量] 窗口宽 {ActualWidth:0}｜"
+                 + $"左栏容器 [{leftStart:0} … {leftEnd:0}]｜"
+                 + $"中栏容器 [{midStart:0} … {Right(MidRegion):0}]｜"
+                 + $"右栏容器 [{rightStart:0} … {rightEnd:0}]");
+        Log.Info($"[布局测量] 距窗口左边框 {leftStart:0}px｜"
+                 + $"左栏与中栏之间 {midStart - leftEnd:0}px｜"
+                 + $"中栏与右栏之间 {rightStart - Right(MidRegion):0}px｜"
+                 + $"距窗口右边框 {ActualWidth - rightEnd:0}px");
+        if (lc != null && mc != null && rc != null)
+        {
+            Log.Info($"[卡片测量] 卡片左距边框 {Left(lc):0}px｜"
+                     + $"左栏卡片右缘 {Right(lc):0} → 中栏卡片左缘 {Left(mc):0} = {Left(mc) - Right(lc):0}px｜"
+                     + $"中栏卡片右缘 {Right(mc):0} → 右栏卡片左缘 {Left(rc):0} = {Left(rc) - Right(mc):0}px｜"
+                     + $"卡片右距边框 {ActualWidth - Right(rc):0}px");
         }
     }
 

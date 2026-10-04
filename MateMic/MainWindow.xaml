@@ -200,7 +200,7 @@
             </Grid.ColumnDefinitions>
 
             <!-- ============ 左栏：音频处理链 ============ -->
-            <Border Grid.Column="0" Style="{StaticResource RegionPane}" Margin="0,0,7,0">
+            <Border x:Name="LeftRegion" Grid.Column="0" Style="{StaticResource RegionPane}" Margin="0,0,2,0">
                 <DockPanel>
 <Grid DockPanel.Dock="Top" Margin="0,0,0,7">
                         <Grid.ColumnDefinitions>
@@ -638,7 +638,7 @@
             </Border>
 
             <!-- ============ 中栏：实时频谱 ============ -->
-            <Border Grid.Column="1" Style="{StaticResource RegionPane}" Margin="0,0,7,0">
+            <Border x:Name="MidRegion" Grid.Column="1" Style="{StaticResource RegionPane}" Margin="0,0,2,0">
                 <DockPanel>
 <Grid DockPanel.Dock="Top" Margin="0,0,0,7">
                         <Grid.ColumnDefinitions>
@@ -766,7 +766,7 @@
             </Border>
 
             <!-- ============ 右栏：播放伴奏 / 语音包 ============ -->
-            <Border Grid.Column="2" Style="{StaticResource RegionPane}">
+            <Border x:Name="RightRegion" Grid.Column="2" Style="{StaticResource RegionPane}">
                 <DockPanel>
 <Grid DockPanel.Dock="Top" Margin="0,0,0,7">
                         <Grid.ColumnDefinitions>

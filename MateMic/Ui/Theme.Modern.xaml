@@ -194,7 +194,12 @@
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="CornerRadius" Value="12" />
-        <Setter Property="Padding" Value="8,7,8,8" />
+        <!--
+          左右内边距 2026-10-04 从 8 收到 4：卡片间距 = 栏间 Margin(2) + 左右内边距(4+4) = 10，
+          与"距窗口边缘 = Grid Margin(6) + 内边距(4) = 10"相等，三栏的留白终于一致。
+          上下保持 7/8 不动（纵向节奏没被反馈问题）。
+        -->
+        <Setter Property="Padding" Value="4,7,4,8" />
     </Style>
 
     <!-- ============================ 两层结构：分组容器 → 功能卡片 ============================ -->
