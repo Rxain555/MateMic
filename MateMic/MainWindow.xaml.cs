@@ -482,7 +482,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             VoicePitchSlider.Value = _config.VoiceChanger.Semitones;
             VoiceFormantSlider.Value = _config.VoiceChanger.FormantSemitones;
             VoiceGenderSlider.Value = _config.VoiceChanger.GenderFactor;
-            RefreshVoiceComponents();
+            ApplyVoiceMode();
             VoiceMixSlider.Value = _config.VoiceChanger.Mix;
 
             ToggleAudioMonitor.IsChecked = _config.Player.AudioMonitor;
@@ -1804,6 +1804,36 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     }
 
     /// <summary>刷新变声卡片的"AI 引擎组件"提示（启动时与安装后都会调）。</summary>
+    /// <summary>切换 DSP / AI 模式（将来加零样本就是第三个 chip）。</summary>
+    private void OnVoiceModeSelected(object sender, RoutedEventArgs e)
+    {
+        if (_loading || sender is not RadioButton chip || chip.Tag is not string tag) return;
+
+        var mode = tag == "Ai" ? VoiceChangerMode.Ai : VoiceChangerMode.Dsp;
+        if (_config.VoiceChanger.Mode == mode) return;
+
+        _config.VoiceChanger.Mode = mode;
+        ApplyVoiceMode();
+        _engine.UpdateAllParameters();   // AI 模式下 DSP 引擎退出处理链
+        SaveConfig();
+    }
+
+    /// <summary>按当前模式显示/隐藏两套控件（DSP 滑条 与 AI 组件区）。</summary>
+    private void ApplyVoiceMode()
+    {
+        var ai = _config.VoiceChanger.Mode == VoiceChangerMode.Ai;
+
+        foreach (var row in new[] { VoicePitchRow, VoiceGenderRow, VoiceFormantRow, VoiceMixRow })
+            row.Visibility = ai ? Visibility.Collapsed : Visibility.Visible;
+
+        PanelVoiceAi.Visibility = ai ? Visibility.Visible : Visibility.Collapsed;
+        VoiceModeDspChip.IsChecked = !ai;
+        VoiceModeAiChip.IsChecked = ai;
+
+        if (ai) RefreshVoiceComponents();
+    }
+
+
     private void RefreshVoiceComponents()
     {
         var installed = VoiceComponentInstaller.LoadInstalled(ConfigStore.ComponentsDirectory);

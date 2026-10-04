@@ -81,6 +81,16 @@ public sealed class ToneSettings
 /// 变声（DSP 层）。刻意做成"一个模块 + 预留 AI 模式"：当前只有音高 / 音色 / 干湿比，
 /// 以后接 AI 变声时在同一张卡片里加模式切换，不新增卡片。
 /// </summary>
+/// <summary>变声模块的工作模式。</summary>
+public enum VoiceChangerMode
+{
+    /// <summary>内置 DSP 变声：零依赖、零延迟，效果上限是"变了个音"。</summary>
+    Dsp = 0,
+
+    /// <summary>AI 变声：需要先安装引擎组件，推理在本机 GPU 上跑。将来还会加零样本模式。</summary>
+    Ai = 1,
+}
+
 public sealed class VoiceChangerSettings
 {
     /// <summary>变调量（半音）。男→女约 +5~7，女→男约 −5~7。</summary>
@@ -99,6 +109,9 @@ public sealed class VoiceChangerSettings
     public float Mix { get; set; } = 100f;
 
     public bool Enabled { get; set; }
+
+    /// <summary>当前模式：DSP 或 AI（AI 需要安装引擎组件）。</summary>
+    public VoiceChangerMode Mode { get; set; } = VoiceChangerMode.Dsp;
 }
 
 public sealed class CreativeEffectSettings

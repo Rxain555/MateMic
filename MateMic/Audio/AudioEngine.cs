@@ -766,7 +766,8 @@ public sealed class AudioEngine : IDisposable
     {
         NoiseGate.Enabled = _config.NoiseGate.Enabled;
         Denoise.Enabled = _config.Denoise.Enabled;
-        VoiceChanger.Enabled = _config.VoiceChanger.Enabled;
+        // AI 模式下由 AI 引擎接管（组件装好后接入），此时 DSP 引擎不参与处理
+        VoiceChanger.Enabled = _config.VoiceChanger.Enabled && _config.VoiceChanger.Mode == VoiceChangerMode.Dsp;
         Loudness.Enabled = _config.Loudness.Enabled;
         // 音色风格 / 效果器：开关打开但未选择预设时不进入处理链，等价于关闭
         Tone.Enabled = _config.Tone.Enabled && _config.Tone.Style.HasValue;

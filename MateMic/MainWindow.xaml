@@ -368,17 +368,15 @@
                                     <StackPanel x:Name="PanelVoiceChanger" Visibility="Collapsed" Margin="0,6,0,0">
                                         <!-- AI 变声引擎/音色是"按需安装的组件"，不随安装包分发 -->
                                         <Grid Margin="0,0,0,6">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock x:Name="VoiceComponentHint" Grid.Column="0" Style="{StaticResource LabelText}"
-                                                       TextWrapping="Wrap" Text="AI 变声组件：未安装" />
-                                            <Button Grid.Column="1" Style="{StaticResource ToolbarButton}" Content="安装组件…"
-                                                    Padding="8,3,8,3" Click="OnInstallComponentClick"
-                                                    ToolTip="也可以直接把组件文件拖进本窗口" />
+                                        <!-- 模式切换：DSP 与 AI 各一套控件；将来加零样本就是第三个 chip -->
+                                        <UniformGrid Columns="2" Margin="0,0,0,4">
+                                            <RadioButton x:Name="VoiceModeDspChip" Style="{StaticResource ChipToggle}"
+                                                         Content="DSP 变声" Tag="Dsp" Click="OnVoiceModeSelected" />
+                                            <RadioButton x:Name="VoiceModeAiChip" Style="{StaticResource ChipToggle}"
+                                                         Content="AI 变声" Tag="Ai" Click="OnVoiceModeSelected" />
+                                        </UniformGrid>
                                         </Grid>
-                                        <Grid Margin="0,2,0,2">
+                                        <Grid x:Name="VoicePitchRow" Margin="0,2,0,2">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="60" />
                                                 <ColumnDefinition Width="*" />
@@ -391,7 +389,7 @@
                                             <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
                                                        Text="{Binding Value, ElementName=VoicePitchSlider, StringFormat='{}{0:+0;-0;0} 半音'}" />
                                         </Grid>
-                                        <Grid Margin="0,2,0,2">
+                                        <Grid x:Name="VoiceGenderRow" Margin="0,2,0,2">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="60" />
                                                 <ColumnDefinition Width="*" />
@@ -405,7 +403,7 @@
                                             <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
                                                        Text="{Binding Value, ElementName=VoiceGenderSlider, StringFormat='{}{0:+0;-0;0}'}" />
                                         </Grid>
-                                        <Grid Margin="0,2,0,2">
+                                        <Grid x:Name="VoiceFormantRow" Margin="0,2,0,2">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="60" />
                                                 <ColumnDefinition Width="*" />
@@ -418,7 +416,7 @@
                                             <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
                                                        Text="{Binding Value, ElementName=VoiceFormantSlider, StringFormat='{}{0:+0;-0;0} 半音'}" />
                                         </Grid>
-                                        <Grid Margin="0,2,0,2">
+                                        <Grid x:Name="VoiceMixRow" Margin="0,2,0,2">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="60" />
                                                 <ColumnDefinition Width="*" />
@@ -431,6 +429,23 @@
                                             <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
                                                        Text="{Binding Value, ElementName=VoiceMixSlider, StringFormat='{}{0:0}%'}" />
                                         </Grid>
+
+                                        <!-- AI 区：只有切到「AI 变声」才显示 -->
+                                        <StackPanel x:Name="PanelVoiceAi" Visibility="Collapsed" Margin="0,4,0,0">
+                                            <Grid Margin="0,0,0,6">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock x:Name="VoiceComponentHint" Grid.Column="0" Style="{StaticResource LabelText}"
+                                                           TextWrapping="Wrap" Text="AI 变声组件：未安装" />
+                                                <Button Grid.Column="1" Style="{StaticResource ToolbarButton}" Content="安装组件…"
+                                                        Padding="8,3,8,3" Click="OnInstallComponentClick"
+                                                        ToolTip="也可以直接把组件文件拖进本窗口" />
+                                            </Grid>
+                                            <TextBlock Style="{StaticResource LabelText}" TextWrapping="Wrap"
+                                                       Text="AI 变声需要先安装引擎组件：推理在本机 GPU 上运行，组件按需下载，不随安装包分发。" />
+                                        </StackPanel>
                                     </StackPanel>
                                 </StackPanel>
                             </Border>
