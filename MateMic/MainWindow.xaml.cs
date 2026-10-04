@@ -117,7 +117,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             BuildSpectrumAxis(InputAxisCanvas, _axisLabels[0]);
             BuildSpectrumAxis(OutputAxisCanvas, _axisLabels[1]);
             BuildLevelScale();
-            LogLayoutGeometry();
         };
 
         TrackList.ItemsSource = _tracks;
@@ -402,7 +401,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     }
 
     /// <summary>当前是否运行在 <c>--selfcheck</c>（渲染自检）模式。</summary>
-    private static bool IsSelfCheckMode => App.IsSelfCheckRun;
+    private static bool IsSelfCheckMode => App.IsSelfCheckSession;
 
     /// <summary>
     /// 把"亚克力是否生效"同步到主题资源，并让已创建的可视元素重新取色。
@@ -922,10 +921,23 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     /// 这里直接算：最左卡片左边界、最左卡片右边界（含投影外扩）、中栏卡片左边界、
     /// 最右卡片右边界，以及窗口宽度，全部换算成"距窗口左边多少像素"。
     /// </summary>
-    private void LogLayoutGeometry()
+    public void LogLayoutGeometry()
     {
         if (!IsSelfCheckMode) return;
+        try
+        {
+            LogLayoutGeometryCore();
+        }
+        catch (Exception ex)
+        {
+            // DispatcherTimer 会静默吞掉回调里的异常，导致"代码明明写了却没日志"。
+            // 显式兜住并打印，避免再次误判成"测量没生效"。
+            Log.Info($"[布局测量] 测量过程异常：{ex.GetType().Name}: {ex.Message}");
+        }
+    }
 
+    private void LogLayoutGeometryCore()
+    {
         double Left(FrameworkElement e)
         {
             if (e.ActualWidth <= 0) return double.NaN;
@@ -982,6 +994,67 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                      + $"左栏卡片右缘 {Right(lc):0} → 中栏卡片左缘 {Left(mc):0} = {Left(mc) - Right(lc):0}px｜"
                      + $"中栏卡片右缘 {Right(mc):0} → 右栏卡片左缘 {Left(rc):0} = {Left(rc) - Right(mc):0}px｜"
                      + $"卡片右距边框 {ActualWidth - Right(rc):0}px");
+        }
+
+        // 纵向：各栏**最后一张卡片**的底缘到窗口底边的距离（用户反馈"底部距离偏远"）
+        double Bottom(FrameworkElement e)
+        {
+            try
+            {
+                var p = e.TransformToAncestor(this).Transform(new Point(0, e.ActualHeight));
+                return ActualHeight - p.Y;
+            }
+            catch { return double.NaN; }
+        }
+
+        (string Name, FrameworkElement Panel)[] columns =
+        {
+            ("左栏", LeftRegion),
+            ("中栏", MidRegion),
+            ("右栏", RightRegion),
+        };
+
+        foreach (var (name, root) in columns)
+        {
+            var cards = Descendants(root).OfType<Border>()
+                .Where(b => b.Style == (Style)FindResource("Card"))
+                .ToList();
+            if (cards.Count == 0) continue;
+
+            var last = cards.OrderBy(c => Bottom(c)).First();      // 最靠下的那张
+            var lastBottom = Bottom(last);
+            var title = Descendants(last).OfType<TextBlock>()
+                .FirstOrDefault(t => t.Style == (Style)FindResource("SectionTitle"))?.Text;
+            if (title == null)
+            {
+                title = Descendants(last).OfType<TextBlock>()
+                    .FirstOrDefault(t => t.Style == (Style)FindResource("LabelText"))?.Text;
+            }
+
+            Log.Info($"[底部测量] {name}共 {cards.Count} 张卡片｜最下一张「{title ?? "?"}」底缘距窗口底边 {lastBottom:0}px"
+                     + $"｜其余底距 {string.Join("/", cards.OrderByDescending(c => Bottom(c)).Select(c => $"{Bottom(c):0}"))}");
+        }
+
+        // 用户点名的元素：播放音频的**列表**。它不是 Card 样式（自绘 Border），
+        // 所以单独量它"底缘到窗口底边"与"右缘到窗口右边框"是否一致。
+        if (TrackList != null)
+        {
+            var rightGap = ActualWidth - Right(TrackList);
+            Log.Info($"[底部测量] 音频列表 TrackList：底缘距窗口底边 {Bottom(TrackList):0}px"
+                     + $"｜右缘距窗口右边框 {rightGap:0}px｜高 {TrackList.ActualHeight:0.#}"
+                     + $"｜两者差 {Math.Abs(Bottom(TrackList) - rightGap):0}px");
+        }
+
+        // 右栏最靠下的 Border（列表外壳）
+        var rightLowest = Descendants(RightRegion).OfType<Border>()
+            .Where(b => b.ActualHeight > 1 && Bottom(b) > 0)
+            .OrderBy(Bottom)
+            .FirstOrDefault();
+        if (rightLowest != null)
+        {
+            Log.Info($"[底部测量] 右栏最下 Border：底缘距窗口底边 {Bottom(rightLowest):0}px"
+                     + $"｜高 {rightLowest.ActualHeight:0.#}"
+                     + $"｜是否 Card 样式={rightLowest.Style == (Style)FindResource("Card")}");
         }
     }
 

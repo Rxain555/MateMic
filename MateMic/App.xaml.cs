@@ -17,6 +17,12 @@ public partial class App : Application
     /// </summary>
     public static bool IsSelfCheckRun { get; private set; }
 
+    /// <summary>
+    /// 是否处于自检会话（只要传了 --selfcheck 就为真，**与截图方式无关**）。
+    /// 自检用的诊断日志据此开关；与"是否跳过亚克力材质"（IsSelfCheckRun）是两个独立概念。
+    /// </summary>
+    public static bool IsSelfCheckSession { get; private set; }
+
     protected override void OnStartup(StartupEventArgs e)
     {
         // 调试 / 便携模式：--appdata <目录> 覆盖数据目录（必须在访问 ConfigStore 其它成员前执行）
@@ -114,6 +120,16 @@ public partial class App : Application
         // 自检标志必须在构造 MainWindow **之前**确定：窗口在 SourceInitialized 里
         // 就据此决定要不要套亚克力材质（RenderTargetBitmap 抓不到 DWM 合成的材质，
         // 所以只有纯 --selfcheck 截图才需要跳过；--screen 抓的是屏幕，材质必须真开）。
+        // 是否处于"自检会话"（只要传了 --selfcheck 就算，**与截图方式无关**）。
+        // 用途：让自检用的诊断日志（布局测量、箭头朝向、展开动画等）生效。
+        IsSelfCheckSession = HasFlag(args, "--selfcheck");
+
+        // 是否跳过亚克力材质：只有"纯 --selfcheck"（自绘截图）才跳过；
+        // --screen / --screen=frame 抓的是屏幕，材质必须真开。
+        //
+        // ⚠ 这两个概念以前被合并成一个 IsSelfCheckRun，结果 `--selfcheck --screen=frame`
+        //   会让它变成 false，导致**所有自检日志被静默跳过**——排查问题时表现为
+        //   "代码明明写了却没日志"，绕了很久。现已拆开。
         IsSelfCheckRun = HasFlag(args, "--selfcheck") &&
                          ScreenModeOf(args) == null;
         try
@@ -171,6 +187,9 @@ public partial class App : Application
                 if (MainWindow is MainWindow window)
                 {
                     if (tick == 2 && expandAll) window.ExpandAllForSelfCheck();
+                    // 布局测量放在第 4 拍：--screen=frame 下渲染循环从第 5 拍起会长时间占住 UI 线程，
+                    // 放在 Loaded 或更晚都打不进日志（曾因此以为测量没生效）。
+                    if (tick == 4) window.LogLayoutGeometry();
                     // 动画是 160 ms，等到第 5 拍（约 1 s）再读角度，确保停在终值
                     if (tick == 5) window.LogExpanderAngles();
                     if (tick == 6 && HasFlag(args, "--expandcheck"))
