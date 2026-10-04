@@ -677,11 +677,8 @@
                                            FontWeight="SemiBold" FontSize="11.5" Margin="0,0,0,4"
                                            Foreground="{DynamicResource TextBrush}" />
 
-                                <!-- 频谱画布自带主题底色：深色模式下不会再透出白卡片底 -->
-                                <Border Grid.Row="1" CornerRadius="4" ClipToBounds="True"
-                                        Background="{DynamicResource SpectrumBackgroundBrush}">
-                                    <Canvas x:Name="InputSpectrumCanvas" ClipToBounds="True" />
-                                </Border>
+                                <!-- 2026-10-04：按反馈去掉频谱的专属底色，直接用卡片底作为背景 -->
+                                <Canvas x:Name="InputSpectrumCanvas" Grid.Row="1" ClipToBounds="True" />
 
                                 <!-- 底部频率刻度：对数定位，用 Canvas 精确摆放（Grid 等分列放不准） -->
                                 <Canvas x:Name="InputAxisCanvas" Grid.Row="2" Height="14" Margin="0,4,0,0" ClipToBounds="True" />
@@ -702,11 +699,8 @@
                                            FontWeight="SemiBold" FontSize="11.5" Margin="0,0,0,4"
                                            Foreground="{DynamicResource TextBrush}" />
 
-                                <!-- 频谱画布自带主题底色：深色模式下不会再透出白卡片底 -->
-                                <Border Grid.Row="1" CornerRadius="4" ClipToBounds="True"
-                                        Background="{DynamicResource SpectrumBackgroundBrush}">
-                                    <Canvas x:Name="OutputSpectrumCanvas" ClipToBounds="True" />
-                                </Border>
+                                <!-- 2026-10-04：按反馈去掉频谱的专属底色，直接用卡片底作为背景 -->
+                                <Canvas x:Name="OutputSpectrumCanvas" Grid.Row="1" ClipToBounds="True" />
 
                                 <!-- 底部频率刻度：对数定位，用 Canvas 精确摆放（Grid 等分列放不准） -->
                                 <Canvas x:Name="OutputAxisCanvas" Grid.Row="2" Height="14" Margin="0,4,0,0" ClipToBounds="True" />
@@ -723,7 +717,7 @@
                              右端就只剩外轮廓的圆角了。
                              读数已按反馈删除（把电平条撑长的元凶一并消失）。 -->
                         <Border Grid.Row="2" Background="Transparent" BorderThickness="0"
-                                Margin="0,8,0,2" Padding="0">
+                                Margin="0,2,0,2" Padding="0">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto" />
@@ -738,13 +732,15 @@
                                     <Grid x:Name="LevelTrack">
                                         <Rectangle>
                                             <Rectangle.Fill>
+                                                <!-- 左 = 绿（电平低、音量偏小）→ 黄 → 右 = 红（电平高、偏大/过载）。
+                                                     2026-10-04：原先左红右绿是反的，已按用户确认的语义调换。 -->
                                                 <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-                                                    <GradientStop Color="#F26B6B" Offset="0" />
-                                                    <GradientStop Color="#F26B6B" Offset="0.45" />
-                                                    <GradientStop Color="#F2C744" Offset="0.62" />
-                                                    <GradientStop Color="#F2C744" Offset="0.82" />
-                                                    <GradientStop Color="#5CD65C" Offset="0.92" />
-                                                    <GradientStop Color="#5CD65C" Offset="1" />
+                                                    <GradientStop Color="#5CD65C" Offset="0" />
+                                                    <GradientStop Color="#5CD65C" Offset="0.08" />
+                                                    <GradientStop Color="#F2C744" Offset="0.18" />
+                                                    <GradientStop Color="#F2C744" Offset="0.38" />
+                                                    <GradientStop Color="#F26B6B" Offset="0.55" />
+                                                    <GradientStop Color="#F26B6B" Offset="1" />
                                                 </LinearGradientBrush>
                                             </Rectangle.Fill>
                                         </Rectangle>

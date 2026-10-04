@@ -545,7 +545,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     /// 看着像"柱之间还有分隔"。现在把"想要多浅"直接做进颜色值，重叠也不变色。
     /// </summary>
     private Brush SpectrumBarBrush()
-        => LookupBrush("SpectrumBarBrush", Color.FromRgb(0x9C, 0xC0, 0xF7));
+        => LookupBrush("SpectrumBarBrush", Color.FromRgb(0x7F, 0xA3, 0xDC));
 
     /// <summary>
     /// 建频谱柱：48 根矩形，**不再画底槽**。
@@ -606,7 +606,10 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         }
     }
 
-    /// <summary>频谱最低/最高频（与 OutputStage 的最低频带对齐，仅用于坐标映射）。</summary>
+    /// <summary>
+    /// 频段范围（与 OutputStage 的频带划分一致）：40 Hz – 16 kHz。
+    /// 现在底部刻度是"等高居中"摆放（不按对数对齐），因此只作为文档保留，说明六条标签覆盖的大致区间。
+    /// </summary>
     private const float SpectrumLowHz = 40f;
     private const float SpectrumHighHz = 16000f;
 
@@ -614,26 +617,16 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     private const float MeterCeilingDb = 0f;
     private const float MeterFloorDb = -60f;
 
-    private static double HzToX(double hz, double width)
-    {
-        var lo = Math.Log10(SpectrumLowHz);
-        var hi = Math.Log10(SpectrumHighHz);
-        var t = (Math.Log10(Math.Clamp(hz, SpectrumLowHz, SpectrumHighHz)) - lo) / (hi - lo);
-        return Math.Clamp(t, 0, 1) * width;
-    }
-
     /// <summary>
-    /// 底部频率刻度：**对数定位**（按 <see cref="HzToX"/> 算真实位置），用 Canvas 精确摆放。
+    /// 底部频率刻度：**等高居中摆放**（每段宽度均分、文字居中），文字用等宽数字保证对齐。
     ///
-    /// 上一版用 Grid 星号列等分摆放 —— 对数刻度不是等分，所以位置是错的
-    /// （例如 100 Hz 真实在 15% 宽度处，等分列却放在 8%；16 kHz 在 100% 却放在 92%）。
+    /// 2026-10-04 第三次调整：先是按对数定位（位置准，但右侧几条挤在一起、观感失衡），
+    /// 按用户要求改为等高居中 —— 它表达的是"大致频段"，不追求逐条对齐。
     /// 文字位置只随宽度重排，不随音频数据变化。
     /// </summary>
     private void BuildSpectrumAxis(Canvas axis, TextBlock[] labels)
     {
-        // ⚠ 必须先挂 SizeChanged 再判断宽度：构造期画布的 ActualWidth 还是 0，
-        // 若先 `if (width <= 2) return;` 就会**在挂钩之前返回**，之后尺寸变好时没人重排，
-        // 刻度永远不出现（这正是"刻度反复看不见"的真正原因）。
+        // ⚠ 先挂 SizeChanged 再判断宽度：构造期 ActualWidth 为 0，若先 return 就永远不会重排
         axis.SizeChanged += (_, _) => BuildSpectrumAxis(axis, labels);
 
         axis.Children.Clear();
@@ -641,6 +634,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         if (width <= 2) return;
 
         var ticks = new[] { 100f, 300f, 1000f, 3000f, 8000f, 16000f };
+        var slot = width / ticks.Length;
 
         for (var i = 0; i < ticks.Length && i < labels.Length; i++)
         {
@@ -648,23 +642,24 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             {
                 Text = ticks[i] >= 1000 ? $"{ticks[i] / 1000:0.#}k" : $"{ticks[i]:0}",
                 FontSize = 9.5,
+                FontFamily = new FontFamily("Consolas, Cascadia Mono, Segoe UI"),   // 等宽数字，六个标签对齐
                 Foreground = LookupBrush("SubtleTextBrush", Color.FromRgb(0x63, 0x6A, 0x76)),
             };
-            label.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-            var w = label.DesiredSize.Width;
+
+            // 固定宽度 + 居中对齐 ⇒ 水平居中由 WPF 负责，不用手算文字宽度
+            label.Width = slot;
+            label.TextAlignment = TextAlignment.Center;
 
             labels[i] = label;
-            Canvas.SetLeft(label, Math.Clamp(HzToX(ticks[i], width) - w / 2, 0, Math.Max(0, width - w)));
+            Canvas.SetLeft(label, i * slot);
             Canvas.SetTop(label, 0);
             axis.Children.Add(label);
         }
 
-        // 自检专用：刻度反复"看不见"，用数据自证它确实被创建、且位置是按对数算的
+        // 自检专用：刻度曾反复"看不见"，这里用数据自证它确实被创建
         if (IsSelfCheckMode)
         {
-            var info = string.Join(" ", ticks.Select((t, i) => i < labels.Length && labels[i] != null
-                ? $"{labels[i]!.Text}@{(int)Canvas.GetLeft(labels[i]!)}"
-                : "—"));
+            var info = string.Join(" ", labels.Where(l => l != null).Select(l => l!.Text));
             Log.Info($"[刻度自检] 画布宽={width:0} 子元素={axis.Children.Count} 高度={axis.ActualHeight:0} → {info}");
         }
     }
@@ -730,24 +725,45 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         if (width <= 1) return;
 
         var rmsDb = LinearToDb(_engine.OutputSpectrum.Rms);
-        var peakDb = LinearToDb(_engine.OutputSpectrum.Peak);
 
-        // 峰值保持（用户要的语义：黑线**短暂停留在最近几秒的最高电平处**）：
-        // 比当前保持值高就立刻跟上去，否则按 6 dB/s 缓慢回落 —— 约 2-3 秒内还能看到刚才的峰值。
-        var now = Stopwatch.GetTimestamp();
-        if (_levelPeakTicks == 0) _levelPeakTicks = now;
-        var elapsed = (now - _levelPeakTicks) / (double)Stopwatch.Frequency;
-        _levelPeakTicks = now;
-        _levelPeakDb = Math.Max(peakDb, _levelPeakDb - 6.0 * elapsed);
-        if (_levelPeakDb < MeterFloorDb) _levelPeakDb = MeterFloorDb;
-
-        // 遮罩从右往左盖住"高于当前电平"的部分
+        // 遮罩从右往左盖住"高于当前电平"的部分；露出来的就是当前电平所占的比例
         var levelFraction = DbToFraction(rmsDb);
         LevelMaskRect.Width = Math.Max(0, width * (1 - levelFraction));
 
-        var peakAt = Math.Clamp(width * DbToFraction(_levelPeakDb), 0, Math.Max(0, width - 2));
+        // 峰值保持：**先原地停留 2 秒，再按 6 dB/s 往回缩**（用户要的语义）。
+        // 显示位置取 max(峰值保持, 当前电平)，这样这条线不会落在进度条右端的左边
+        //（否则会出现"黑线在右、进度条在左、中间空一段"那种反直觉的关系）。
+        var now = Stopwatch.GetTimestamp();
+        if (_levelPeakTicks == 0) { _levelPeakTicks = now; _levelPeakHoldUntil = now; }
+
+        var peakDb = LinearToDb(_engine.OutputSpectrum.Peak);
+        var holdValue = Math.Max(peakDb, _levelPeakDb);          // 跟涨
+        var holdSeconds = (now - _levelPeakHoldUntil) / (double)Stopwatch.Frequency;
+
+        if (holdValue > _levelPeakDb)
+        {
+            _levelPeakDb = holdValue;
+            _levelPeakHoldUntil = now;                           // 刷新高点 ⇒ 重新计时停留
+        }
+        else if (holdSeconds > PeakHoldSeconds)
+        {
+            var elapsed = (now - _levelPeakTicks) / (double)Stopwatch.Frequency;
+            _levelPeakDb = Math.Max(MeterFloorDb, _levelPeakDb - PeakReleaseDbPerSecond * elapsed);
+        }
+
+        _levelPeakTicks = now;
+        if (_levelPeakDb < MeterFloorDb) _levelPeakDb = MeterFloorDb;
+
+        var shown = Math.Max(_levelPeakDb, rmsDb);               // 不低于当前电平
+        var peakAt = Math.Clamp(width * DbToFraction(shown), 0, Math.Max(0, width - 2));
         LevelPeak.Margin = new Thickness(peakAt, 0, 0, 0);
     }
+
+    /// <summary>峰值保持的停留时长（秒）与回落速率（dB/s）。</summary>
+    private const double PeakHoldSeconds = 2.0;
+    private const double PeakReleaseDbPerSecond = 6.0;
+
+    private long _levelPeakHoldUntil;
 
     /// <summary>把 dB 映射到 0…1 的位置（-60 dBFS 在左、0 dBFS 在右）。</summary>
     private static double DbToFraction(double db)
