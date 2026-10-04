@@ -212,12 +212,13 @@
     </Style>
 
     <!--
-      第 2 层：功能卡片。**没有深色边框**，层次由「比背景略亮的面 + 发丝级边框」表达。
-      2026-10-04 按反馈减负：去掉投影（原先"卡片阴影 + 分组容器 + 分区底"三层叠在一起，
-      观感太厚），改为"极淡分区底 + 无阴影白卡"。要恢复立体感只需把 Effect 那行加回来。
+      第 2 层：功能卡片。层次由「投影 + 比背景略亮的面 + 发丝级边框」表达。
+      2026-10-04：先按"层级减负"去掉过投影，后按反馈**加回来** —— 现在层级只有两层
+      （分区容器已透明），所以卡片投影不会再有"三层叠在一起"的厚重感，反而给出需要的悬浮感。
     -->
     <Style x:Key="Card" TargetType="Border">
         <Setter Property="Margin" Value="0,0,0,7" />
+        <Setter Property="Effect" Value="{DynamicResource CardShadow}" />
         <!-- 纯白卡片（原来是上下渐变，已按反馈去掉） -->
         <Setter Property="Background" Value="{DynamicResource CardBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource CardBorderBrush}" />
@@ -622,9 +623,9 @@
                                           ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
                                           IsHitTestVisible="False" />
                         <!-- 箭头不参与命中测试，否则点它不会展开下拉框。
-                             2026-10-04 改为"单个箭头 + 旋转"，与模块展开按钮同一套方向约定（见 ExpanderButton）：
-                             基线几何 = **朝下的 v**（下拉框收起时就该是这样），展开时旋转 **180°** 变朝上。
-                             收起态等于基线，所以静态观感天然正确，不依赖动画是否跑过。 -->
+                             2026-10-04 与模块展开按钮统一为同一套方向约定：
+                             **基线几何 = 朝下的 v，0° = 朝下（展开态）、+90° = 朝左（收起态）**。
+                             收起态是 +90°，所以静态观感不依赖动画是否跑过。 -->
                         <Grid HorizontalAlignment="Right" VerticalAlignment="Center"
                               Width="12" Height="12" Margin="0,0,8,0" IsHitTestVisible="False">
                             <Path x:Name="Arrow" Data="M 1 3 L 6 8 L 11 3" Stroke="{DynamicResource ComboArrowBrush}"
@@ -632,7 +633,8 @@
                                   HorizontalAlignment="Center" VerticalAlignment="Center"
                                   RenderTransformOrigin="0.5,0.5">
                                 <Path.RenderTransform>
-                                    <RotateTransform x:Name="ComboArrowRotation" Angle="0" />
+                                    <!-- 初始即收起态（+90° = 朝左），展开时动画回 0°（朝下） -->
+                                    <RotateTransform x:Name="ComboArrowRotation" Angle="90" />
                                 </Path.RenderTransform>
                             </Path>
                         </Grid>
@@ -666,14 +668,14 @@
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ControlHoverBrush}" />
                         </Trigger>
-                        <!-- 收起 = 基线的朝下 v；展开 = 旋转 180° 朝上（动画见 Enter/ExitActions） -->
+                        <!-- 收起 = +90° 朝左；展开 = 0° 朝下（与模块展开按钮一致） -->
                         <Trigger Property="IsDropDownOpen" Value="True">
                             <Trigger.EnterActions>
                                 <BeginStoryboard>
                                     <Storyboard>
                                         <DoubleAnimation Storyboard.TargetName="ComboArrowRotation"
                                                          Storyboard.TargetProperty="Angle"
-                                                         To="180" Duration="0:0:0.16">
+                                                         To="0" Duration="0:0:0.16">
                                             <DoubleAnimation.EasingFunction>
                                                 <CubicEase EasingMode="EaseOut" />
                                             </DoubleAnimation.EasingFunction>
@@ -686,7 +688,7 @@
                                     <Storyboard>
                                         <DoubleAnimation Storyboard.TargetName="ComboArrowRotation"
                                                          Storyboard.TargetProperty="Angle"
-                                                         To="0" Duration="0:0:0.16">
+                                                         To="90" Duration="0:0:0.16">
                                             <DoubleAnimation.EasingFunction>
                                                 <CubicEase EasingMode="EaseOut" />
                                             </DoubleAnimation.EasingFunction>
@@ -772,24 +774,24 @@
                     <Border x:Name="Bd" Background="Transparent" CornerRadius="5">
                         <Grid>
                             <!--
-                              折叠/展开箭头（2026-10-04 重做，修"展开时朝上"的方向错误）。
+                              折叠/展开箭头（2026-10-04 第三次修正：统一为"展开朝下、收起朝左"）。
 
                               ⚠ 方向约定（这份注释是唯一权威，别再靠脑内推演旋转方向）：
-                                基线几何 = **朝下的 v**（Angle=0 就是展开态应有的样子）；
-                                **折叠时**旋转 **-90°** 得到朝右的 >。
-                                展开 = 0°、折叠 = -90°，与下面的动画数值一一对应。
+                                基线几何 = **朝下的 v**（`M 0 1 L 5 6 L 10 1`）；
+                                **Angle 0° = 朝下（展开态）**，**Angle +90° = 朝左（收起态）**。
+                                正角是顺时针：朝下的 v 顺时针转 90° 变成朝左的 <。
+                                （几何表：基线在 0°=下 / +90°=左 / −90°=右 / 180°=上。）
 
-                              上一版把基线写成朝右的 >、展开时转到 +90°，结果渲染出来是**朝上**：
-                              靠"想象旋转方向"必然出错 —— 所以现在让"最常见的展开态"直接等于基线几何，
-                              即使动画没跑（例如刚启动就被绑定赋值），静态观感也是对的。
+                              ⚠ 为什么让"展开态"等于基线：即使动画没跑（例如启动时被绑定直接赋值），
+                              静态观感依然正确，不依赖动画是否播放过。
                             -->
                             <Path x:Name="Arrow" Data="M 0 1 L 5 6 L 10 1" Stroke="{DynamicResource ExpanderArrowBrush}"
                                   StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                                   StrokeLineJoin="Round" HorizontalAlignment="Center" VerticalAlignment="Center"
                                   RenderTransformOrigin="0.5,0.5">
                                 <Path.RenderTransform>
-                                    <!-- 初始即折叠态（-90° = 朝右），展开时动画回 0° -->
-                                    <RotateTransform x:Name="ArrowRotation" Angle="-90" />
+                                    <!-- 初始即收起态（+90° = 朝左），展开时动画回 0°（朝下） -->
+                                    <RotateTransform x:Name="ArrowRotation" Angle="90" />
                                 </Path.RenderTransform>
                             </Path>
                         </Grid>
@@ -814,7 +816,7 @@
                                     <Storyboard>
                                         <DoubleAnimation Storyboard.TargetName="ArrowRotation"
                                                          Storyboard.TargetProperty="Angle"
-                                                         To="-90" Duration="0:0:0.16">
+                                                         To="90" Duration="0:0:0.16">
                                             <DoubleAnimation.EasingFunction>
                                                 <CubicEase EasingMode="EaseOut" />
                                             </DoubleAnimation.EasingFunction>

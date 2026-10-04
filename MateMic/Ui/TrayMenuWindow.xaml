@@ -12,7 +12,7 @@
         Topmost="True"
         Opacity="0"
         FontFamily="{DynamicResource AppFont}"
-        FontSize="14"
+        FontSize="12.5"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True"
         Deactivated="OnDeactivated"
@@ -30,7 +30,7 @@
     <Window.Resources>
         <!-- 菜单项：整行可点、圆角高亮、文本左对齐（对齐到勾选列之后） -->
         <Style x:Key="MenuItemStyle" TargetType="Button">
-            <Setter Property="Height" Value="36" />
+            <Setter Property="Height" Value="29" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
@@ -41,7 +41,7 @@
                         <Border x:Name="Bd"
                                 Background="{TemplateBinding Background}"
                                 CornerRadius="4"
-                                Padding="8,0,12,0">
+                                Padding="7,0,10,0">
                             <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center" />
                         </Border>
                         <ControlTemplate.Triggers>
@@ -63,7 +63,7 @@
 
         <Style x:Key="MenuSeparatorStyle" TargetType="Border">
             <Setter Property="Height" Value="1" />
-            <Setter Property="Margin" Value="10,4,10,4" />
+            <Setter Property="Margin" Value="8,3,8,3" />
             <Setter Property="Background" Value="{DynamicResource CardBorderBrush}" />
         </Style>
     </Window.Resources>
@@ -73,13 +73,13 @@
       投影由 Border 上的 CardShadow 提供，留不出边距就会被窗口边界裁掉。
     -->
     <Border x:Name="Root"
-            Margin="12"
-            MinWidth="196"
+            Margin="10"
+            MinWidth="168"
             Background="{DynamicResource PopupSurfaceBrush}"
             BorderBrush="{DynamicResource DialogBorderBrush}"
             BorderThickness="1"
-            CornerRadius="8"
-            Padding="4"
+            CornerRadius="7"
+            Padding="3"
             Effect="{DynamicResource CardShadow}">
         <Border.RenderTransform>
             <TranslateTransform x:Name="Slide" />
@@ -88,19 +88,19 @@
         <StackPanel>
             <Button x:Name="ShowItem" Style="{StaticResource MenuItemStyle}" Click="OnShowClick">
                 <!-- 左侧留 24 与勾选列对齐，所有菜单项文字才会齐平 -->
-                <TextBlock Margin="24,0,0,0" Text="显示主窗口" VerticalAlignment="Center" />
+                <TextBlock Margin="20,0,0,0" Text="显示主窗口" VerticalAlignment="Center" />
             </Button>
 
             <Button x:Name="ToggleItem" Style="{StaticResource MenuItemStyle}" Click="OnToggleClick">
                 <Grid>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="24" />
+                        <ColumnDefinition Width="20" />
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
                     <TextBlock x:Name="ToggleCheck"
                                Grid.Column="0"
                                Text="✓"
-                               FontSize="15"
+                               FontSize="13"
                                VerticalAlignment="Center"
                                Foreground="{DynamicResource AccentBrush}"
                                Visibility="Collapsed" />
@@ -113,7 +113,7 @@
             <Border Style="{StaticResource MenuSeparatorStyle}" />
 
             <Button x:Name="ExitItem" Style="{StaticResource MenuItemStyle}" Click="OnExitClick">
-                <TextBlock Margin="24,0,0,0" Text="退出 MateMic" VerticalAlignment="Center" />
+                <TextBlock Margin="20,0,0,0" Text="退出 MateMic" VerticalAlignment="Center" />
             </Button>
         </StackPanel>
     </Border>
