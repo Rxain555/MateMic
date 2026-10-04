@@ -103,45 +103,6 @@ public partial class App : Application
             return;
         }
 
-        // AI 变声自检：MateMic.exe --aicheck <引擎组件目录> [--cpu] [--wav <音频>] [--out <输出wav>]
-        if (args.Contains("--aicheck", StringComparer.OrdinalIgnoreCase))
-        {
-            int exitCode;
-            try
-            {
-                exitCode = MateMic.Ai.AiVoiceCheck.Run(args);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("[AI 自检] 抛出异常：" + ex);
-                Log.Error("[AI 自检] 抛出异常", ex);
-                exitCode = 4;
-            }
-            Shutdown(exitCode);
-            return;
-        }
-
-        // 组件自检：MateMic.exe --componentcheck <零件所在目录> [--dry]
-        // 用来验证"清单校验 + 分段拼接 + 整体哈希"这条链路（不需要音频设备与界面）。
-        if (args.Contains("--componentcheck", StringComparer.OrdinalIgnoreCase))
-        {
-            var dir = ValueOf(args, "--componentcheck");
-            var dry = args.Contains("--dry", StringComparer.OrdinalIgnoreCase);
-            var result = string.IsNullOrWhiteSpace(dir)
-                ? VoiceComponentInstallResult.Fail("用法：--componentcheck <零件所在目录> [--dry]")
-                : VoiceComponentInstaller.Install(new[] { dir }, dryRun: dry);
-
-            Console.WriteLine("[组件自检] " + (result.Ok ? "通过" : "未通过") + "：" + result.Message);
-            Log.Info($"[组件自检] {(result.Ok ? "通过" : "未通过")}：{result.Message}");
-
-            var installed = VoiceComponentInstaller.LoadInstalled(ConfigStore.ComponentsDirectory);
-            Console.WriteLine($"[组件自检] 已安装组件：{installed.Count} 个"
-                              + (installed.Count > 0 ? "（" + string.Join("、", installed.Select(m => m.Name + " " + m.Version)) + "）" : ""));
-            Log.Info($"[组件自检] 已安装组件：{installed.Count} 个");
-
-            Shutdown(result.Ok ? 0 : 1);
-            return;
-        }
 
         // 设备切换演练：应用照常运行时，过几秒自动切换一次系统默认录音设备再切回来。
         // 用途：验证"默认设备变化 / 设备集合变化"能否真的驱动音频流恢复——

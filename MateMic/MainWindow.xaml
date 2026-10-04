@@ -348,7 +348,8 @@
                                 </StackPanel>
                             </Border>
 
-                            <!-- 变声（DSP 层）：紧跟 AI 降噪之后。将来接 AI 变声时在同一张卡片里加模式切换 -->
+                            <!-- 变声（DSP）：紧跟 AI 降噪之后。
+                                 AI 变声（RVC 组件）已从应用剔除，理由与归档见 项目库\MateMic\归档文档\ -->
                             <Border Style="{StaticResource Card}">
                                 <StackPanel>
                                     <Grid>
@@ -357,7 +358,7 @@
                                             <ColumnDefinition Width="Auto" />
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="0" Style="{StaticResource SectionTitle}" Text="变声" />
+                                        <TextBlock Grid.Column="0" Style="{StaticResource SectionTitle}" Text="DSP 变声" />
                                         <CheckBox x:Name="ToggleVoiceChanger" Grid.Column="1"
                                                   Style="{StaticResource Switch}" Margin="0,0,8,0"
                                                   Checked="OnEffectToggled" Unchecked="OnEffectToggled" />
@@ -366,16 +367,6 @@
                                                 Click="OnExpandClick" Tag="{Binding VoiceChangerExpanded, RelativeSource={RelativeSource AncestorType=Window}}" />
                                     </Grid>
                                     <StackPanel x:Name="PanelVoiceChanger" Visibility="Collapsed" Margin="0,6,0,0">
-                                        <!-- AI 变声引擎/音色是"按需安装的组件"，不随安装包分发 -->
-                                        <Grid Margin="0,0,0,6">
-                                        <!-- 模式切换：DSP 与 AI 各一套控件；将来加零样本就是第三个 chip -->
-                                        <UniformGrid Columns="2" Margin="0,0,0,4">
-                                            <RadioButton x:Name="VoiceModeDspChip" Style="{StaticResource ChipToggle}"
-                                                         Content="DSP 变声" Tag="Dsp" Click="OnVoiceModeSelected" />
-                                            <RadioButton x:Name="VoiceModeAiChip" Style="{StaticResource ChipToggle}"
-                                                         Content="AI 变声" Tag="Ai" Click="OnVoiceModeSelected" />
-                                        </UniformGrid>
-                                        </Grid>
                                         <Grid x:Name="VoicePitchRow" Margin="0,2,0,2">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="60" />
@@ -429,23 +420,6 @@
                                             <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
                                                        Text="{Binding Value, ElementName=VoiceMixSlider, StringFormat='{}{0:0}%'}" />
                                         </Grid>
-
-                                        <!-- AI 区：只有切到「AI 变声」才显示 -->
-                                        <StackPanel x:Name="PanelVoiceAi" Visibility="Collapsed" Margin="0,4,0,0">
-                                            <Grid Margin="0,0,0,6">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="*" />
-                                                    <ColumnDefinition Width="Auto" />
-                                                </Grid.ColumnDefinitions>
-                                                <TextBlock x:Name="VoiceComponentHint" Grid.Column="0" Style="{StaticResource LabelText}"
-                                                           TextWrapping="Wrap" Text="AI 变声组件：未安装" />
-                                                <Button Grid.Column="1" Style="{StaticResource ToolbarButton}" Content="安装组件…"
-                                                        Padding="8,3,8,3" Click="OnInstallComponentClick"
-                                                        ToolTip="也可以直接把组件文件拖进本窗口" />
-                                            </Grid>
-                                            <TextBlock Style="{StaticResource LabelText}" TextWrapping="Wrap"
-                                                       Text="AI 变声需要先安装引擎组件：推理在本机 GPU 上运行，组件按需下载，不随安装包分发。" />
-                                        </StackPanel>
                                     </StackPanel>
                                 </StackPanel>
                             </Border>

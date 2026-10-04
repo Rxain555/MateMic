@@ -78,16 +78,19 @@ public sealed class ToneSettings
 }
 
 /// <summary>
-/// 变声（DSP 层）。刻意做成"一个模块 + 预留 AI 模式"：当前只有音高 / 音色 / 干湿比，
-/// 以后接 AI 变声时在同一张卡片里加模式切换，不新增卡片。
+/// 变声（DSP）。AI 变声（RVC 组件）已于 2026-10-04 从应用剔除，
+/// 归档与理由见 `归档文档\AI变声-归档\归档说明.md`；这里只保留 DSP 的各项参数。
 /// </summary>
-/// <summary>变声模块的工作模式。</summary>
+/// <summary>
+/// 变声模块的工作模式。**仅为兼容旧配置文件而保留**：老配置里存着 <c>"Mode": "Ai"</c>，
+/// 删掉这个属性会让 JSON 反序列化报未知字段；程序已不再读取它（一律走 DSP）。
+/// </summary>
 public enum VoiceChangerMode
 {
-    /// <summary>内置 DSP 变声：零依赖、零延迟，效果上限是"变了个音"。</summary>
+    /// <summary>内置 DSP 变声：零依赖、零延迟。</summary>
     Dsp = 0,
 
-    /// <summary>AI 变声：需要先安装引擎组件，推理在本机 GPU 上跑。将来还会加零样本模式。</summary>
+    /// <summary>（已废弃）AI 变声：曾需要先安装引擎组件并在 GPU 上推理。</summary>
     Ai = 1,
 }
 
@@ -110,7 +113,7 @@ public sealed class VoiceChangerSettings
 
     public bool Enabled { get; set; }
 
-    /// <summary>当前模式：DSP 或 AI（AI 需要安装引擎组件）。</summary>
+    /// <summary>（已废弃）曾用于 DSP / AI 切换；程序已不读取，仅为兼容旧配置保留。</summary>
     public VoiceChangerMode Mode { get; set; } = VoiceChangerMode.Dsp;
 }
 

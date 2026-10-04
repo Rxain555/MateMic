@@ -2,7 +2,6 @@ using MateMic.Core;
 using MateMic.Dsp;
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
-using MateMic.Ai;
 
 namespace MateMic.Audio;
 
@@ -68,7 +67,6 @@ public sealed class AudioEngine : IDisposable
         Denoise = new DenoiseEffect(Format, config.Denoise, new SpectralDenoiseModel());
         // 变声紧跟在降噪之后：先拿到干净语音，再做音色变换
         VoiceChanger = new VoiceChangerEffect(Format, config.VoiceChanger);
-        AiVoice = new AiVoiceChangerEffect(Format);
         Loudness = new LoudnessBalanceEffect(Format, config.Loudness);
         Tone = new ToneStyleEffect(Format, config.Tone);
         Creative = new CreativeEffect(Format, config.Effect);
@@ -107,8 +105,6 @@ public sealed class AudioEngine : IDisposable
     /// <summary>变声（DSP 层，位于 AI 降噪之后）。</summary>
     public VoiceChangerEffect VoiceChanger { get; }
 
-    /// <summary>AI 变声（组件装好后接入；未就绪时直通）。</summary>
-    public AiVoiceChangerEffect AiVoice { get; }
     public LoudnessBalanceEffect Loudness { get; }
     public ToneStyleEffect Tone { get; }
     public CreativeEffect Creative { get; }
@@ -740,7 +736,7 @@ public sealed class AudioEngine : IDisposable
     {
         var desired = new List<IAudioEffect>
         {
-            NoiseGate, Denoise, VoiceChanger, AiVoice, Loudness, Tone, Creative, Gain,
+            NoiseGate, Denoise, VoiceChanger, Loudness, Tone, Creative, Gain,
         }.Where(e => e.Enabled).ToList();
 
         var current = Chain.Effects;
@@ -771,8 +767,7 @@ public sealed class AudioEngine : IDisposable
     {
         NoiseGate.Enabled = _config.NoiseGate.Enabled;
         Denoise.Enabled = _config.Denoise.Enabled;
-        // AI 模式下由 AI 引擎接管（组件装好后接入），此时 DSP 引擎不参与处理
-        VoiceChanger.Enabled = _config.VoiceChanger.Enabled && _config.VoiceChanger.Mode == VoiceChangerMode.Dsp;
+        VoiceChanger.Enabled = _config.VoiceChanger.Enabled;
         Loudness.Enabled = _config.Loudness.Enabled;
         // 音色风格 / 效果器：开关打开但未选择预设时不进入处理链，等价于关闭
         Tone.Enabled = _config.Tone.Enabled && _config.Tone.Style.HasValue;
@@ -782,12 +777,6 @@ public sealed class AudioEngine : IDisposable
         NoiseGate.UpdateParameters();
         Denoise.UpdateParameters();
         VoiceChanger.UpdateParameters();
-
-        // AI 变声：只在 AI 模式且模块开关打开时参与；引擎组件按需在后台加载
-        AiVoice.Enabled = _config.VoiceChanger.Enabled && _config.VoiceChanger.Mode == VoiceChangerMode.Ai;
-        AiVoice.SetPitchShift(_config.VoiceChanger.Semitones);
-        AiVoice.UpdateParameters();
-        if (AiVoice.Enabled) EnsureAiEngineLoaded();
         Loudness.UpdateParameters();
         Tone.UpdateParameters();
         Creative.UpdateParameters();
@@ -798,58 +787,8 @@ public sealed class AudioEngine : IDisposable
         // 把实际生效的链路记进日志，便于排查"重启后模块没生效"这类问题
         Log.Info($"处理链状态：总开关={_config.AudioProcessingEnabled}，" +
                  $"噪声门={NoiseGate.Enabled}，降噪={Denoise.Enabled}（{Denoise.ModelName}），变声={VoiceChanger.Enabled}，" +
-                 $"AI变声={AiVoice.Enabled}，响度={Loudness.Enabled}，音色={Tone.Enabled}，效果={Creative.Enabled}，增益={Gain.Enabled}");
+                 $"响度={Loudness.Enabled}，音色={Tone.Enabled}，效果={Creative.Enabled}，增益={Gain.Enabled}");
     }
-
-    private int _aiLoadState;   // 0=未加载 1=加载中 2=已加载 3=加载失败
-
-    /// <summary>
-    /// 后台加载 AI 变声引擎组件（首次启用 AI 模式时调用一次）。
-    /// 加载过程要读几百 MB 的模型并建 DirectML 会话，需要几秒，绝不能在音频线程做。
-    /// </summary>
-    private void EnsureAiEngineLoaded()
-    {
-        if (AiVoice.IsReady) return;
-        if (Interlocked.CompareExchange(ref _aiLoadState, 1, 0) != 0) return;
-
-        Task.Run(() =>
-        {
-            try
-            {
-                // 扫整棵 components\voice：引擎组件（编码器+基频）与音色组件都在里面，按形状自动认领
-                var root = Path.Combine(ConfigStore.ComponentsDirectory, "voice");
-                var directory = Directory.Exists(root)
-                    ? root
-                    : null;
-
-                if (directory == null)
-                {
-                    Log.Warn("AI：还没有安装变声引擎组件（把组件文件拖进主窗口即可安装）");
-                    _aiLoadState = 0;
-                    return;
-                }
-
-                Log.Info($"AI：正在从 {directory} 加载引擎与音色…");
-                var engine = AiVoiceEngine.TryLoad(directory, useGpu: true, out var message);
-                if (engine == null)
-                {
-                    Log.Error("AI：引擎加载失败：" + message);
-                    _aiLoadState = 3;
-                    return;
-                }
-
-                AiVoice.LoadEngine(engine);
-                _aiLoadState = 2;
-                Log.Info($"AI：引擎就绪（{engine.Name}，音色模型 {engine.ModelSampleRate} Hz）");
-            }
-            catch (Exception ex)
-            {
-                Log.Error("AI：加载引擎异常", ex);
-                _aiLoadState = 3;
-            }
-        });
-    }
-
 
     public void SetDenoiseModel(IDenoiseModel model)
     {
@@ -961,7 +900,6 @@ public sealed class AudioEngine : IDisposable
 
     public void Dispose()
     {
-        AiVoice?.Dispose();
         if (_disposed) return;
         _disposed = true;
         Stop();
