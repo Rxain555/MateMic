@@ -167,6 +167,8 @@ public partial class App : Application
                 if (MainWindow is MainWindow window)
                 {
                     if (tick == 2 && expandAll) window.ExpandAllForSelfCheck();
+                    // 动画是 160 ms，等到第 5 拍（约 1 s）再读角度，确保停在终值
+                    if (tick == 5) window.LogExpanderAngles();
                     window.FeedSelfCheckSignal((float)(tick / 24.0));
                 }
             };

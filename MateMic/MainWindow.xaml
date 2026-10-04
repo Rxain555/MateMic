@@ -200,9 +200,20 @@
             </Grid.ColumnDefinitions>
 
             <!-- ============ 左栏：音频处理链 ============ -->
-            <Border Grid.Column="0" Style="{StaticResource GroupContainer}" Margin="0,0,7,0">
+            <Border Grid.Column="0" Style="{StaticResource RegionPane}" Margin="0,0,7,0">
                 <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Style="{StaticResource GroupTitle}" Text="音频处理链" />
+<Grid DockPanel.Dock="Top" Margin="0,0,0,7">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Width="3" Height="11" CornerRadius="2"
+                                Background="{DynamicResource AccentBrush}" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Style="{StaticResource RegionTitle}" Text="音频处理链" />
+                        <Border Grid.Column="2" Height="1" Margin="9,0,0,0" VerticalAlignment="Center"
+                                Background="{DynamicResource HairlineBrush}" />
+                    </Grid>
 
                     <!-- 覆盖式滚动条：滚动条浮在内容上方、不占布局列，因此出现时不会把卡片挤窄。 -->
                     <ScrollViewer Style="{StaticResource OverlayScrollViewer}" ui:SmoothScroll.Enabled="True" Padding="0,0,0,6">
@@ -627,9 +638,20 @@
             </Border>
 
             <!-- ============ 中栏：实时频谱 ============ -->
-            <Border Grid.Column="1" Style="{StaticResource GroupContainer}" Margin="0,0,7,0">
+            <Border Grid.Column="1" Style="{StaticResource RegionPane}" Margin="0,0,7,0">
                 <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Style="{StaticResource GroupTitle}" Text="实时频谱" />
+<Grid DockPanel.Dock="Top" Margin="0,0,0,7">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Width="3" Height="11" CornerRadius="2"
+                                Background="{DynamicResource AccentBrush}" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Style="{StaticResource RegionTitle}" Text="实时频谱" />
+                        <Border Grid.Column="2" Height="1" Margin="9,0,0,0" VerticalAlignment="Center"
+                                Background="{DynamicResource HairlineBrush}" />
+                    </Grid>
 
                     <Grid>
                         <Grid.RowDefinitions>
@@ -641,58 +663,139 @@
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
 
-                        <!-- 输入频谱 -->
-                        <Border Grid.Row="0" Style="{StaticResource Card}" Padding="6">
+                                                <!-- 输入 频谱（2026-10-04 重做）：连续包络曲线 + dB 网格 + 数值读出，
+                             取代原来的 48 根条纹柱（柱间留白形成"条形码"观感）。 -->
+                        <Border Grid.Row="0" Style="{StaticResource Card}" Padding="8,6,8,6">
                             <Grid>
-                                <TextBlock Style="{StaticResource LabelText}" Text="输入"
-                                           HorizontalAlignment="Center" VerticalAlignment="Top"
-                                           Margin="0,2,0,0" Panel.ZIndex="2" />
-                                <Canvas x:Name="InputSpectrumCanvas" ClipToBounds="True" Margin="0,20,0,0" />
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" MinHeight="60" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <!-- 表头：左＝通道名，右＝频段范围与刻度方式 -->
+                                <Grid Grid.Row="0" Margin="0,0,0,2">
+                                    <TextBlock Style="{StaticResource LabelText}" Text="输入"
+                                               FontWeight="SemiBold" FontSize="11.5"
+                                               Foreground="{DynamicResource TextBrush}" />
+                                    <TextBlock Style="{StaticResource LabelText}" HorizontalAlignment="Right"
+                                               FontSize="10.5" Text="40 Hz – 16 kHz · 对数" />
+                                </Grid>
+
+                                <Canvas x:Name="InputSpectrumCanvas" Grid.Row="1" ClipToBounds="True" />
+
+                                <!-- 数值读出：峰值频率 / 有效值 / 峰值 -->
+                                <Grid Grid.Row="2" Margin="0,3,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="InputPeakText" Grid.Column="0" Style="{StaticResource LabelText}" FontSize="10.5" />
+                                    <TextBlock x:Name="InputRmsText" Grid.Column="1" Style="{StaticResource LabelText}"
+                                               FontSize="10.5" HorizontalAlignment="Center" />
+                                    <TextBlock x:Name="InputPeakHoldText" Grid.Column="2" Style="{StaticResource LabelText}"
+                                               FontSize="10.5" HorizontalAlignment="Right" />
+                                </Grid>
                             </Grid>
                         </Border>
 
-                        <!-- 输出频谱 -->
-                        <Border Grid.Row="1" Style="{StaticResource Card}" Padding="6">
+                                                <!-- 输出 频谱（2026-10-04 重做）：连续包络曲线 + dB 网格 + 数值读出，
+                             取代原来的 48 根条纹柱（柱间留白形成"条形码"观感）。 -->
+                        <Border Grid.Row="1" Style="{StaticResource Card}" Padding="8,6,8,6">
                             <Grid>
-                                <TextBlock Style="{StaticResource LabelText}" Text="输出"
-                                           HorizontalAlignment="Center" VerticalAlignment="Top"
-                                           Margin="0,2,0,0" Panel.ZIndex="2" />
-                                <Canvas x:Name="OutputSpectrumCanvas" ClipToBounds="True" Margin="0,20,0,0" />
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" MinHeight="60" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <!-- 表头：左＝通道名，右＝频段范围与刻度方式 -->
+                                <Grid Grid.Row="0" Margin="0,0,0,2">
+                                    <TextBlock Style="{StaticResource LabelText}" Text="输出"
+                                               FontWeight="SemiBold" FontSize="11.5"
+                                               Foreground="{DynamicResource TextBrush}" />
+                                    <TextBlock Style="{StaticResource LabelText}" HorizontalAlignment="Right"
+                                               FontSize="10.5" Text="40 Hz – 16 kHz · 对数" />
+                                </Grid>
+
+                                <Canvas x:Name="OutputSpectrumCanvas" Grid.Row="1" ClipToBounds="True" />
+
+                                <!-- 数值读出：峰值频率 / 有效值 / 峰值 -->
+                                <Grid Grid.Row="2" Margin="0,3,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="OutputPeakText" Grid.Column="0" Style="{StaticResource LabelText}" FontSize="10.5" />
+                                    <TextBlock x:Name="OutputRmsText" Grid.Column="1" Style="{StaticResource LabelText}"
+                                               FontSize="10.5" HorizontalAlignment="Center" />
+                                    <TextBlock x:Name="OutputPeakHoldText" Grid.Column="2" Style="{StaticResource LabelText}"
+                                               FontSize="10.5" HorizontalAlignment="Right" />
+                                </Grid>
                             </Grid>
                         </Border>
 
-                        <!-- RMS 电平条：直接贴着容器，不再套一层卡片边框（原来层级太多）。
-                             上下间距相等，两端与容器同宽。 -->
+                                                <!-- 电平表（2026-10-04 重做）：dB 刻度 + 峰值保持 + 数值读出。
+                             原实现把线性峰值 ×3.2 后当作位置用，任何峰值超过 0.31 的信号都会被 clamp 到 1，
+                             于是指针永远钉在最右 —— 现在改成 dB 映射（-60…0 dBFS）并加峰值回落。 -->
                         <Border Grid.Row="2" Background="Transparent" BorderThickness="0"
-                                Margin="0,6,0,6" Padding="0">
-                            <Grid Height="16" x:Name="LevelTrack">
-                                <Rectangle RadiusX="8" RadiusY="8">
-                                    <Rectangle.Fill>
-                                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-                                            <GradientStop Color="#5CD65C" Offset="0" />
-                                            <GradientStop Color="#5CD65C" Offset="0.55" />
-                                            <GradientStop Color="#F2C744" Offset="0.62" />
-                                            <GradientStop Color="#F2C744" Offset="0.86" />
-                                            <GradientStop Color="#F26B6B" Offset="0.92" />
-                                            <GradientStop Color="#F26B6B" Offset="1" />
-                                        </LinearGradientBrush>
-                                    </Rectangle.Fill>
-                                </Rectangle>
-                                <Border x:Name="LevelMask" HorizontalAlignment="Right"
-                                        Background="{DynamicResource LevelMaskBrush}"
-                                        Opacity="0.85" Width="0" CornerRadius="0,8,8,0" />
-                                <Rectangle x:Name="LevelNeedle" Width="2" Fill="{DynamicResource LevelNeedleBrush}"
-                                           HorizontalAlignment="Left" />
+                                Margin="0,6,0,4" Padding="0">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+
+                                <Grid Grid.Column="0" x:Name="LevelTrack">
+                                    <Canvas x:Name="LevelScaleCanvas" Height="12" VerticalAlignment="Top"
+                                            ClipToBounds="True" />
+                                    <Grid Height="10" VerticalAlignment="Bottom">
+                                        <Rectangle RadiusX="5" RadiusY="5" Fill="{DynamicResource LevelMaskBrush}" Opacity="0.9" />
+                                        <Rectangle x:Name="LevelFill" RadiusX="5" RadiusY="5"
+                                                   HorizontalAlignment="Left" Width="0" IsHitTestVisible="False">
+                                            <Rectangle.Fill>
+                                                <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                                    <GradientStop Color="#5CD65C" Offset="0" />
+                                                    <GradientStop Color="#5CD65C" Offset="0.55" />
+                                                    <GradientStop Color="#F2C744" Offset="0.62" />
+                                                    <GradientStop Color="#F2C744" Offset="0.86" />
+                                                    <GradientStop Color="#F26B6B" Offset="0.92" />
+                                                    <GradientStop Color="#F26B6B" Offset="1" />
+                                                </LinearGradientBrush>
+                                            </Rectangle.Fill>
+                                        </Rectangle>
+                                        <Rectangle x:Name="LevelPeak" Width="2" Height="14"
+                                                   Fill="{DynamicResource TextBrush}" Opacity="0.75"
+                                                   HorizontalAlignment="Left" VerticalAlignment="Center"
+                                                   IsHitTestVisible="False" />
+                                    </Grid>
+                                </Grid>
+
+                                <TextBlock x:Name="LevelReadout" Grid.Column="1" Style="{StaticResource LabelText}"
+                                           FontSize="10.5" Margin="8,0,0,0" VerticalAlignment="Center"
+                                           Text="—" />
                             </Grid>
-                        </Border>
-                    </Grid>
+                        </Border></Grid>
                 </DockPanel>
             </Border>
 
             <!-- ============ 右栏：播放伴奏 / 语音包 ============ -->
-            <Border Grid.Column="2" Style="{StaticResource GroupContainer}">
+            <Border Grid.Column="2" Style="{StaticResource RegionPane}">
                 <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Style="{StaticResource GroupTitle}" Text="播放音频" />
+<Grid DockPanel.Dock="Top" Margin="0,0,0,7">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Width="3" Height="11" CornerRadius="2"
+                                Background="{DynamicResource AccentBrush}" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Style="{StaticResource RegionTitle}" Text="播放音频" />
+                        <Border Grid.Column="2" Height="1" Margin="9,0,0,0" VerticalAlignment="Center"
+                                Background="{DynamicResource HairlineBrush}" />
+                    </Grid>
 
                     <Grid>
                         <Grid.RowDefinitions>

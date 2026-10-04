@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using MateMic.Audio;
@@ -67,8 +68,9 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     /// <summary>程序内部改下拉框选择时置位，避免把"我们的刷新"当成"用户换了设备"。</summary>
     private bool _suppressDeviceSelection;
 
-    private readonly Rectangle[] _inputBars = new Rectangle[SpectrumBars];
-    private readonly Rectangle[] _outputBars = new Rectangle[SpectrumBars];
+    /// <summary>频谱数据曲线的绘制对象（连续包络），以及复用的频带缓冲。</summary>
+    private readonly System.Windows.Shapes.Path _inputArea = new() { Fill = SpectrumFill(), Stroke = SpectrumStroke(), StrokeThickness = 1.4 };
+    private readonly System.Windows.Shapes.Path _outputArea = new() { Fill = SpectrumFill(), Stroke = SpectrumStroke(), StrokeThickness = 1.4 };
     private readonly float[] _inputBands = new float[SpectrumBars];
     private readonly float[] _outputBands = new float[SpectrumBars];
     private readonly List<TrackViewModel> _tracks = new();
@@ -97,8 +99,10 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         ApplyCaptionIcon();
         RestoreWindowPlacement();
         VersionText.Text = App.VersionText;
-        BuildSpectrum(InputSpectrumCanvas, _inputBars);
-        BuildSpectrum(OutputSpectrumCanvas, _outputBars);
+        BuildSpectrum(InputSpectrumCanvas, _inputArea);
+        BuildSpectrum(OutputSpectrumCanvas, _outputArea);
+        LevelTrack.SizeChanged += (_, _) => BuildLevelScale();
+        BuildLevelScale();
 
         TrackList.ItemsSource = _tracks;
         LoadTracksFromConfig();
@@ -511,104 +515,185 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     private void SetHotkeyButtonText(string gesture)
         => HotkeyButton.Content = string.IsNullOrWhiteSpace(gesture) ? HotkeyPlaceholder : gesture;
 
-    private void BuildSpectrum(Canvas canvas, Rectangle[] bars)
-    {
-        canvas.Children.Clear();
-        // 每根柱子两片：浅灰底槽（给出"刻度"参照）+ 前景条（真正的电平）。
-        // 只有前景条会改高度，底槽固定铺满，视觉上更容易看出起伏幅度。
-        for (var i = 0; i < bars.Length; i++)
-        {
-            var track = new Rectangle
-            {
-                // 兜底色（资源缺失时用）；紧接着改成资源引用，
-                // 这样切换深色模式时底槽颜色会自动跟着变
-                Fill = new SolidColorBrush(Color.FromRgb(0xE6, 0xE9, 0xEE)),
-                RadiusX = 1,
-                RadiusY = 1,
-                Height = 3,
-                Width = 4,
-            };
-            track.SetResourceReference(Rectangle.FillProperty, "SpectrumSlotBrush");
-            canvas.Children.Add(track);
-
-            var bar = new Rectangle
-            {
-                Fill = BarBrush(),
-                RadiusX = 1,
-                RadiusY = 1,
-                Height = 1,
-                Width = 4,
-            };
-            bars[i] = bar;
-            canvas.Children.Add(bar);
-        }
-
-        canvas.SizeChanged += (_, _) => LayoutSpectrum(canvas, bars);
-        LayoutSpectrum(canvas, bars);
-    }
-
     /// <summary>
-    /// 频谱柱的填充：从底部的青色渐变到顶部的主题蓝（静态画刷，不随每帧变化，
-    /// 因此不会给 30 fps 的渲染循环增加开销）。
+    /// 频谱包络的填充：底部偏青、顶部偏主题蓝，上缘再淡出（"轻"一点的观感）。
+    /// 静态画刷，不随每帧变化，因此不给 30 fps 的渲染循环加开销。
     /// </summary>
-    private static Brush BarBrush()
+    private static Brush SpectrumFill()
     {
         var brush = new LinearGradientBrush
         {
             StartPoint = new Point(0.5, 1),
             EndPoint = new Point(0.5, 0),
         };
-        brush.GradientStops.Add(new GradientStop(Color.FromRgb(0x4F, 0xC3, 0xC9), 0));
-        brush.GradientStops.Add(new GradientStop(Color.FromRgb(0x2F, 0x80, 0xED), 1));
+        brush.GradientStops.Add(new GradientStop(Color.FromArgb(0x66, 0x4F, 0xC3, 0xC9), 0));
+        brush.GradientStops.Add(new GradientStop(Color.FromArgb(0x99, 0x2F, 0x80, 0xED), 1));
         brush.Freeze();
         return brush;
     }
 
-    private static void LayoutSpectrum(Canvas canvas, Rectangle[] bars)
+    /// <summary>频谱上缘的描边：随高度由主题蓝渐变到青，和填充同一套色，负责"看得出形状"。</summary>
+    private static Brush SpectrumStroke()
     {
-        var available = canvas.ActualWidth;
-        if (available <= 1) return;
-
-        var slot = available / bars.Length;
-        var width = Math.Max(2, slot * 0.62);
-        var height = Math.Max(3, canvas.ActualHeight);
-        foreach (var child in canvas.Children.OfType<Rectangle>())
+        var brush = new LinearGradientBrush
         {
-            child.Width = width;
-            child.Height = height;
-        }
-
-        for (var i = 0; i < bars.Length; i++)
-        {
-            var left = i * slot + (slot - width) / 2;
-            bars[i].Height = Math.Max(2f, bars[i].Height);
-            Canvas.SetLeft(bars[i], left);
-            Canvas.SetTop(bars[i], 0);
-
-            // 底槽与前景条成对添加（见 BuildSpectrum），位置始终一致
-            var index = canvas.Children.IndexOf(bars[i]);
-            if (index > 0 && canvas.Children[index - 1] is Rectangle track)
-            {
-                Canvas.SetLeft(track, left);
-                Canvas.SetTop(track, 0);
-            }
-        }
+            StartPoint = new Point(0.5, 0),
+            EndPoint = new Point(0.5, 1),
+        };
+        brush.GradientStops.Add(new GradientStop(Color.FromRgb(0x2F, 0x80, 0xED), 0));
+        brush.GradientStops.Add(new GradientStop(Color.FromRgb(0x4F, 0xC3, 0xC9), 1));
+        brush.Freeze();
+        return brush;
     }
 
-    private static void UpdateBarHeights(Canvas canvas, Rectangle[] bars, float[] values)
+    private void BuildSpectrum(Canvas canvas, System.Windows.Shapes.Path area)
     {
+        canvas.Children.Clear();
+        canvas.Children.Add(area);
+        canvas.SizeChanged += (_, _) => LayoutSpectrumGrid(canvas, area);
+        LayoutSpectrumGrid(canvas, area);
+    }
+
+    /// <summary>
+    /// 频谱的"参考栅格"（2026-10-04 重做）：
+    ///   · 横线 = dB 刻度（0 / −20 / −40 / −60 dBFS），这是判断"信号有多大"的真正参照；
+    ///   · 竖线 = 频率刻度（100 / 1k / 10k Hz），按对数位置摆放。
+    /// 这些是静态几何，只在尺寸变化时重建，不参与每帧刷新。
+    /// </summary>
+    private static void LayoutSpectrumGrid(Canvas canvas, System.Windows.Shapes.Path area)
+    {
+        var width = canvas.ActualWidth;
         var height = canvas.ActualHeight;
-        if (height <= 1) return;
+        if (width <= 2 || height <= 2) return;
 
-        for (var i = 0; i < bars.Length && i < values.Length; i++)
+        // 只清掉旧的栅格（数据曲线要在最上层）
+        foreach (var old in canvas.Children.OfType<System.Windows.Shapes.Path>().Where(p => !ReferenceEquals(p, area)).ToList())
+            canvas.Children.Remove(old);
+
+        var grid = new PathGeometry();
+        var gridBrush = (Brush)new BrushConverter().ConvertFromString("#22808A98")!;
+        gridBrush.Freeze();
+
+        var gridPath = new System.Windows.Shapes.Path
         {
-            var value = Math.Clamp(values[i], 0f, 1f);
-            // 最低也保留 2px：完全贴底时看不出"这里有一根柱子"
-            var barHeight = Math.Max(2f, value * height);
-            bars[i].Height = barHeight;
-            Canvas.SetTop(bars[i], height - barHeight);
+            Stroke = gridBrush,
+            StrokeThickness = 1,
+            SnapsToDevicePixels = true,
+            IsHitTestVisible = false,
+        };
+
+        // ---- 横线：dB 刻度 ----
+        foreach (var db in new[] { 0f, -20f, -40f, -60f })
+        {
+            var y = Math.Round(DbToY(db, height)) + 0.5;   // +0.5 让 1px 线落在像素中心，不糊
+            var figure = new PathFigure { StartPoint = new Point(0, y), IsClosed = false };
+            figure.Segments.Add(new LineSegment(new Point(width, y), true));
+            grid.Figures.Add(figure);
         }
+
+        // ---- 竖线：频率刻度 ----
+        foreach (var hz in new[] { 100f, 1000f, 10000f })
+        {
+            var x = Math.Round(HzToX(hz, width)) + 0.5;
+            var figure = new PathFigure { StartPoint = new Point(x, 0), IsClosed = false };
+            figure.Segments.Add(new LineSegment(new Point(x, height), true));
+            grid.Figures.Add(figure);
+        }
+
+        gridPath.Data = grid;
+        Canvas.SetLeft(gridPath, 0);
+        Canvas.SetTop(gridPath, 0);
+
+        // 栅格在下、数据曲线在上；两者都随尺寸变化重新铺满
+        canvas.Children.Add(gridPath);
+        if (!canvas.Children.Contains(area)) canvas.Children.Add(area);
+
+        area.Width = width;
+        area.Height = height;
     }
+
+    /// <summary>频谱最低/最高频（与 OutputStage 的 LowestBandHz 对齐，仅用于坐标映射）。</summary>
+    private const float SpectrumLowHz = 40f;
+    private const float SpectrumHighHz = 16000f;
+
+    /// <summary>dBFS 显示范围：0 dBFS 在顶部，-60 dBFS 在底部。</summary>
+    private const float MeterCeilingDb = 0f;
+    private const float MeterFloorDb = -60f;
+
+    private static double DbToY(double db, double height)
+    {
+        var t = (db - MeterCeilingDb) / (MeterFloorDb - MeterCeilingDb);   // 0 dB → 0，-60 dB → 1
+        return Math.Clamp(t, 0, 1) * height;
+    }
+
+    private static double HzToX(double hz, double width)
+    {
+        var lo = Math.Log10(SpectrumLowHz);
+        var hi = Math.Log10(SpectrumHighHz);
+        var t = (Math.Log10(Math.Clamp(hz, SpectrumLowHz, SpectrumHighHz)) - lo) / (hi - lo);
+        return Math.Clamp(t, 0, 1) * width;
+    }
+
+    /// <summary>
+    /// 把频带值画成**连续包络**：一条填充区域 + 一条描边曲线。
+    /// 取代原来的 48 根"底槽 + 前柱"条纹柱（柱间留白会形成条形码观感）。
+    /// 频带值本身已经是 dB 归一化后的 0…1，这里只负责把它映射到坐标。
+    /// </summary>
+    private static void UpdateSpectrumCurve(Canvas canvas, System.Windows.Shapes.Path area, SpectrumAnalyzer analyzer, float[] scratch)
+    {
+        var width = canvas.ActualWidth;
+        var height = canvas.ActualHeight;
+        if (width <= 2 || height <= 2) return;
+
+        var count = Math.Min(analyzer.BandCount, scratch.Length);
+        analyzer.CopyBands(scratch, count);
+
+        var geometry = new PathGeometry();
+        var figure = new PathFigure { IsClosed = true, StartPoint = new Point(0, height) };
+
+        for (var i = 0; i < count; i++)
+        {
+            var x = count <= 1 ? width / 2 : width * i / (count - 1);
+            var v = Math.Clamp(scratch[i], 0f, 1f);
+            var y = height - v * height;                       // 频带值越大越高（0.62 是"柱高比例"的旧语义，已弃用）
+            figure.Segments.Add(new LineSegment(new Point(x, y), true));
+        }
+
+        figure.Segments.Add(new LineSegment(new Point(width, height), true));
+        geometry.Figures.Add(figure);
+        area.Data = geometry;
+    }
+
+    /// <summary>
+    /// 峰值频率读出 + 有效值/峰值（dBFS）。
+    /// </summary>
+    private void UpdateSpectrumReadout(SpectrumAnalyzer analyzer, float[] scratch,
+                                       TextBlock note, TextBlock rmsText, TextBlock peakText)
+    {
+        var count = Math.Min(analyzer.BandCount, scratch.Length);
+        analyzer.CopyBands(scratch, count);
+
+        var bestIndex = 0;
+        var bestValue = -1f;
+        for (var i = 0; i < count; i++)
+        {
+            if (scratch[i] > bestValue) { bestValue = scratch[i]; bestIndex = i; }
+        }
+
+        var hz = analyzer.BandCentreHz(bestIndex);
+        note.Text = hz >= 1000 ? $"峰值 {hz / 1000f:0.0} kHz" : $"峰值 {hz:0} Hz";
+
+        var rmsDb = LinearToDb(analyzer.Rms);
+        var peakDb = LinearToDb(analyzer.Peak);
+        rmsText.Text = $"有效 {FormatDb(rmsDb)}";
+        peakText.Text = $"峰值 {FormatDb(peakDb)}";
+    }
+
+    private static double LinearToDb(float linear)
+        => linear <= 1e-6f ? -120 : 20 * Math.Log10(linear);
+
+    private static string FormatDb(double db)
+        => db <= -99 ? "−∞ dBFS" : $"{db:0.0} dBFS";
 
     // =============================================================== 渲染循环
 
@@ -617,12 +702,74 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         if (!IsVisible || WindowState == WindowState.Minimized) return;
 
         _engine.UpdateAnalysis();
-        _engine.InputSpectrum.CopyBands(_inputBands, _inputBands.Length);
-        _engine.OutputSpectrum.CopyBands(_outputBands, _outputBands.Length);
 
-        UpdateBarHeights(InputSpectrumCanvas, _inputBars, _inputBands);
-        UpdateBarHeights(OutputSpectrumCanvas, _outputBars, _outputBands);
+        UpdateSpectrumCurve(InputSpectrumCanvas, _inputArea, _engine.InputSpectrum, _inputBands);
+        UpdateSpectrumReadout(_engine.InputSpectrum, _inputBands,
+                              InputPeakText, InputRmsText, InputPeakHoldText);
+
+        UpdateSpectrumCurve(OutputSpectrumCanvas, _outputArea, _engine.OutputSpectrum, _outputBands);
+        UpdateSpectrumReadout(_engine.OutputSpectrum, _outputBands,
+                              OutputPeakText, OutputRmsText, OutputPeakHoldText);
+
         UpdateLevelMeter();
+    }
+
+    /// <summary>峰值保持指针的当前 dB（会缓慢回落）。</summary>
+    private double _levelPeakDb = MeterFloorDb;
+    private long _levelPeakTicks;
+
+    private void UpdateLevelMeter()
+    {
+        var width = LevelTrack.ActualWidth;
+        if (width <= 1) return;
+
+        var rmsDb = LinearToDb(_engine.OutputSpectrum.Rms);
+        var peakDb = LinearToDb(_engine.OutputSpectrum.Peak);
+
+        // 峰值保持：跟涨、慢落（12 dB/秒）。原实现把线性峰值 ×3.2 直接当位置用，
+        // 任何峰值超过 0.31 的信号都会被 clamp 到最右，指针就永远钉在右端。
+        var now = Stopwatch.GetTimestamp();
+        if (_levelPeakTicks == 0) _levelPeakTicks = now;
+        var elapsed = (now - _levelPeakTicks) / (double)Stopwatch.Frequency;
+        _levelPeakTicks = now;
+        _levelPeakDb = Math.Max(peakDb, _levelPeakDb - 12.0 * elapsed);
+        if (_levelPeakDb < MeterFloorDb) _levelPeakDb = MeterFloorDb;
+
+        var fill = DbToFraction(rmsDb);
+        var peakAt = DbToFraction(_levelPeakDb);
+
+        LevelFill.Width = Math.Max(0, width * fill);
+        LevelPeak.Margin = new Thickness(Math.Clamp(width * peakAt - 1, 0, Math.Max(0, width - 2)), 0, 0, 0);
+
+        LevelReadout.Text = $"{FormatDb(rmsDb)} / 峰 {FormatDb(peakDb)}";
+    }
+
+    /// <summary>把 dB 映射到 0…1 的位置（-60 dBFS 在左、0 dBFS 在右）。</summary>
+    private static double DbToFraction(double db)
+        => Math.Clamp((db - MeterFloorDb) / (MeterCeilingDb - MeterFloorDb), 0, 1);
+
+    /// <summary>电平条上方的 dB 刻度（-48 / -36 / -24 / -12 / 0），静态绘制，仅随尺寸重建。</summary>
+    private void BuildLevelScale()
+    {
+        LevelScaleCanvas.Children.Clear();
+        var width = LevelTrack.ActualWidth;
+        if (width <= 1) return;
+
+        var brush = (Brush)new BrushConverter().ConvertFromString("#33808A98")!;
+        brush.Freeze();
+
+        foreach (var db in new[] { -48.0, -36.0, -24.0, -12.0, 0.0 })
+        {
+            var x = Math.Round(width * DbToFraction(db)) + 0.5;
+            var tick = new System.Windows.Shapes.Line
+            {
+                X1 = x, X2 = x, Y1 = 6, Y2 = 11,
+                Stroke = brush,
+                StrokeThickness = 1,
+                SnapsToDevicePixels = true,
+            };
+            LevelScaleCanvas.Children.Add(tick);
+        }
     }
 
     /// <summary>
@@ -652,6 +799,40 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     }
 
     /// <summary>
+    /// 自检专用：把 7 个展开箭头的实际旋转角打进日志。
+    /// 箭头方向这个坑踩过多次（"看着像朝上"），这里用**数值**自证，不再靠看图猜：
+    /// 约定 **展开 = 0°（基线几何本身朝下）、折叠 = -90°（朝右 &gt;）**。
+    /// </summary>
+    public void LogExpanderAngles()    {
+        var buttons = new (string Name, Button Button)[]
+        {
+            ("噪声门", ExpandGate), ("AI 降噪", ExpandDenoise), ("响度平衡", ExpandLoudness),
+            ("音色风格", ExpandTone), ("效果器", ExpandEffect), ("增益", ExpandGain),
+            ("DSP 变声", ExpandVoiceChanger),
+        };
+
+        foreach (var (name, button) in buttons)
+        {
+            var arrow = FindDescendant<System.Windows.Shapes.Path>(button, "Arrow");
+            var angle = (arrow?.RenderTransform as RotateTransform)?.Angle;
+            Log.Info($"[箭头自检] {name}：Tag={button.Tag} Angle={angle?.ToString("0.#") ?? "未找到 Arrow"}");
+        }
+    }
+
+    private static T? FindDescendant<T>(DependencyObject root, string name) where T : FrameworkElement
+    {
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is T typed && typed.Name == name) return typed;
+            var found = FindDescendant<T>(child, name);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    /// <summary>
     /// 自检专用：向两路分析器注入合成频谱与电平，用于离线校验渲染链路。
     /// 每次注入一整窗（<see cref="SpectrumAnalyzer.FftSize"/>）再加一段：
     /// 2048 点 FFT 要攒够 2048 个样本才出第一帧频谱，注入太少会让自检截图里的频谱是空的。
@@ -674,20 +855,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         _engine.OutputSpectrum.Feed(block);
         _engine.InputSpectrum.TryUpdate();
         _engine.OutputSpectrum.TryUpdate();
-    }
-
-    private void UpdateLevelMeter()
-    {
-        var level = Math.Clamp(_engine.OutputSpectrum.Rms * 3.2f, 0f, 1f);
-        var peak = Math.Clamp(_engine.OutputSpectrum.Peak * 3.2f, 0f, 1f);
-        if (LevelMask.Parent is not FrameworkElement track) return;
-
-        var width = track.ActualWidth;
-        if (width <= 0) return;
-
-        LevelMask.HorizontalAlignment = HorizontalAlignment.Right;
-        LevelMask.Width = width * (1 - level);
-        LevelNeedle.Margin = new Thickness(Math.Clamp(width * peak, 0, Math.Max(0, width - 2)), 0, 0, 0);
     }
 
     // =============================================================== 顶部工具栏
@@ -1309,7 +1476,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         if (panel == null) return;
 
         var expanded = panel.Visibility != Visibility.Visible;
-        panel.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
+        AnimatePanel(button, panel, expanded);
 
         switch (button.Name)
         {
@@ -1344,6 +1511,85 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         }
 
         SaveConfig();   // 展开状态也持久化，下次启动保持原样
+    }
+
+    /// <summary>正在播放展开/收起动画的模块（按触发按钮区分）；重复点击时先让上一段动画收尾。</summary>
+    private readonly Dictionary<Button, (FrameworkElement Panel, Storyboard Story)> _panelAnimations = new();
+
+    /// <summary>
+    /// 卡片展开/收起的动画（2026-10-04）。
+    ///
+    /// 做法是动画面板的 <see cref="FrameworkElement.Height"/>（0 ↔ 自然高度），**不是缩放**：
+    /// ScaleTransform 只作用于渲染层，布局空间会瞬间让出/占满，兄弟卡片会"跳"一下，反而更难看。
+    ///
+    /// 自然高度取"收尾态量测"：先按目标状态摆好可见性、再把 Height 置为 NaN 让布局算出真实尺寸，
+    /// 读 DesiredSize 后立刻把 Height 固定回 0 并恢复可见性——这样量测不会闪一下。
+    /// </summary>
+    private void AnimatePanel(Button button, UIElement panelElement, bool expand)
+    {
+        if (panelElement is not FrameworkElement panel) return;
+
+        // 上一段动画还没播完：立刻收尾（跳到最后状态），避免两段动画互相覆盖留下错误高度
+        if (_panelAnimations.TryGetValue(button, out var running))
+        {
+            running.Story.Remove();
+            running.Panel.Height = double.NaN;
+            _panelAnimations.Remove(button);
+        }
+
+        // ---- 量测自然高度 ----
+        var wasVisible = panel.Visibility == Visibility.Visible;
+        panel.Visibility = Visibility.Visible;
+        panel.Height = double.NaN;
+        panel.UpdateLayout();
+        var target = panel.ActualHeight;
+        if (target <= 0.5 || double.IsNaN(target)) target = panel.DesiredSize.Height;
+        if (target <= 0.5) target = 1;                       // 极端兜底，避免 0 时长动画
+
+        panel.Height = 0;                                    // 回到动画起点（此时还没画到屏幕上）
+        panel.Visibility = wasVisible ? Visibility.Visible : Visibility.Collapsed;
+        panel.UpdateLayout();
+
+        var story = new Storyboard();
+
+        if (expand)
+        {
+            panel.Visibility = Visibility.Visible;
+            var height = new DoubleAnimation(0, target, TimeSpan.FromMilliseconds(220))
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            };
+            Storyboard.SetTarget(height, panel);
+            Storyboard.SetTargetProperty(height, new PropertyPath(nameof(FrameworkElement.Height)));
+            story.Children.Add(height);
+
+            // 动画结束：交还给布局（Height 恢复自动），否则窗口变化后高度会被钉死
+            story.Completed += (_, _) =>
+            {
+                panel.Height = double.NaN;
+                _panelAnimations.Remove(button);
+            };
+        }
+        else
+        {
+            var height = new DoubleAnimation(target, 0, TimeSpan.FromMilliseconds(180))
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn },
+            };
+            Storyboard.SetTarget(height, panel);
+            Storyboard.SetTargetProperty(height, new PropertyPath(nameof(FrameworkElement.Height)));
+            story.Children.Add(height);
+
+            story.Completed += (_, _) =>
+            {
+                panel.Visibility = Visibility.Collapsed;
+                panel.Height = double.NaN;                   // 收起后必须复位，否则下次量测拿到 0
+                _panelAnimations.Remove(button);
+            };
+        }
+
+        _panelAnimations[button] = (panel, story);
+        story.Begin();
     }
 
     /// <summary>把配置里记录的展开状态应用到各模块面板与箭头。</summary>
