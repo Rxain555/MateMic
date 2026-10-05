@@ -85,11 +85,37 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     private TrackViewModel? _pendingHoldKeyTrack;
     private Action? _statusAction;
 
-    /// <summary>开机自启（命令行 --autostart）时置 true：启动完成后直接收进托盘，不弹主窗口。</summary>
-    public bool StartMinimizedToTray { get; init; }
+    /// <summary>
+    /// 开机自启（命令行 --autostart）时置 true：启动完成后直接收进托盘，不弹主窗口。
+    ///
+    /// ⚠ 必须是**构造函数参数**，不能改回 `{ get; init; }` + 对象初始化器赋值：
+    /// 对象初始化器的赋值发生在构造函数**执行完毕之后**，而窗口的离屏摆放
+    /// （<see cref="PrepareTrayStartPlacement"/>，必须在 Show() 之前完成）就在构造函数里，
+    /// 那时读到的永远是 false —— 2026-10-05 修黑窗时正是踩了这个坑，
+    /// 表现为"代码明明改了、日志里却连一行都没打"。
+    /// </summary>
+    public bool StartMinimizedToTray { get; }
 
-    public MainWindow()
+    /// <summary>
+    /// 开机自启收托盘时置 true：窗口还得"先离屏显示一次、等首帧渲染完成再 Hide"。
+    /// 为什么不能直接不显示 / 为什么不能马上 Hide，见 <see cref="BeginHideToTray"/>。
+    /// </summary>
+    private bool _hideToTrayAfterFirstFrame;
+
+    /// <summary>离屏显示前记录的窗口位置，收进托盘后原样还原。</summary>
+    private double _trayStartLeft;
+    private double _trayStartTop;
+
+    /// <summary>离屏显示万一等不到 ContentRendered 时的兜底定时器。</summary>
+    private DispatcherTimer? _trayHideFallback;
+
+    /// <summary>Windows 约定的"屏幕外"坐标：虚拟桌面不会覆盖到这里。</summary>
+    private const double OffScreenCoordinate = -32000;
+
+    public MainWindow(bool startMinimizedToTray = false)
     {
+        StartMinimizedToTray = startMinimizedToTray;
+
         _config = _store.Load();
         _engine = new AudioEngine(_devices, _config);
 
@@ -101,6 +127,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         ApplyWindowIcon();
         ApplyCaptionIcon();
         RestoreWindowPlacement();
+        PrepareTrayStartPlacement();
         VersionText.Text = App.VersionText;
         BuildSpectrumBars(InputSpectrumCanvas, _inputBars);
         BuildSpectrumBars(OutputSpectrumCanvas, _outputBars);
@@ -330,8 +357,9 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             {
                 if (_config.CloseToTray)
                 {
-                    Hide();
-                    Log.Info("以 --autostart 启动：已直接最小化到托盘。");
+                    // ⚠ 这里**不能**直接 Hide()：真正的显示动作还没发生，这次 Hide 会被随后的
+                    //   显示覆盖，留下一个纯黑死窗口。原因与实测时间线见 BeginHideToTray。
+                    BeginHideToTray();
                 }
                 else
                 {
@@ -348,6 +376,128 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         {
             _loading = false;
         }
+    }
+
+    // =============================================================== 开机自启收托盘
+
+    /// <summary>
+    /// 开机自启要直接收进托盘时，先把窗口挪到屏幕外并禁止抢焦点。
+    ///
+    /// 必须**离屏**而不是"不显示"：窗口在这个阶段已经有句柄了，WPF 随时可能把它显示出来
+    /// （见 <see cref="BeginHideToTray"/>），只有摆到虚拟桌面之外才能保证用户全程看不到。
+    /// 位置在这里改过，收进托盘后由 <see cref="RestoreTrayStartPlacement"/> 原样还原，
+    /// 否则下次从托盘恢复窗口会跑到屏幕外。
+    /// </summary>
+    private void PrepareTrayStartPlacement()
+    {
+        if (!StartMinimizedToTray || !_config.CloseToTray) return;
+
+        _hideToTrayAfterFirstFrame = true;
+        _trayStartLeft = Left;
+        _trayStartTop = Top;
+
+        // CenterScreen 会覆盖手工设置的 Left/Top，所以这里必须同时改成 Manual。
+        // （配置里没有有效位置时 Left/Top 就是 NaN，还原时按工作区重新居中。）
+        WindowStartupLocation = WindowStartupLocation.Manual;
+        Left = OffScreenCoordinate;
+        Top = OffScreenCoordinate;
+
+        // 收托盘的启动不该抢走用户正在打字的窗口的焦点
+        ShowActivated = false;
+
+        Log.Info("以 --autostart 启动：窗口已离屏摆放，等待首帧渲染完成后收进托盘。");
+    }
+
+    /// <summary>
+    /// 把窗口收进托盘（开机自启路径）。
+    ///
+    /// ⚠ **不能在 Loaded 里直接 Hide()**——2026-10-05 用户报的"开机后一个纯黑窗口"就是这么来的：
+    /// WPF 的 <c>Show()</c> 并不当场显示窗口，真正的 ShowWindow 要等首帧渲染完成才执行。
+    /// 在 Loaded 里 Hide() 时窗口的 WS_VISIBLE 还没置上，这一刀等于打在空气上；
+    /// 而 WPF 排着队的那次显示随后照常执行，于是窗口在"已经收进托盘"之后又被显示出来。
+    /// 此时它从未完成过首帧渲染，DWM 拿不到内容，屏幕上就留下一个**纯黑死窗口**：
+    /// 点任务栏没反应，只有从托盘「显示主界面」重新 Show 一次才恢复正常（与用户描述完全一致）。
+    ///
+    /// 实测时间线（--autostart，50 ms 采样一次窗口样式位）：
+    ///   584 ms  HWND 已建好，WS_VISIBLE = False
+    ///  1400 ms  日志打出"已直接最小化到托盘"（旧代码在这里 Hide）
+    ///  1724 ms  WS_VISIBLE 变成 True —— 窗口是在 Hide 之后才被显示出来的
+    /// 样式位由 0x06CA0000 变为 0x16CA0000，差的正是 0x10000000（WS_VISIBLE）。
+    ///
+    /// 因此改为：**等首帧渲染完成（ContentRendered）之后再 Hide**。
+    /// 这一次 Hide 撤销的是一次"已经发生的显示"，必定生效；配合构造期的离屏摆放，
+    /// 用户在整段时间里看不到任何东西，也不会出现黑窗或残留的任务栏按钮。
+    /// </summary>
+    private void BeginHideToTray()
+    {
+        if (!_hideToTrayAfterFirstFrame) return;
+
+        void HideAfterFirstFrame(object? sender, EventArgs e)
+        {
+            ContentRendered -= HideAfterFirstFrame;
+            if (!_hideToTrayAfterFirstFrame) return;   // 兜底已经处理过了
+            CompleteHideToTray("首帧渲染完成");
+        }
+
+        ContentRendered += HideAfterFirstFrame;
+
+        // 兜底：万一窗口走不完首帧渲染（ContentRendered 不触发），
+        // 也不能让它一直待在屏幕外当"隐身进程"。3 秒后无条件收起。
+        _trayHideFallback = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+        _trayHideFallback.Tick += (_, _) =>
+        {
+            _trayHideFallback?.Stop();
+            _trayHideFallback = null;
+            if (_hideToTrayAfterFirstFrame) CompleteHideToTray("兜底定时器到期");
+        };
+        _trayHideFallback.Start();
+    }
+
+    /// <summary>真正执行收起：隐藏窗口 → 还原位置 → 核对"系统层面确实看不见了"。</summary>
+    private void CompleteHideToTray(string reason)
+    {
+        _hideToTrayAfterFirstFrame = false;
+        _trayHideFallback?.Stop();
+        _trayHideFallback = null;
+
+        Hide();
+        RestoreTrayStartPlacement();
+
+        // 核对用的是 Win32 的 WS_VISIBLE，不是 WPF 的 IsVisible：
+        // 后者在 Hide() 一调用就变 false，看不出 HWND 有没有真的藏住（这正是当初漏掉这个 bug 的原因）。
+        // 排到 ApplicationIdle：此时首帧渲染与随后的显示动作都已经执行完毕。
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (WindowEffects.IsWindowReallyVisible(this))
+            {
+                Log.Warn($"收起托盘后窗口在系统层面仍然可见（{reason}），改用 ShowWindow(SW_HIDE) 兜底。");
+                WindowEffects.ForceHide(this);
+            }
+
+            Log.Info($"以 --autostart 启动：已直接最小化到托盘（{reason}；" +
+                     $"窗口真实可见={WindowEffects.IsWindowReallyVisible(this)}）。");
+        }), DispatcherPriority.ApplicationIdle);
+    }
+
+    /// <summary>
+    /// 把构造期为了离屏显示而改掉的窗口位置还原，否则从托盘恢复时窗口会跑到屏幕外。
+    /// 原本是 CenterScreen（配置里没有有效位置）时，用工作区手工算一次居中——
+    /// 窗口已经显示过，CenterScreen 不会再生效。
+    /// </summary>
+    private void RestoreTrayStartPlacement()
+    {
+        ShowActivated = true;
+
+        if (!double.IsNaN(_trayStartLeft) && !double.IsNaN(_trayStartTop))
+        {
+            Left = _trayStartLeft;
+            Top = _trayStartTop;
+            return;
+        }
+
+        var area = SystemParameters.WorkArea;
+        Left = area.Left + (area.Width - Width) / 2;
+        Top = area.Top + (area.Height - Height) / 2;
     }
 
     /// <summary>

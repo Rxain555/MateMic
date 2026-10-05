@@ -136,10 +136,9 @@ public partial class App : Application
         {
             // --autostart 由开机自启的注册表项写入（见 AutoStartService）：
             // 这种情况下不弹主窗口，直接把窗口收进托盘。
-            var main = new MainWindow
-            {
-                StartMinimizedToTray = HasFlag(args, "--autostart"),
-            };
+            // ⚠ 这个标志必须走**构造函数**传入：窗口要在 Show() 之前把自己摆到屏幕外，
+            //   而对象初始化器的赋值发生在构造函数之后，那时已经晚了（详见 MainWindow 该属性注释）。
+            var main = new MainWindow(HasFlag(args, "--autostart"));
             MainWindow = main;
             main.Show();
 

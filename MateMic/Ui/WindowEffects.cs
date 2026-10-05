@@ -146,6 +146,59 @@ public static class WindowEffects
     /// <summary>Windows 11 22H2（build 22621）起才支持 DWMWA_SYSTEMBACKDROP_TYPE。</summary>
     public static bool IsBackdropSupported => Environment.OSVersion.Version.Build >= 22621;
 
+    // ---- 隐藏窗口的兜底手段（开机自启收托盘用，见 MainWindow.BeginHideToTray） ----
+
+    private const int SwHide = 0;
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hwnd, int cmdShow);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindowVisible(IntPtr hwnd);
+
+    /// <summary>
+    /// 窗口在**系统层面**是否真的可见（直接读 HWND 的 WS_VISIBLE 位）。
+    ///
+    /// ⚠ 不能用 WPF 的 <see cref="Window.IsVisible"/> 来核对这件事：那个属性只是窗口自己的
+    /// 依赖属性状态，`Hide()` 一调用它就变成 false，而 HWND 上的 WS_VISIBLE 位可能还没清掉。
+    /// 排查"开机自启后留下一个纯黑窗口"时，正是这个区别让问题一度看起来像"已经藏好了"。
+    /// </summary>
+    public static bool IsWindowReallyVisible(Window window)
+    {
+        try
+        {
+            var handle = new WindowInteropHelper(window).Handle;
+            return handle != IntPtr.Zero && IsWindowVisible(handle);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("读取窗口真实可见性失败：" + ex.Message);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 用 Win32 直接隐藏窗口，**只作为 WPF 侧 Hide() 失效时的兜底**。
+    ///
+    /// ⚠ 它会绕过 WPF 的可见性状态机，因此必须在 `Window.Hide()` 之后调用：
+    /// 先让 WPF 把内部状态改掉，再补这一刀把 HWND 的 WS_VISIBLE 真正清掉。
+    /// 反过来单独用会让 WPF 认为窗口还开着，后续 `Show()` 会直接返回、窗口再也显示不出来。
+    /// </summary>
+    public static bool ForceHide(Window window)
+    {
+        try
+        {
+            var handle = new WindowInteropHelper(window).Handle;
+            if (handle == IntPtr.Zero) return false;
+            return ShowWindow(handle, SwHide);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("强制隐藏窗口失败：" + ex.Message);
+            return false;
+        }
+    }
+
     // ---- 标题栏按钮自检用的窗口样式位 ----
     private const int GwlStyle = -16;
     private const int GwlExStyle = -20;
