@@ -398,18 +398,18 @@
                                 </RepeatButton>
                             </Track.IncreaseRepeatButton>
                             <Track.Thumb>
-                                <Thumb Width="13" Height="13" Focusable="False">
+                                <Thumb Width="14" Height="14" Focusable="False">
                                     <Thumb.Template>
                                         <ControlTemplate TargetType="Thumb">
                                             <Grid>
-                                                <Ellipse Fill="White" Width="13" Height="13">
+                                                <Ellipse Fill="White" Width="14" Height="14">
                                                     <Ellipse.Effect>
                                                         <DropShadowEffect BlurRadius="5" ShadowDepth="1"
                                                                           Direction="270" Color="#FF7A8290"
                                                                           Opacity="0.35" />
                                                     </Ellipse.Effect>
                                                 </Ellipse>
-                                                <Ellipse Width="13" Height="13" Stroke="{DynamicResource AccentBrush}"
+                                                <Ellipse Width="14" Height="14" Stroke="{DynamicResource AccentBrush}"
                                                          StrokeThickness="2" />
                                             </Grid>
                                         </ControlTemplate>

@@ -2595,14 +2595,27 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     }
 
     /// <summary>
+    /// EQ 推子的滑块尺寸与轨道宽度。
+    /// **必须与 <c>Ui/Theme.Modern.xaml</c> 里 <c>EqBandSlider</c> 的 Thumb 一致**，
+    /// 也与水平滑条 <c>FlatSlider</c>（滑块 14、轨道 5）一致 ——
+    /// 同一套界面里两种滑条粗细/大小不同会很扎眼（用户 2026-10-06 指出）。
+    /// </summary>
+    private const double EqThumbSize = 14;
+    private const double EqTrackWidth = 5;
+    private const double EqThumbHalf = EqThumbSize / 2;
+
+    /// <summary>
     /// 画推子区的轨道与填充条。
     ///
     /// 填充**从中线（0 dB）往滑块长**，而不是从一端填满：增益有正有负，
     /// 从一端填的话 0 dB 也会填掉一半，看起来像"已经调过了"。
     ///
+    /// 尺寸必须与水平滑条（<c>FlatSlider</c>）完全一致 —— 轨道 5px、滑块 14px：
+    /// 同一套界面里两种滑条粗细/大小不同会很扎眼（用户 2026-10-06 指出）。
+    ///
     /// 坐标必须与 EqBandSlider 里 Thumb 的实际行程一致，否则滑块会跑出填充条端点：
     /// 垂直 Slider 的 Thumb 中心从"半个滑块高"走到"高度 − 半个滑块高"，
-    /// 即 6.5 → 77.5（高度 84、滑块 13），所以振幅 = 高度/2 − 6.5。
+    /// 即 7 → 77（高度 84、滑块 14），所以振幅 = 高度/2 − 7。
     /// 推子区 Grid 的高度（84）与 Slider 的 Height 相同，两层的 y 原点才对得上。
     /// </summary>
     private void RedrawEqBars()
@@ -2625,7 +2638,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         }
 
         var middle = height / 2;
-        var amplitude = middle - 6.5;          // 与 Thumb 的真实行程对齐
+        var amplitude = middle - EqThumbHalf;   // 与 Thumb 的真实行程对齐
         var slot = width / EqPreset.BandCount;
 
         var trackBrush = TryFindResource("TrackBrush") as Brush ?? Brushes.Gray;
@@ -2640,18 +2653,16 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
             var track = new System.Windows.Shapes.Rectangle
             {
-                // 宽度取**偶数**、中心对齐到整点：奇数宽（原来 5）时左右边缘会落在半像素上，
-                // 抗锯齿把边缘糊开，看着就像"圆点没在轨道正中间"。
-                // 实测滑块与轨道的中心偏差本来就在 1 个物理像素以内，这一步是为了让边缘更锐利。
-                Width = 4,
-                Height = height - 13,
-                RadiusX = 2,
-                RadiusY = 2,
+                // 尺寸与水平滑条一致：宽 5、圆角 2.5（FlatSlider 的轨道就是 Height=5 / CornerRadius=2.5）
+                Width = EqTrackWidth,
+                Height = height - EqThumbSize,
+                RadiusX = EqTrackWidth / 2,
+                RadiusY = EqTrackWidth / 2,
                 Fill = trackBrush,
                 SnapsToDevicePixels = true,
             };
-            Canvas.SetLeft(track, x - 2);
-            Canvas.SetTop(track, 6.5);
+            Canvas.SetLeft(track, x - EqTrackWidth / 2);
+            Canvas.SetTop(track, EqThumbHalf);
             canvas.Children.Add(track);
 
             var barHeight = Math.Abs(y - middle);
@@ -2659,14 +2670,14 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
             var bar = new System.Windows.Shapes.Rectangle
             {
-                Width = 4,
+                Width = EqTrackWidth,
                 Height = barHeight,
-                RadiusX = 2,
-                RadiusY = 2,
+                RadiusX = EqTrackWidth / 2,
+                RadiusY = EqTrackWidth / 2,
                 Fill = accent,
                 SnapsToDevicePixels = true,
             };
-            Canvas.SetLeft(bar, x - 2);
+            Canvas.SetLeft(bar, x - EqTrackWidth / 2);
             Canvas.SetTop(bar, Math.Min(middle, y));
             canvas.Children.Add(bar);
         }
