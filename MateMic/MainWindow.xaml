@@ -891,7 +891,8 @@
                                     <ItemsControl x:Name="TrackList">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
-                                                <Grid Height="30" Cursor="Hand"
+                                                <Grid x:Name="RowRoot" Height="30" Cursor="Hand"
+                                                      Background="Transparent"
                                                       MouseLeftButtonUp="OnTrackRowClick">
                                                     <!--
                                                       行的背景由三层叠出来（在同一个 Grid 里重叠，而不是各自设 Background）：
@@ -924,17 +925,33 @@
                                                             <Style TargetType="Border">
                                                                 <Setter Property="Background" Value="Transparent" />
                                                                 <Style.Triggers>
-                                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                                    <!--
+                                                                      ⚠ 用**行根元素**的 IsMouseOver 驱动，而不是这一层自己的。
+                                                                      这层 Border 与文件名、按钮是**兄弟**关系，它自己的
+                                                                      IsMouseOver 只覆盖自己的子树 —— 鼠标一移到文件名上
+                                                                      就变成 false、高亮当场灭掉，看起来就是"文件名把那块
+                                                                      区域的悬浮反馈挡住了"（用户 2026-10-06 报的问题）。
+                                                                      行根是所有内容的祖先，它的 IsMouseOver 在整行范围内都为真。
+                                                                    -->
+                                                                    <DataTrigger Binding="{Binding IsMouseOver, ElementName=RowRoot}"
+                                                                                 Value="True">
                                                                         <Setter Property="Background"
                                                                                 Value="{DynamicResource RowHoverBrush}" />
-                                                                    </Trigger>
+                                                                    </DataTrigger>
                                                                 </Style.Triggers>
                                                             </Style>
                                                         </Border.Style>
                                                     </Border>
 
-                                                    <!-- 内容层 -->
-                                                    <Grid>
+                                                    <!--
+                                                      内容层：整块铺上透明背景。
+                                                      TextBlock 只在"字形"上参与命中测试 —— 不铺背景的话，
+                                                      行的点击会变成"有字的地方点得动、字旁边的空白点不动"，
+                                                      看起来就像文件名把那块区域的选中反应挡住了。
+                                                      铺上透明背景后整行是同一个命中目标；
+                                                      而且透明背景**不会**遮住下层的高亮与进度。
+                                                    -->
+                                                    <Grid Background="Transparent">
                                                     <!--
                                                         按键控件的宽度**由内容决定**（绑定到实测文字宽度）：
                                                         TrackViewModel 用 FormattedText 按控件实际字号量出文字宽度再加内边距，

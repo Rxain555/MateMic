@@ -164,14 +164,18 @@ public sealed class PlayerTrack
 public sealed class PlayerSettings
 {
     /// <summary>
-    /// 界面上播放器面板的「音频监听」开关：播放器（伴奏/语音包）是否接入混音总线。
-    /// 打开后播放器音频既送主输出（MIXLINE），也在监控设备打开时送监听。
+    /// 界面上播放器面板的「音频监听」开关：播放器（伴奏/语音包）要不要**额外**送进监听设备。
+    /// 注意播放器音频**始终**进主输出（MIXLINE，队友能听到），这个开关只管"我自己的扬声器里听不听得到"。
     /// 与工具栏的监听设备开关组合出四种行为，见 <c>Dsp/MicMixer.cs</c> 类注释与 README §5。
+    ///
+    /// **默认打开**（2026-10-06 用户要求）：放语音包时自己通常也要听见。
     /// </summary>
-    public bool AudioMonitor { get; set; }
+    public bool AudioMonitor { get; set; } = true;
 
     public bool Loop { get; set; }
-    public float Volume { get; set; } = 80f;
+
+    /// <summary>播放器音量。**默认 40**（2026-10-06 用户要求，原来 80 偏响）。</summary>
+    public float Volume { get; set; } = 40f;
 
     /// <summary>
     /// 总开关：是否允许「同步按住键」。默认关闭。
