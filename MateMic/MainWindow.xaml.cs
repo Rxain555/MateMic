@@ -2889,8 +2889,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     }
 
     /// <summary>
-    /// 使用指南：分页显示数据目录里「使用指南.txt」的内容（作者自己写、可任意增删页）。
-    /// 页数为 0 时 GuideCatalog 会退回内置默认内容，所以这里不必再判空。
+    /// 使用指南：分页显示**内置**的说明（正文在仓库的 Assets\使用指南.txt，随程序集编译进来）。
     /// </summary>
     private void OnUsageGuideClick(object sender, RoutedEventArgs e)
         => DialogHost.ShowGuide(this, "MateMic 使用指南", GuideCatalog.Pages);
@@ -2900,7 +2899,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     /// 内置降噪模型、用户自备模型的许可归属、第三方组件。版本号与工具栏显示同一个来源。
     ///
     /// ⚠ 这段是**功能性对话框**（许可与署名），不是"使用说明"，所以仍留在代码里；
-    /// 使用说明已全部搬进「使用指南.txt」。
+    /// 使用说明已全部搬进使用指南。
     /// </summary>
     private void OnAboutClick(object sender, RoutedEventArgs e)
         => DialogHost.Info(this, "关于 MateMic", AboutText());
@@ -3125,7 +3124,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     ///
     /// ⚠ 这是**功能性提示**（开启前的风险确认），不是"使用说明"，所以留在代码里：
     /// 它必须跟着功能走，不该被外部文件改掉之后失去效力。
-    /// 使用说明那些内容已经全部搬进「使用指南.txt」。
+    /// 使用说明那些内容已经全部搬进使用指南。
     /// </summary>
     private const string HoldKeyRiskTitle = "同步按住键 · 风险说明";
 

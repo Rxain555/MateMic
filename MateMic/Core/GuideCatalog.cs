@@ -4,70 +4,83 @@ using System.Text;
 namespace MateMic.Core;
 
 /// <summary>
-/// 使用指南的分页内容。
+/// 使用指南的内容。
 ///
-/// **只有使用指南走外部文件**：作者要自己写说明，而且要能任意增删页，
-/// 所以它单独放在数据目录的「使用指南.txt」里，用 <c>[页标题]</c> 分节 ——
-/// 一节就是一页，顺序按文件里的先后。
+/// **完全内置在程序集里**：正文来自仓库的 `Assets\使用指南.txt`，编译时编成 EmbeddedResource。
+/// 不从 `data\` 读、也不往 `data\` 写。
 ///
-/// 为什么不像原来那样把所有界面文案都放进一个文件：
-/// 2026-10-06 作者判断"大多数控件没必要显示悬浮说明"，
-/// 于是**去掉了全部悬浮说明**，说明集中写进这里。
-/// 程序里其余几处长文本（关于 / 风险说明 / MIXLINE 接法）是功能性对话框，
-/// 不是"使用说明"，因此仍留在代码里。
+/// 为什么不做成外部文件（早先那一版是）：
+/// 这份说明是**作者写给用户的**，不是给用户自己改的 —— 所以"每台机器各存一份、各改各的"
+/// 没有意义，反而带来两个麻烦：
+///   · 覆盖安装时到底该不该冲掉用户改过的那份？怎么选都别扭；
+///   · `data\` 是用户数据目录，多塞一个不该由用户维护的文件只会让人困惑。
+///
+/// 内置之后语义很干净：**作者改那个 txt → 重新编译打包 → 所有人看到新的**，
+/// 覆盖安装自然也就能更新。开发时想预览改动，重新编译一次即可。
 /// </summary>
 public static class GuideCatalog
 {
-    public const string FileName = "使用指南.txt";
+    /// <summary>内置资源名（见 <c>MateMic.csproj</c> 里的 LogicalName）。</summary>
+    private const string ResourceName = "MateMic.Guide.Default.txt";
 
-    public static string FilePath => Path.Combine(ConfigStore.Root, FileName);
-
-    /// <summary>一页：标题（同时用作对话框里的页码标签）与正文。</summary>
+    /// <summary>一页：标题（显示在对话框上的页码区）与正文。</summary>
     public readonly record struct Page(string Title, string Body);
 
     private static readonly List<Page> Items = new();
 
-    /// <summary>当前页列表。文件缺失或解析失败时至少有一页（内置默认内容）。</summary>
+    /// <summary>当前页列表。必须在构造窗口之前 Load。</summary>
     public static IReadOnlyList<Page> Pages => Items;
 
-    /// <summary>启动时读一次。必须在窗口构造之前调用。</summary>
     public static void Load()
     {
         Items.Clear();
 
+        foreach (var (title, body) in Parse(ToLines(Text())))
+        {
+            if (string.IsNullOrWhiteSpace(title)) continue;
+            // 正文留空 = 这一页暂时不写东西，仍然保留（作者可能先搭好目录再填）
+            Items.Add(new Page(title, body));
+        }
+
+        if (Items.Count == 0) Log.Warn("内置使用指南里没有解析到任何一页，请检查 Assets\\使用指南.txt");
+        else Log.Info($"使用指南已就绪：{Items.Count} 页（内置）");
+    }
+
+    // ================================================================ 读内置正文
+
+    private static string Text()
+    {
         try
         {
-            if (!File.Exists(FilePath))
+            using var stream = typeof(GuideCatalog).Assembly.GetManifestResourceStream(ResourceName);
+            if (stream == null)
             {
-                WriteTemplate();
-                Log.Info("使用指南文件不存在，已按内置默认内容生成模板：" + FilePath);
+                Log.Warn("内置使用指南资源不存在：" + ResourceName);
+                return FallbackText;
             }
 
-            foreach (var (title, body) in Parse(File.ReadAllLines(FilePath, Encoding.UTF8)))
-            {
-                if (string.IsNullOrWhiteSpace(title)) continue;
-                // 正文留空 = 这一页暂时不写东西，仍然保留（作者可能先搭好目录再填）
-                Items.Add(new Page(title, body));
-            }
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+            return reader.ReadToEnd();
         }
         catch (Exception ex)
         {
-            Log.Warn("使用指南读取失败，改用内置默认内容：" + ex.Message);
+            Log.Warn("读取内置使用指南失败：" + ex.Message);
+            return FallbackText;
         }
-
-        if (Items.Count == 0)
-        {
-            // 外部文件读不出来（或整篇都被注释掉）时，退回程序集里内置的那份
-            foreach (var (title, body) in Parse(ToLines(DefaultFileText())))
-                if (!string.IsNullOrWhiteSpace(title)) Items.Add(new Page(title, body));
-
-            Log.Warn("使用指南里没有解析到任何一页，已改用内置默认内容。");
-        }
-
-        Log.Info($"使用指南已就绪：{Items.Count} 页，来自 {FilePath}");
     }
 
-    // ================================================================ 解析 / 模板
+    /// <summary>连内置资源都读不到时的最后兜底（正常情况不会走到）。</summary>
+    private const string FallbackText =
+        """
+        [简单开始]
+        MateMic 的使用说明还没有内容。
+        """;
+
+    // ================================================================ 解析
+
+    /// <summary>把一段文本按行拆开（统一成 \n 再拆，兼容 CRLF）。</summary>
+    private static string[] ToLines(string text)
+        => text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
 
     /// <summary>
     /// 解析：<c>[页标题]</c> 独占一行开始一页，下面的行都是正文，<c>#</c> 开头是注释。
@@ -105,56 +118,4 @@ public static class GuideCatalog
         while (end >= start && string.IsNullOrWhiteSpace(lines[end])) end--;
         return start > end ? string.Empty : string.Join(Environment.NewLine, lines.Skip(start).Take(end - start + 1));
     }
-
-    /// <summary>把一段文本按行拆开（统一成 \n 再拆，兼容 CRLF）。</summary>
-    private static string[] ToLines(string text)
-        => text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
-
-    private static void WriteTemplate()
-        => File.WriteAllText(FilePath, DefaultFileText(), new UTF8Encoding(true));
-
-    /// <summary>内置资源名（见 <c>MateMic.csproj</c> 里的 LogicalName）。</summary>
-    private const string DefaultResourceName = "MateMic.Guide.Default.txt";
-
-    /// <summary>
-    /// 内置的默认指南 —— **就是作者自己写的那一份**，放在仓库的
-    /// <c>MateMic\Assets\使用指南.txt</c>，编译时嵌进程序集。
-    ///
-    /// ⚠ 为什么不做成"复制到输出目录的文件"：那样它会跟着 `data\` 一起被改掉/删掉，
-    /// 而且覆盖安装时行为不好界定。嵌进程序集则"总是有一份可用的初始内容"。
-    /// 也不硬编码在 C# 里 —— 作者要经常改这份说明，改 txt、重新编译打包即可。
-    ///
-    /// 首次运行（`data\使用指南.txt` 不存在）时，原文会被写到那里；
-    /// 此后用户改的是自己那份，升级覆盖安装不会冲掉。
-    /// </summary>
-    private static string DefaultFileText()
-    {
-        try
-        {
-            using var stream = typeof(GuideCatalog).Assembly
-                .GetManifestResourceStream(DefaultResourceName);
-
-            if (stream == null)
-            {
-                Log.Warn("内置使用指南资源不存在：" + DefaultResourceName);
-                return FallbackText;
-            }
-
-            using var reader = new StreamReader(stream, Encoding.UTF8);
-            return reader.ReadToEnd();
-        }
-        catch (Exception ex)
-        {
-            Log.Warn("读取内置使用指南失败：" + ex.Message);
-            return FallbackText;
-        }
-    }
-
-    /// <summary>连内置资源都读不到时的最后兜底（正常情况不会走到）。</summary>
-    private const string FallbackText =
-        """
-        [简单开始]
-        MateMic 的使用说明还没有内容。
-        可以直接编辑 data\使用指南.txt，写完保存、重开程序即生效。
-        """;
 }

@@ -276,7 +276,7 @@ public sealed class DialogHost : Window
         => Show(owner, title, message, "否", "是");
 
     /// <summary>
-    /// 分页显示使用指南。页数与每页内容都由数据目录的「使用指南.txt」决定（作者自己增删）。
+    /// 分页显示使用指南。页数与每页内容都是**内置**的（仓库 Assets\使用指南.txt，随程序集编译进来）。
     /// 单页过长时正文区会自动出现滚动条；左右方向键也能翻页。
     /// </summary>
     public static void ShowGuide(Window? owner, string title, IReadOnlyList<GuideCatalog.Page> pages)
@@ -285,7 +285,7 @@ public sealed class DialogHost : Window
         {
             if (pages.Count == 0)
             {
-                Info(owner, title, "（使用指南暂时是空的：可以编辑数据目录下的「使用指南.txt」来写内容）");
+                Info(owner, title, "（使用指南暂时是空的：请检查程序内置的说明文件）");
                 return;
             }
 

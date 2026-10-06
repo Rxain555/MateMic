@@ -56,8 +56,8 @@ public partial class App : Application
         Log.Info("MateMic 启动");
         Log.Info("数据目录：" + ConfigStore.Root);
 
-        // 使用指南（「使用指南」按钮弹出的分页内容）放在数据目录的「使用指南.txt」里，
-        // 作者可以自己增删页。**必须在构造主窗口之前加载**。
+        // 使用指南（「使用指南」按钮弹出的分页内容）是**内置**的：
+        // 正文在仓库的 Assets\使用指南.txt，编译时嵌进程序集。**必须在构造主窗口之前加载**。
         GuideCatalog.Load();
 
         // 改名迁移：把旧版（MicMate）留下的开机自启项改写成新 exe 与新名字，
