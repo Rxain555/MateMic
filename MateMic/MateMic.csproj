@@ -84,4 +84,17 @@
     <Resource Include="Assets\Fonts\*.ttf" />
   </ItemGroup>
 
+  <!--
+    使用指南的**内置默认内容**（作者自己写的那份）。
+    编成 EmbeddedResource 而不是复制成文件：新用户首次运行时，程序会把它写进
+    data\使用指南.txt 当作初始内容；之后用户/作者改的是自己那一份，
+    升级覆盖安装也不会被冲掉。打包脚本无需额外处理。
+    LogicalName 固定成 ASCII，省得中文文件名在资源名里出幺蛾子。
+    （默认的 None 通配会把它也当成 None，重复包含会报错，所以先 Remove 再 Include。）
+  -->
+  <ItemGroup>
+    <None Remove="Assets\使用指南.txt" />
+    <EmbeddedResource Include="Assets\使用指南.txt" LogicalName="MateMic.Guide.Default.txt" />
+  </ItemGroup>
+
 </Project>
