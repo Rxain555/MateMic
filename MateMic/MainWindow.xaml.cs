@@ -3358,6 +3358,18 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         if (!confirm) return;
 
         if (ReferenceEquals(_pendingHotkeyTrack, track)) _pendingHotkeyTrack = null;
+
+        // ⚠ 正在播放的就是这一条时**必须先停掉**。
+        // 列表里唯一的停止入口是"再点一次同一条"（PlayTrack 里那个 toggle），
+        // 条目一旦移除，那个入口就没了 —— 声音会一直放下去，
+        // 用户除了关程序没有任何办法停（用户 2026-10-06 报的问题）。
+        // Stop() 会走 StateChanged → HandlePlaybackState，把「同步按住键」之类一起收尾。
+        if (string.Equals(_player.CurrentPath, track.FilePath, StringComparison.OrdinalIgnoreCase))
+        {
+            _player.Stop();
+            Log.Info("正在播放的条目被移除，已停止播放：" + track.FilePath);
+        }
+
         _tracks.Remove(track);
         _config.Player.Tracks.Remove(track.Model);
         TrackList.Items.Refresh();
