@@ -744,25 +744,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         => HotkeyButton.Content = string.IsNullOrWhiteSpace(gesture) ? HotkeyPlaceholder : gesture;
 
     /// <summary>
-    /// 频谱包络的填充：底部偏青、顶部偏主题蓝，上缘再淡出（"轻"一点的观感）。
-    /// 静态画刷，不随每帧变化，因此不给 30 fps 的渲染循环加开销。
-    /// </summary>
-    /// <summary>
-    /// 频谱柱的填充色：走**动态资源**，深浅两套主题各有一份
-    /// （浅色 #9CC0F7、深色 #7FB2F7，都是不透明的浅蓝）。
-    ///
-    /// ⚠ 必须**完全不透明**：早先用带 alpha 的颜色（#B0…），相邻柱那 1px 重叠会叠出更深的竖条，
-    /// 看着像"柱之间还有分隔"。现在把"想要多浅"直接做进颜色值，重叠也不变色。
-    /// </summary>
-    /// <summary>
-    /// 频谱柱的填充色：**与按钮/滑条同一个主题强调蓝**（用户要求统一观感）。
-    ///
-    /// ⚠ 必须完全不透明：带 alpha 时相邻柱那 1px 重叠会叠出更深的竖条。
-    /// </summary>
-    private Brush SpectrumBarBrush()
-        => LookupBrush("AccentBrush", Color.FromRgb(0x2F, 0x7D, 0xF6));
-
-    /// <summary>
     /// 建频谱柱：48 根矩形，**不再画底槽**。
     ///
     /// 用户问"竖块之间的分隔有什么含义"——没有含义：那是每根柱子下面各垫了一根浅灰底槽
@@ -774,7 +755,10 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
         for (var i = 0; i < bars.Length; i++)
         {
-            var bar = new Rectangle { Fill = SpectrumBarBrush() };
+            var bar = new Rectangle();
+            // 动态引用资源：这些柱子只在构造时建一次，用"取一次再赋值"的话，
+            // 用户切换深浅主题之后它们仍是旧主题的颜色（与 EQ 滑条同一类问题）。
+            bar.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "AccentBrush");
             // 关掉边缘混合：否则相邻柱子即使重叠也会在接缝处半透明，看着仍像有分隔
             RenderOptions.SetEdgeMode(bar, EdgeMode.Aliased);
             bars[i] = bar;
@@ -783,14 +767,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
         canvas.SizeChanged += (_, _) => LayoutSpectrumBars(canvas, bars);
         LayoutSpectrumBars(canvas, bars);
-    }
-
-    private Brush LookupBrush(string key, Color fallback)
-    {
-        if (TryFindResource(key) is Brush brush) return brush;
-        var solid = new SolidColorBrush(fallback);
-        solid.Freeze();
-        return solid;
     }
 
     /// <summary>
@@ -869,8 +845,10 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                 // 之前这里硬编码了 Consolas/Cascadia Mono，所以刻度看起来"没用 MiSans"——
                 // 不是字号太小导致的回退，是我显式指定的。等宽在这个尺度上收益也有限，
                 // 实测 MiSans 的数字自然宽 23px，比等宽的 30px 还窄，不会挤到相邻刻度。
-                Foreground = LookupBrush("SubtleTextBrush", Color.FromRgb(0x63, 0x6A, 0x76)),
             };
+            // 颜色动态引用资源：刻度只在窗口构造时建一次，取一次赋值的话，
+            // 切换深浅主题之后文字仍是旧主题的颜色（与 EQ 滑条同一类问题）。
+            label.SetResourceReference(TextBlock.ForegroundProperty, "SubtleTextBrush");
             label.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
             var w = label.DesiredSize.Width;
 
@@ -2641,9 +2619,8 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         var amplitude = middle - EqThumbHalf;   // 与 Thumb 的真实行程对齐
         var slot = width / EqPreset.BandCount;
 
-        var trackBrush = TryFindResource("TrackBrush") as Brush ?? Brushes.Gray;
-        var accent = TryFindResource("AccentBrush") as Brush ?? Brushes.DodgerBlue;
-
+        // 颜色一律用 SetResourceReference 动态引用（见下面每个图形的注释），
+        // 所以这里不再预先取画刷。
         var gains = EqPreset.Normalize(_config.Tone.Gains);
 
         for (var i = 0; i < EqPreset.BandCount; i++)
@@ -2658,9 +2635,13 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                 Height = height - EqThumbSize,
                 RadiusX = EqTrackWidth / 2,
                 RadiusY = EqTrackWidth / 2,
-                Fill = trackBrush,
                 SnapsToDevicePixels = true,
             };
+            // ⚠ 必须用 SetResourceReference（动态引用），不能"取一次画刷再赋值"：
+            // 取一次的话，切换深浅主题时**这个图形不会跟着变** ——
+            // 滑块在 XAML 模板里用 DynamicResource 会变、轨道却是旧主题的颜色，
+            // 表现就是"浅色模式下滑条还是深色的"（用户 2026-10-06 报的问题）。
+            track.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "TrackBrush");
             Canvas.SetLeft(track, x - EqTrackWidth / 2);
             Canvas.SetTop(track, EqThumbHalf);
             canvas.Children.Add(track);
@@ -2674,9 +2655,9 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                 Height = barHeight,
                 RadiusX = EqTrackWidth / 2,
                 RadiusY = EqTrackWidth / 2,
-                Fill = accent,
                 SnapsToDevicePixels = true,
             };
+            bar.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "AccentBrush");
             Canvas.SetLeft(bar, x - EqTrackWidth / 2);
             Canvas.SetTop(bar, Math.Min(middle, y));
             canvas.Children.Add(bar);
@@ -2703,12 +2684,15 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         // 上下各留 4px，保证 ±12 dB 的极值点不会被裁掉
         var amplitude = middle - 4;
 
-        var hairline = TryFindResource("HairlineBrush") as Brush ?? Brushes.Gray;
-        canvas.Children.Add(new System.Windows.Shapes.Line
+        // 与推子轨道同理：这里的图形都由代码创建，颜色**必须动态引用资源**。
+        // 取一次画刷再赋值的话，切换深浅主题后这些图形仍是旧主题的颜色。
+        var hairline = new System.Windows.Shapes.Line
         {
             X1 = 0, Y1 = middle, X2 = width, Y2 = middle,
-            Stroke = hairline, StrokeThickness = 1,
-        });
+            StrokeThickness = 1,
+        };
+        hairline.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "HairlineBrush");
+        canvas.Children.Add(hairline);
 
         var gains = EqPreset.Normalize(_config.Tone.Gains);
         var points = new PointCollection();
@@ -2719,29 +2703,31 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             points.Add(new Point(x, y));
         }
 
-        var accent = TryFindResource("AccentBrush") as Brush ?? Brushes.DodgerBlue;
-
         // 先铺一层半透明的粗线当"填充感"，再压一条实线：比单线更容易看出曲线走向
-        canvas.Children.Add(new System.Windows.Shapes.Polyline
+        var glow = new System.Windows.Shapes.Polyline
         {
             Points = points,
-            Stroke = accent,
             StrokeThickness = 6,
             Opacity = 0.18,
             StrokeLineJoin = PenLineJoin.Round,
-        });
-        canvas.Children.Add(new System.Windows.Shapes.Polyline
+        };
+        glow.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "AccentBrush");
+        canvas.Children.Add(glow);
+
+        var curve = new System.Windows.Shapes.Polyline
         {
             Points = points,
-            Stroke = accent,
             StrokeThickness = 2,
             StrokeLineJoin = PenLineJoin.Round,
-        });
+        };
+        curve.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "AccentBrush");
+        canvas.Children.Add(curve);
 
         // 每段一个小圆点，拖哪一段一眼能对上
         foreach (var point in points)
         {
-            var dot = new System.Windows.Shapes.Ellipse { Width = 5, Height = 5, Fill = accent };
+            var dot = new System.Windows.Shapes.Ellipse { Width = 5, Height = 5 };
+            dot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "AccentBrush");
             Canvas.SetLeft(dot, point.X - 2.5);
             Canvas.SetTop(dot, point.Y - 2.5);
             canvas.Children.Add(dot);
