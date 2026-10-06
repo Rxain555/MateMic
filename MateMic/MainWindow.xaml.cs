@@ -2552,7 +2552,11 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         ScheduleSave();
     }
 
-    /// <summary>重置：全部归零，并清掉预设选中态。</summary>
+    /// <summary>
+    /// 重置：全部归零，并清掉预设选中态。
+    /// **刻意不弹状态条提示**：重置的结果在界面上一眼就能看到（推子回中间、曲线变平），
+    /// 再弹一条黄字反而多余（用户 2026-10-06 要求取消）。
+    /// </summary>
     private void OnEqResetClick(object sender, RoutedEventArgs e)
     {
         _config.Tone.Style = null;
@@ -2563,8 +2567,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         RefreshEqVisuals();
         _engine.UpdateAllParameters();
         SaveConfig();
-
-        ShowStatus("均衡器已重置为平坦（各段 0 dB）。", false);
     }
 
     /// <summary>把配置里的增益写回推子。**必须屏蔽事件**，否则会与拖动互相触发。</summary>
@@ -2612,6 +2614,16 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         var height = canvas.ActualHeight;
         if (width <= 1 || height <= 1) return;
 
+        // 诊断（只在自检里打）：轨道画在这个 Canvas 上，滑块却由 EqBandGrid 布局。
+        // 两者宽度必须一致 —— 不一致时每个推子的横向偏移量各不相同，
+        // 表现就是"有几个滑块的圆点不在轨道的水平正中间"（用户 2026-10-06 报的问题）。
+        var gridWidth = EqBandGrid.ActualWidth;
+        if (IsSelfCheckMode && Math.Abs(gridWidth - width) > 0.01)
+        {
+            Log.Info($"[EQ 轨道] 画布宽 {width:0.##} ≠ 推子区宽 {gridWidth:0.##}"
+                     + " —— 轨道是按旧宽度画的，横向上会整体偏移");
+        }
+
         var middle = height / 2;
         var amplitude = middle - 6.5;          // 与 Thumb 的真实行程对齐
         var slot = width / EqPreset.BandCount;
@@ -2628,13 +2640,17 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
             var track = new System.Windows.Shapes.Rectangle
             {
-                Width = 5,
+                // 宽度取**偶数**、中心对齐到整点：奇数宽（原来 5）时左右边缘会落在半像素上，
+                // 抗锯齿把边缘糊开，看着就像"圆点没在轨道正中间"。
+                // 实测滑块与轨道的中心偏差本来就在 1 个物理像素以内，这一步是为了让边缘更锐利。
+                Width = 4,
                 Height = height - 13,
-                RadiusX = 2.5,
-                RadiusY = 2.5,
+                RadiusX = 2,
+                RadiusY = 2,
                 Fill = trackBrush,
+                SnapsToDevicePixels = true,
             };
-            Canvas.SetLeft(track, x - 2.5);
+            Canvas.SetLeft(track, x - 2);
             Canvas.SetTop(track, 6.5);
             canvas.Children.Add(track);
 
@@ -2643,13 +2659,14 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
             var bar = new System.Windows.Shapes.Rectangle
             {
-                Width = 5,
+                Width = 4,
                 Height = barHeight,
-                RadiusX = 2.5,
-                RadiusY = 2.5,
+                RadiusX = 2,
+                RadiusY = 2,
                 Fill = accent,
+                SnapsToDevicePixels = true,
             };
-            Canvas.SetLeft(bar, x - 2.5);
+            Canvas.SetLeft(bar, x - 2);
             Canvas.SetTop(bar, Math.Min(middle, y));
             canvas.Children.Add(bar);
         }

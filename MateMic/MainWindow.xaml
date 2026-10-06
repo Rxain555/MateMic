@@ -526,7 +526,7 @@
                                       · 10 段推子与频率标签由 BuildEqBands() 在代码里生成 ——
                                         手写 80 行 XAML 不值当，而且代码要按索引持有它们。
                                     -->
-                                    <StackPanel x:Name="PanelTone" Visibility="Collapsed" Margin="0,6,0,0">
+                                    <StackPanel x:Name="PanelTone" Visibility="Collapsed" Margin="0,10,0,0">
                                         <!-- 实时响应曲线：拖推子时当场跟着变（10 点折线，x 与推子中心对齐） -->
                                         <Border CornerRadius="6" ClipToBounds="True"
                                                 Background="{DynamicResource HeaderSurfaceBrush}"
@@ -545,7 +545,16 @@
                                           高度固定 84，与 EqBandSlider 一致，两层的坐标才对得上。
                                         -->
                                         <Grid Margin="0,9,0,0" Height="84">
-                                            <Canvas x:Name="EqBarCanvas" ClipToBounds="True" IsHitTestVisible="False" />
+                                            <!--
+                                              ⚠ EqBarCanvas 必须挂 SizeChanged 重画：
+                                              轨道是按 ActualWidth 算出每个推子的横向位置画上去的，
+                                              而面板展开、窗口缩放、滚动条出现这些都会改变宽度。
+                                              只在展开/拖推子时画一次的话，尺寸一变轨道就还停在按旧宽度
+                                              算出来的位置上 —— 每个推子的偏移量还不一样，
+                                              看起来就是"有几个滑块的圆点不在轨道正中"。
+                                            -->
+                                            <Canvas x:Name="EqBarCanvas" ClipToBounds="True" IsHitTestVisible="False"
+                                                    SizeChanged="OnEqCurveSizeChanged" />
                                             <UniformGrid x:Name="EqBandGrid" Columns="10" Background="Transparent" />
                                         </Grid>
                                         <UniformGrid x:Name="EqLabelGrid" Columns="10" Margin="0,3,0,0" />
