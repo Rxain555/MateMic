@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using MateMic.Core;
 
 namespace MateMic.Ui;
 
@@ -31,11 +32,22 @@ public sealed class DialogHost : Window
     private static uint ButtonBorderColor => Pick("ControlBorderBrush", 0x18000000);
     private static uint ButtonHoverColor => Pick("ControlHoverBrush", 0xFFE2E6EC);
     private static uint ButtonPressedColor => Pick("ControlPressedBrush", 0xFFD4DAE3);
+    private static uint SubtleColor => Pick("SubtleTextBrush", 0xFF636A76);
 
     private readonly Button _primary;
     private bool _accepted;
 
-    private DialogHost(string title, string message, string? secondaryText, string primaryText)
+    // ---- 分页（使用指南）----
+    /// <summary>分页内容；为空表示这是普通的一次性对话框。</summary>
+    private readonly IReadOnlyList<GuideCatalog.Page> _pages = Array.Empty<GuideCatalog.Page>();
+    private TextBlock? _bodyBlock;
+    private TextBlock? _pageLabel;
+    private Button? _prevButton;
+    private Button? _nextButton;
+    private int _pageIndex;
+
+    private DialogHost(string title, string message, string? secondaryText, string primaryText,
+                       IReadOnlyList<GuideCatalog.Page>? pages = null)
     {
         WindowStyle = WindowStyle.None;
         ResizeMode = ResizeMode.NoResize;
@@ -50,32 +62,86 @@ public sealed class DialogHost : Window
         AllowsTransparency = true;
         Background = Brushes.Transparent;
 
+        _pages = pages ?? Array.Empty<GuideCatalog.Page>();
+        var paged = _pages.Count > 0;
+
         var titleBar = BuildTitleBar(title);
+
+        // 正文用可更新的 TextBlock（分页时要换内容），并套一层滚动：
+        // 单页可能写得比较长，没有滚动条窗口会一路撑高、甚至超出屏幕。
+        _bodyBlock = new TextBlock
+        {
+            Text = paged ? _pages[0].Body : message,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = Brush(TextColor),
+            FontSize = 12,
+            LineHeight = 19,
+            // 长文案限制最大宽度，避免窗口拉成一整条
+            MaxWidth = 520,
+        };
+
+        var body = new ScrollViewer
+        {
+            Content = _bodyBlock,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            MaxHeight = 380,
+        };
+
+        var messagePanel = new StackPanel
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(16, 14, 16, 0),
+        };
+        messagePanel.Children.Add(body);
 
         var buttons = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right,
-            Margin = new Thickness(16, 16, 16, 14),
         };
 
-        if (secondaryText != null)
+        if (paged)
+        {
+            // 分页模式下不再需要"取消/确定"，换成翻页 + 关闭
+            _prevButton = MakeButton("上一页", primary: false);
+            _prevButton.Click += (_, _) => GoToPage(_pageIndex - 1);
+            _nextButton = MakeButton("下一页", primary: false);
+            _nextButton.Click += (_, _) => GoToPage(_pageIndex + 1);
+            buttons.Children.Add(_prevButton);
+            buttons.Children.Add(_nextButton);
+        }
+        else if (secondaryText != null)
         {
             var secondary = MakeButton(secondaryText, primary: false);
             secondary.Click += (_, _) => { _accepted = false; Close(); };
             buttons.Children.Add(secondary);
         }
 
-        _primary = MakeButton(primaryText, primary: true);
+        _primary = MakeButton(paged ? "关闭" : primaryText, primary: true);
         _primary.Click += (_, _) => { _accepted = true; Close(); };
         buttons.Children.Add(_primary);
 
+        _pageLabel = new TextBlock
+        {
+            Foreground = Brush(SubtleColor),
+            FontSize = 12,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
+        // 底部一行：左边页码、右边按钮（页码为空时自然贴左，不影响普通对话框的观感）
+        var footer = new DockPanel { LastChildFill = false, Margin = new Thickness(16, 16, 16, 14) };
+        DockPanel.SetDock(_pageLabel, Dock.Left);
+        footer.Children.Add(_pageLabel);
+        DockPanel.SetDock(buttons, Dock.Right);
+        footer.Children.Add(buttons);
+
         var layout = new DockPanel { LastChildFill = true };
         DockPanel.SetDock(titleBar, Dock.Top);
-        DockPanel.SetDock(buttons, Dock.Bottom);
+        DockPanel.SetDock(footer, Dock.Bottom);
         layout.Children.Add(titleBar);
-        layout.Children.Add(buttons);
-        layout.Children.Add(BuildMessage(message));
+        layout.Children.Add(footer);
+        layout.Children.Add(messagePanel);
 
         // 1px 描边：WindowStyle=None 的窗口没有系统边框，靠它勾出可见的边缘
         Content = new Border
@@ -88,8 +154,43 @@ public sealed class DialogHost : Window
             Child = layout,
         };
 
-        PreviewKeyDown += OnPreviewKeyDown;
+        if (paged) UpdatePage();
 
+        PreviewKeyDown += OnPreviewKeyDown;
+    }
+
+    /// <summary>切到指定页；越界忽略（按钮在首/末页会禁用，但键盘也能触发，所以这里仍要判）。</summary>
+    private void GoToPage(int index)
+    {
+        if (_pages.Count == 0) return;
+        if (index < 0 || index >= _pages.Count) return;
+
+        _pageIndex = index;
+        UpdatePage();
+    }
+
+    private void UpdatePage()
+    {
+        if (_pages.Count == 0 || _bodyBlock == null) return;
+
+        var page = _pages[_pageIndex];
+        _bodyBlock.Text = page.Body;
+
+        if (_pageLabel != null)
+            _pageLabel.Text = $"第 {_pageIndex + 1} / {_pages.Count} 页 · {page.Title}";
+
+        // 按钮模板没有 disabled 态，用透明度表达"到头了"
+        if (_prevButton != null)
+        {
+            _prevButton.IsEnabled = _pageIndex > 0;
+            _prevButton.Opacity = _pageIndex > 0 ? 1 : 0.45;
+        }
+
+        if (_nextButton != null)
+        {
+            _nextButton.IsEnabled = _pageIndex < _pages.Count - 1;
+            _nextButton.Opacity = _pageIndex < _pages.Count - 1 ? 1 : 0.45;
+        }
     }
 
     /// <summary>
@@ -154,6 +255,52 @@ public sealed class DialogHost : Window
     /// <summary>是否框：主按钮是「是」。</summary>
     public static bool YesNo(Window? owner, string title, string message)
         => Show(owner, title, message, "否", "是");
+
+    /// <summary>
+    /// 分页显示使用指南。页数与每页内容都由数据目录的「使用指南.txt」决定（作者自己增删）。
+    /// 单页过长时正文区会自动出现滚动条；左右方向键也能翻页。
+    /// </summary>
+    public static void ShowGuide(Window? owner, string title, IReadOnlyList<GuideCatalog.Page> pages)
+    {
+        try
+        {
+            if (pages.Count == 0)
+            {
+                Info(owner, title, "（使用指南暂时是空的：可以编辑数据目录下的「使用指南.txt」来写内容）");
+                return;
+            }
+
+            ShowGuideCore(owner, title, pages);
+        }
+        catch (Exception ex)
+        {
+            // 与 Info/Warn 同样的理由：这个对话框可能在异常处理路径上被调用，
+            // 自己再抛异常会把程序拖进"异常套异常"，最坏情况就是弹不出来。
+            Core.Log.Error("使用指南显示失败", ex);
+        }
+    }
+
+    private static void ShowGuideCore(Window? owner, string title, IReadOnlyList<GuideCatalog.Page> pages)
+    {
+        var dialog = new DialogHost(title, string.Empty, null, "关闭", pages);
+
+        var target = ResolveOwner(owner, dialog);
+        if (target != null)
+        {
+            try
+            {
+                dialog.Owner = target;
+            }
+            catch (InvalidOperationException)
+            {
+                target = null;
+            }
+        }
+
+        if (target == null) dialog.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+
+        dialog.ShowDialog();
+    }
 
     private static bool Show(Window? owner, string title, string message, string? secondaryText, string primaryText)
     {
@@ -220,6 +367,16 @@ public sealed class DialogHost : Window
             e.Handled = true;
             _primary.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         }
+        else if (_pages.Count > 0 && e.Key == Key.Left)
+        {
+            e.Handled = true;
+            GoToPage(_pageIndex - 1);
+        }
+        else if (_pages.Count > 0 && e.Key == Key.Right)
+        {
+            e.Handled = true;
+            GoToPage(_pageIndex + 1);
+        }
     }
 
     private Border BuildTitleBar(string title)
@@ -255,27 +412,6 @@ public sealed class DialogHost : Window
         };
         return bar;
     }
-
-    /// <summary>正文左右留白必须对称（16,14,16,0），这是用户明确反馈的问题点。</summary>
-    private static StackPanel BuildMessage(string message)
-        => new()
-        {
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            Margin = new Thickness(16, 14, 16, 0),
-            Children =
-            {
-                new TextBlock
-                {
-                    Text = message,
-                    TextWrapping = TextWrapping.Wrap,
-                    Foreground = Brush(TextColor),
-                    FontSize = 12,
-                    LineHeight = 19,
-                    // 风险说明这类长文案限制最大宽度，避免窗口拉成一整条
-                    MaxWidth = 520,
-                },
-            },
-        };
 
     private static Button MakeButton(string text, bool primary)
         => new()

@@ -115,6 +115,9 @@ public static class ThemeManager
         ["ChipBrush"] = "#E9ECF0",
         ["ChipSelectedBrush"] = "#2F7DF6",
         ["PrimaryDisabledBrush"] = "#4D9AA3B2",
+        // 播放列表行的"鼠标悬浮"高亮：中性淡色，与「当前播放项」的强调色底、
+        // 「播放进度」的强调色条三者可区分（三者会同时叠在同一行上）
+        ["RowHoverBrush"] = "#0F000000",
 
         // 边框
         ["CardBorderBrush"] = "#16000000",
@@ -201,6 +204,7 @@ public static class ThemeManager
         ["ChipBrush"] = "#FF2C3138",
         ["ChipSelectedBrush"] = "#4C93F5",
         ["PrimaryDisabledBrush"] = "#4D6C737E",
+        ["RowHoverBrush"] = "#14FFFFFF",
 
         // 边框：深色下改用"极淡的白"收边，而不是黑
         ["CardBorderBrush"] = "#14FFFFFF",

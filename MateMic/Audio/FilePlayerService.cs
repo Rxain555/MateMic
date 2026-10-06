@@ -62,6 +62,31 @@ public sealed class FilePlayerService : IDisposable
     /// <summary>正在播放的文件路径（null 表示空闲）。</summary>
     public volatile string? CurrentPath;
 
+    /// <summary>当前文件总时长、已解码送出的时长（毫秒）。跨线程读写，因此用 Volatile 访问。</summary>
+    private long _totalMs;
+    private long _sentMs;
+
+    /// <summary>
+    /// 当前播放进度 0–1（未在播放时为 0），供播放列表的行背景画进度条。
+    ///
+    /// 注意**不能直接用"已解码送出的时长"**：解码跑在播放前面，环形缓冲里通常还压着
+    /// 几百毫秒（见 WorkerLoop 里的背压与 WaitForBufferDrain 的说明），
+    /// 直接用会看到进度条跑在声音前面。减去缓冲里还没播出去的部分才是真正听到的位置。
+    /// </summary>
+    public double Progress
+    {
+        get
+        {
+            if (CurrentPath == null) return 0;
+
+            var total = Volatile.Read(ref _totalMs);
+            if (total <= 0) return 0;
+
+            var played = Volatile.Read(ref _sentMs) - _buffer.BufferedDuration.TotalMilliseconds;
+            return Math.Clamp(played / total, 0, 1);
+        }
+    }
+
     /// <summary>播放状态变化（开始/结束/停止/打断），用于 UI 刷新与「同步按住键」。</summary>
     public event EventHandler<PlaybackState>? StateChanged;
 
@@ -226,6 +251,8 @@ public sealed class FilePlayerService : IDisposable
         CurrentPath = path;
         _buffer.Clear();
         _buffer.AddSamples(_preRoll);   // 起播预卷：见 PreRollMilliseconds
+        Volatile.Write(ref _totalMs, (long)reader.TotalTime.TotalMilliseconds);
+        Volatile.Write(ref _sentMs, 0);
         RaiseStateChanged(PlaybackState.Started);
         Log.Info("开始播放：" + Path.GetFileName(path));
 
@@ -244,6 +271,8 @@ public sealed class FilePlayerService : IDisposable
 
             _buffer.AddSamples(samples);
             decodedSamples += read;
+            // 进度用"已送出的样本数"算，与采样率无关地落在同一时间轴上
+            Volatile.Write(ref _sentMs, decodedSamples * 1000L / AudioEngine.SampleRate);
 
             // 背压：缓冲接近上限时等待播放侧消费，避免内存无界增长
             var waited = 0;

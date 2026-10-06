@@ -56,10 +56,9 @@ public partial class App : Application
         Log.Info("MateMic 启动");
         Log.Info("数据目录：" + ConfigStore.Root);
 
-        // 界面文案（悬浮说明 + 使用指南 / 关于 / 风险说明…）集中在数据目录的「文案.txt」里。
-        // **必须在构造主窗口之前加载**：窗口构造期就会从应用资源里取文案，
-        // 而 XAML 用的是 DynamicResource，晚一点加载虽然也能更新，但首帧会闪一下空提示。
-        TextCatalog.Load();
+        // 使用指南（「使用指南」按钮弹出的分页内容）放在数据目录的「使用指南.txt」里，
+        // 作者可以自己增删页。**必须在构造主窗口之前加载**。
+        GuideCatalog.Load();
 
         // 改名迁移：把旧版（MicMate）留下的开机自启项改写成新 exe 与新名字，
         // 否则开机时系统还会去启动那个已经不存在的旧 exe。

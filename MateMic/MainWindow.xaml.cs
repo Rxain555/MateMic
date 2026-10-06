@@ -1139,7 +1139,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         if (!IsSelfCheckMode) return;
         try
         {
-            LogTipCoverage();
             LogLayoutGeometryCore();
         }
         catch (Exception ex)
@@ -1148,24 +1147,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             // 显式兜住并打印，避免再次误判成"测量没生效"。
             Log.Info($"[布局测量] 测量过程异常：{ex.GetType().Name}: {ex.Message}");
         }
-    }
-
-    /// <summary>
-    /// 悬浮说明自检：统计"接了文案的控件里有多少当前没有提示"。
-    ///
-    /// 对应「文案留空 = 不显示这条说明」这条语义（见 <see cref="Tip"/>）。
-    /// 启动日志里已经会打印"另有 N 条留空"，这里核对的是**控件侧**的落地结果：
-    /// 留空之后控件上确实没有 ToolTip，而不是留着一个空的提示框。
-    /// </summary>
-    private void LogTipCoverage()
-    {
-        var withKey = Descendants(this).OfType<FrameworkElement>()
-            .Where(e => Tip.GetKey(e) != null)
-            .ToList();
-        var blank = withKey.Count(e => e.ToolTip == null);
-
-        Log.Info($"[悬浮说明自检] 共 {withKey.Count} 个控件接了文案，"
-                 + $"其中 {blank} 个当前无提示（文案留空）");
     }
 
     private void LogLayoutGeometryCore()
@@ -1328,6 +1309,27 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         UpdateSpectrumBars(OutputSpectrumCanvas, _outputBars, _engine.OutputSpectrum, _outputBands);
 
         UpdateLevelMeter();
+        UpdateTrackProgress();
+    }
+
+    /// <summary>
+    /// 把播放进度写进列表项（行的背景条按它填充）。
+    /// 顺带把"当前项"的标记一起维护，两者本来就是同一件事的两面。
+    /// </summary>
+    private void UpdateTrackProgress()
+    {
+        if (_tracks.Count == 0) return;
+
+        var playing = _player.CurrentPath;
+        var percent = _player.Progress * 100;
+
+        foreach (var track in _tracks)
+        {
+            var isCurrent = playing != null
+                            && string.Equals(track.FilePath, playing, StringComparison.OrdinalIgnoreCase);
+            track.IsCurrent = isCurrent;
+            track.ProgressPercent = isCurrent ? percent : 0;
+        }
     }
 
     /// <summary>峰值保持指针的当前 dB（会缓慢回落）。</summary>
@@ -2507,8 +2509,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                 Value = 0,
                 Tag = i,                     // 事件里据此知道是哪一段
             };
-            // 10 段推子共用一条说明（具体是哪个频段看下方的频率标签）
-            Tip.SetKey(slider, "Eq.Band");
             slider.ValueChanged += OnEqBandChanged;
 
             var label = new TextBlock
@@ -2875,26 +2875,33 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     }
 
     /// <summary>
-    /// 使用指南：把"三个设备到底该选什么"和基本操作讲清楚。
-    /// 这是新人最容易卡住的地方——输入/输出/监听三栏在没有 MIXLINE 概念之前完全无从下手。
+    /// 使用指南：分页显示数据目录里「使用指南.txt」的内容（作者自己写、可任意增删页）。
+    /// 页数为 0 时 GuideCatalog 会退回内置默认内容，所以这里不必再判空。
     /// </summary>
-
     private void OnUsageGuideClick(object sender, RoutedEventArgs e)
-        => DialogHost.Info(this, TextCatalog.Get("Dialog.UsageGuide.Title"), TextCatalog.Get("Guide.Usage"));
+        => DialogHost.ShowGuide(this, "MateMic 使用指南", GuideCatalog.Pages);
 
     /// <summary>
     /// 关于：把"必须声明的东西"集中在一处 —— 界面字体（MiSans 的授权要求）、
     /// 内置降噪模型、用户自备模型的许可归属、第三方组件。版本号与工具栏显示同一个来源。
-    /// 正文在「文案.txt」的 [About] 段里，{版本} 由这里替换。
+    ///
+    /// ⚠ 这段是**功能性对话框**（许可与署名），不是"使用说明"，所以仍留在代码里；
+    /// 使用说明已全部搬进「使用指南.txt」。
     /// </summary>
     private void OnAboutClick(object sender, RoutedEventArgs e)
-        => DialogHost.Info(this, TextCatalog.Get("Dialog.About.Title"), AboutText());
+        => DialogHost.Info(this, "关于 MateMic", AboutText());
 
     private static string AboutText()
     {
         var version = typeof(MainWindow).Assembly.GetName().Version;
         var text = version == null ? "v?" : "v" + version.ToString(3);
-        return TextCatalog.Get("About").Replace("{版本}", text);
+
+        return
+            $"MateMic {text}   ·   MIT 许可\n" +
+            "https://github.com/Rxain555/MateMic\n\n" +
+            "界面字体 MiSans（小米，免费商用）。\n" +
+            "内置 3 个 ONNX 降噪模型；自备模型的许可由模型提供方决定。\n" +
+            "第三方组件：NAudio / NWaves / ONNX Runtime（均 MIT）。";
     }
 
     // =============================================================== 播放器
@@ -3069,26 +3076,45 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
     private void OnHoldKeyRiskClick(object sender, RoutedEventArgs e) => ShowHoldKeyRisk(false);
 
-    /// <summary>开启前的确认框；返回 true 表示用户接受风险。正文在「文案.txt」。</summary>
+    /// <summary>
+    /// 「同步按住键」的风险说明。
+    ///
+    /// ⚠ 这是**功能性提示**（开启前的风险确认），不是"使用说明"，所以留在代码里：
+    /// 它必须跟着功能走，不该被外部文件改掉之后失去效力。
+    /// 使用说明那些内容已经全部搬进「使用指南.txt」。
+    /// </summary>
+    private const string HoldKeyRiskTitle = "同步按住键 · 风险说明";
+
+    private const string HoldKeyRiskText =
+        """
+        「同步按住键」会用 Win32 SendInput 向系统注入按键事件（按下 / 松开）：
+        播放某个音频文件之前自动按下你指定的按键，播放结束后自动松开。
+        典型用法：把该键设成游戏或语音软件里「按键说话」的那个键，
+        这样按快捷键播放语音包时就不必再手动按住说话键。
+
+        关于反作弊：
+        · SendInput 注入的事件带有 LLKHF_INJECTED 标记，属于「软件模拟输入」。
+        · 内核级反作弊（Riot Vanguard、Easy Anti-Cheat、BattlEye、FACEIT 等）有能力识别这类事件；
+          是否判定为违规由厂商的策略决定，【这个风险无法排除】。
+        · 本功能只发送你自己录入的那一个按键，不连发、不循环、不读写任何其它进程、不注入代码。
+        · 如果游戏对模拟输入查得很严，请不要使用本功能；
+          可改用硬件级方案（键盘宏 / 脚踏开关 / 手柄映射）达到同样的效果。
+
+        因此该功能默认关闭，需要你自己开启。
+        """;
+
+    /// <summary>开启前的确认框；返回 true 表示用户接受风险。</summary>
     private bool ConfirmHoldKeyRisk()
-    {
-        return DialogHost.Confirm(this,
-            TextCatalog.Get("Dialog.HoldKeyRisk.Title"),
-            TextCatalog.Get("Risk.HoldKey") + "\n\n" + TextCatalog.Get("Risk.HoldKey.Confirm"));
-    }
+        => DialogHost.Confirm(this, HoldKeyRiskTitle, HoldKeyRiskText + "\n\n是否启用「同步按住键」？");
 
     private void ShowHoldKeyRisk(bool warning)
     {
         // warning 为真表示"刚被启用"，此时配置未必已落盘，所以直接按已启用来显示
-        var state = warning || _config.Player.EnableHoldKey
-            ? TextCatalog.Get("Risk.HoldKey.StateOn")
-            : TextCatalog.Get("Risk.HoldKey.StateOff");
+        var state = warning || _config.Player.EnableHoldKey ? "当前开关：已启用。" : "当前开关：未启用。";
+        var text = HoldKeyRiskText + "\n\n" + state;
 
-        var title = TextCatalog.Get("Dialog.HoldKeyRisk.Title");
-        var text = TextCatalog.Get("Risk.HoldKey") + "\n\n" + state;
-
-        if (warning) DialogHost.Warn(this, title, text);
-        else DialogHost.Info(this, title, text);
+        if (warning) DialogHost.Warn(this, HoldKeyRiskTitle, text);
+        else DialogHost.Info(this, HoldKeyRiskTitle, text);
     }
 
     private (bool Ok, string? Error) RegisterTrackHotkey(TrackViewModel track, string gesture)
@@ -3362,8 +3388,12 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
     private void OnStatusActionClick(object sender, RoutedEventArgs e) => _statusAction?.Invoke();
 
+    /// <summary>
+    /// MIXLINE 接法：内容就是使用指南里的「MIXLINE 接法」那一页，
+    /// 所以直接打开使用指南，不再单独维护一份重复的文案。
+    /// </summary>
     private void ShowMixLineGuide()
-        => DialogHost.Info(this, TextCatalog.Get("Dialog.Mixline.Title"), TextCatalog.Get("Guide.Mixline"));
+        => DialogHost.ShowGuide(this, "MateMic 使用指南", GuideCatalog.Pages);
 
     /// <summary>
     /// 关闭主窗口。打开「关闭到托盘」时收进托盘（托盘双击恢复），否则真正退出。

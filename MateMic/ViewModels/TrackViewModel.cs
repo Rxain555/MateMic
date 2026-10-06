@@ -60,14 +60,13 @@ public sealed class TrackViewModel : INotifyPropertyChanged
             OnPropertyChanged();
             OnPropertyChanged(nameof(HotkeyText));
             OnPropertyChanged(nameof(IsHotkeySet));
-            OnPropertyChanged(nameof(HotkeyButtonTooltip));
             OnPropertyChanged(nameof(HotkeyButtonWidth));
         }
     }
 
     public string HotkeyText => _isRecordingHotkey
-        ? TextCatalog.Get("Track.Hotkey.Recording")
-        : string.IsNullOrWhiteSpace(_hotkey) ? TextCatalog.Get("Track.Hotkey.Placeholder") : _hotkey;
+        ? "请按键…"
+        : string.IsNullOrWhiteSpace(_hotkey) ? "设快捷键" : _hotkey;
 
     /// <summary>
     /// 该条目正在录入**播放快捷键**。录入提示只显示在"被点的那一个控件"上，
@@ -123,22 +122,6 @@ public sealed class TrackViewModel : INotifyPropertyChanged
             Math.Ceiling(formatted.WidthIncludingTrailingWhitespace) + ButtonChromeWidth + WidthSafetyMargin);
     }
 
-    /// <summary>
-    /// 快捷键控件的悬浮提示：说明怎么操作，并重复一遍当前键位（万一按钮里被截断）。
-    /// 文案留空时返回 <c>null</c> —— 与 <see cref="MateMic.Ui.Tip"/> 一致：
-    /// "空"表示作者关掉了这条说明，此时不显示提示框（而不是弹一个空框）。
-    /// </summary>
-    public string? HotkeyButtonTooltip
-    {
-        get
-        {
-            var text = string.IsNullOrWhiteSpace(_hotkey)
-                ? TextCatalog.Get("Track.Hotkey.Empty")
-                : TextCatalog.Get("Track.Hotkey.Set").Replace("{键}", _hotkey);
-            return string.IsNullOrWhiteSpace(text) ? null : text;
-        }
-    }
-
     /// <summary>播放前自动按下、播放结束后松开的按键（空 = 不使用）。</summary>
     public string HoldKey
     {
@@ -166,7 +149,6 @@ public sealed class TrackViewModel : INotifyPropertyChanged
             OnPropertyChanged();
             OnPropertyChanged(nameof(HoldKeyEnabled));   // 少了这一条，「设同步键」按钮会一直停在灰的
             OnPropertyChanged(nameof(HoldKeyText));
-            OnPropertyChanged(nameof(HoldKeyTooltip));
             OnPropertyChanged(nameof(IsHoldKeySet));
             OnPropertyChanged(nameof(HoldKeyButtonWidth));
         }
@@ -181,9 +163,8 @@ public sealed class TrackViewModel : INotifyPropertyChanged
     {
         get
         {
-            if (_isRecordingHoldKey) return TextCatalog.Get("Track.Hotkey.Recording");
-            if (string.Equals(_holdKey, string.Empty, StringComparison.Ordinal))
-                return TextCatalog.Get("Track.HoldKey.Placeholder");
+            if (_isRecordingHoldKey) return "请按键…";
+            if (string.Equals(_holdKey, string.Empty, StringComparison.Ordinal)) return "设同步键";
             return _holdKey;
         }
     }
@@ -193,20 +174,26 @@ public sealed class TrackViewModel : INotifyPropertyChanged
     /// <summary>和快捷键控件一样：宽度按实测文字给（单个按键名最长的是「小键盘 *」）。</summary>
     public double HoldKeyButtonWidth => MeasureButtonWidth(HoldKeyText);
 
-    /// <summary>同步按住键控件的悬浮提示；文案留空时返回 <c>null</c>（不显示），理由同上。</summary>
-    public string? HoldKeyTooltip
-    {
-        get
-        {
-            var text = string.IsNullOrEmpty(_holdKey)
-                ? TextCatalog.Get("Track.HoldKey.Empty")
-                : TextCatalog.Get("Track.HoldKey.Set").Replace("{键}", _holdKey);
-            return string.IsNullOrWhiteSpace(text) ? null : text;
-        }
-    }
-
     /// <summary>是否已设好同步按键（未设或总开关关着时显示成灰字占位符）。</summary>
     public bool IsHoldKeySet => _holdKeyFeatureEnabled && !string.IsNullOrWhiteSpace(_holdKey);
+
+    private double _progressPercent;
+
+    /// <summary>
+    /// 播放进度 0–100，行的背景条按它从左往右填充。
+    /// 只有正在播放的那一条会被赋非零值；刷新频率是界面定时器的 33 ms，
+    /// 所以变化极小的时候不通知，免得每帧都白跑一轮绑定。
+    /// </summary>
+    public double ProgressPercent
+    {
+        get => _progressPercent;
+        set
+        {
+            if (Math.Abs(_progressPercent - value) < 0.1) return;
+            _progressPercent = value;
+            OnPropertyChanged();
+        }
+    }
 
     private bool _isCurrent;
 

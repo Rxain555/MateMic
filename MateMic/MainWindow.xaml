@@ -73,9 +73,9 @@
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal">
                     <Button x:Name="CaptionMinimizeButton" Style="{StaticResource CaptionButton}"
-                            Click="OnCaptionMinimizeClick" ui:Tip.Key="Caption.Minimize" Content="min" />
+                            Click="OnCaptionMinimizeClick" Content="min" />
                     <Button x:Name="CaptionCloseButton" Style="{StaticResource CaptionCloseButton}"
-                            Click="OnCaptionCloseClick" ui:Tip.Key="Caption.Close" Content="close" />
+                            Click="OnCaptionCloseClick" Content="close" />
                 </StackPanel>
             </Grid>
         </Border>
@@ -102,32 +102,27 @@
                     <WrapPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock Style="{StaticResource LabelText}" Text="音频处理" Margin="0,0,5,0" />
                     <CheckBox x:Name="ToggleProcessing" Style="{StaticResource Switch}" Margin="0,0,12,0"
-                              Checked="OnProcessingToggled" Unchecked="OnProcessingToggled"
-                              ui:Tip.Key="Toolbar.Processing" />
+                              Checked="OnProcessingToggled" Unchecked="OnProcessingToggled" />
 
                     <TextBlock Style="{StaticResource LabelText}" Text="全局快捷键" Margin="0,0,5,0" />
                     <Button x:Name="HotkeyButton" Style="{StaticResource ToolbarButton}"
                             Width="118" Margin="0,0,12,0" Click="OnGlobalHotkeyClick"
-                            Content="点击输入快捷键"
-                            ui:Tip.Key="Toolbar.Hotkey" />
+                            Content="点击输入快捷键" />
 
                     <TextBlock Style="{StaticResource LabelText}" Text="监听" Margin="0,0,5,0" />
                     <CheckBox x:Name="ToggleMonitor" Style="{StaticResource Switch}" Margin="0,0,12,0"
-                              Checked="OnMonitorToggled" Unchecked="OnMonitorToggled"
-                              ui:Tip.Key="Toolbar.Monitor" />
+                              Checked="OnMonitorToggled" Unchecked="OnMonitorToggled" />
 
                     <TextBlock Style="{StaticResource LabelText}" Text="开机自启" Margin="0,0,5,0" />
                     <CheckBox x:Name="ToggleAutoStart" Style="{StaticResource Switch}" Margin="0,0,12,0"
-                              Checked="OnAutoStartToggled" Unchecked="OnAutoStartToggled"  ui:Tip.Key="Toolbar.AutoStart"/>
+                              Checked="OnAutoStartToggled" Unchecked="OnAutoStartToggled"/>
 
                     <TextBlock Style="{StaticResource LabelText}" Text="关闭到托盘" Margin="0,0,5,0" />
                     <CheckBox x:Name="ToggleCloseTray" Style="{StaticResource Switch}" Margin="0,0,12,0"
-                              Checked="OnTrayToggled" Unchecked="OnTrayToggled"
-                              ui:Tip.Key="Toolbar.CloseToTray" />
+                              Checked="OnTrayToggled" Unchecked="OnTrayToggled" />
                     <TextBlock Style="{StaticResource LabelText}" Text="深色模式" Margin="0,0,5,0" />
                     <CheckBox x:Name="ToggleDarkMode" Style="{StaticResource Switch}"
-                              Checked="OnDarkModeToggled" Unchecked="OnDarkModeToggled"
-                              ui:Tip.Key="Toolbar.DarkMode" />
+                              Checked="OnDarkModeToggled" Unchecked="OnDarkModeToggled" />
 
                     </WrapPanel>
 
@@ -139,8 +134,7 @@
                         -->
                         <Button x:Name="UsageGuideButton" Style="{StaticResource ToolbarButton}"
                                 Content="使用指南" Padding="8,3,8,3" Margin="0,0,6,0"
-                                Click="OnUsageGuideClick"
-                                ui:Tip.Key="Toolbar.Guide" />
+                                Click="OnUsageGuideClick" />
                         <!--
                           关于：字体 / 降噪模型 / 第三方组件的署名与许可集中放这里。
                           一是 MiSans 的授权要求"应在软件中特别注明"，
@@ -148,8 +142,7 @@
                         -->
                         <Button x:Name="AboutButton" Style="{StaticResource ToolbarButton}"
                                 Content="关于" Padding="8,3,8,3" Margin="0,0,6,0"
-                                Click="OnAboutClick"
-                                ui:Tip.Key="Toolbar.About" />
+                                Click="OnAboutClick" />
                         <TextBlock x:Name="VersionText" Style="{StaticResource LabelText}"
                                    Text="v0.1.0" VerticalAlignment="Center" />
                     </StackPanel>
@@ -173,17 +166,17 @@
                     <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="输入" Margin="0,0,4,0" />
                     <ComboBox x:Name="InputDeviceCombo" Grid.Column="1" Style="{StaticResource DeviceCombo}"
                               ItemContainerStyle="{StaticResource FlatComboItem}"
-                              DropDownOpened="OnDeviceDropDownOpened" SelectionChanged="OnDeviceSelectionChanged"  ui:Tip.Key="Device.Input"/>
+                              DropDownOpened="OnDeviceDropDownOpened" SelectionChanged="OnDeviceSelectionChanged"/>
 
                     <TextBlock Grid.Column="3" Style="{StaticResource LabelText}" Text="输出" Margin="0,0,4,0" />
                     <ComboBox x:Name="OutputDeviceCombo" Grid.Column="4" Style="{StaticResource DeviceCombo}"
                               ItemContainerStyle="{StaticResource FlatComboItem}"
-                              DropDownOpened="OnDeviceDropDownOpened" SelectionChanged="OnDeviceSelectionChanged"  ui:Tip.Key="Device.Output"/>
+                              DropDownOpened="OnDeviceDropDownOpened" SelectionChanged="OnDeviceSelectionChanged"/>
 
                     <TextBlock Grid.Column="6" Style="{StaticResource LabelText}" Text="监听" Margin="0,0,4,0" />
                     <ComboBox x:Name="MonitorDeviceCombo" Grid.Column="7" Style="{StaticResource DeviceCombo}"
                               ItemContainerStyle="{StaticResource FlatComboItem}"
-                              DropDownOpened="OnDeviceDropDownOpened" SelectionChanged="OnDeviceSelectionChanged"  ui:Tip.Key="Device.Monitor"/>
+                              DropDownOpened="OnDeviceDropDownOpened" SelectionChanged="OnDeviceSelectionChanged"/>
                 </Grid>
             </StackPanel>
         </Border>
@@ -230,7 +223,7 @@
                                         <TextBlock Grid.Column="0" Style="{StaticResource SectionTitle}" Text="噪声门" />
                                         <CheckBox x:Name="ToggleGate" Grid.Column="1" Style="{StaticResource Switch}"
                                                   Margin="0,0,8,0" Checked="OnEffectToggled"
-                                                  Unchecked="OnEffectToggled"  ui:Tip.Key="Gate.Enable"/>
+                                                  Unchecked="OnEffectToggled"/>
                                         <Button x:Name="ExpandGate" Grid.Column="2"
                                                 Style="{StaticResource ExpanderButton}"
                                                 Click="OnExpandClick" Tag="{Binding GateExpanded, RelativeSource={RelativeSource AncestorType=Window}}" />
@@ -249,7 +242,7 @@
                                                 </Grid.ColumnDefinitions>
                                                 <Slider x:Name="GateThresholdSlider" Grid.Column="0" VerticalAlignment="Center"
                                                         Style="{StaticResource FlatSlider}" Minimum="-80" Maximum="0"
-                                                        Value="-55" Tag="GateThreshold" ValueChanged="OnSliderChanged"  ui:Tip.Key="Gate.Threshold"/>
+                                                        Value="-55" Tag="GateThreshold" ValueChanged="OnSliderChanged"/>
                                                 <TextBlock Grid.Column="1" Style="{StaticResource SliderValueText}"
                                                            Text="{Binding Value, ElementName=GateThresholdSlider, StringFormat='{}{0:0} dB'}" />
                                             </Grid>
@@ -268,7 +261,7 @@
                                                 </Grid.ColumnDefinitions>
                                                 <Slider x:Name="GateReleaseSlider" Grid.Column="0" VerticalAlignment="Center"
                                                         Style="{StaticResource FlatSlider}" Minimum="10" Maximum="600"
-                                                        Value="150" Tag="GateRelease" ValueChanged="OnSliderChanged"  ui:Tip.Key="Gate.Release"/>
+                                                        Value="150" Tag="GateRelease" ValueChanged="OnSliderChanged"/>
                                                 <TextBlock Grid.Column="1" Style="{StaticResource SliderValueText}"
                                                            Text="{Binding Value, ElementName=GateReleaseSlider, StringFormat='{}{0:0} ms'}" />
                                             </Grid>
@@ -289,7 +282,7 @@
                                         <TextBlock Grid.Column="0" Style="{StaticResource SectionTitle}" Text="AI 降噪" />
                                         <CheckBox x:Name="ToggleDenoise" Grid.Column="1"
                                                   Style="{StaticResource Switch}" Margin="0,0,8,0"
-                                                  Checked="OnEffectToggled" Unchecked="OnEffectToggled"  ui:Tip.Key="Denoise.Enable"/>
+                                                  Checked="OnEffectToggled" Unchecked="OnEffectToggled"/>
                                         <Button x:Name="ExpandDenoise" Grid.Column="2"
                                                 Style="{StaticResource ExpanderButton}"
                                                 Click="OnExpandClick" Tag="{Binding DenoiseExpanded, RelativeSource={RelativeSource AncestorType=Window}}" />
@@ -306,12 +299,11 @@
                                                       Style="{StaticResource FlatCombo}"
                                                       ItemContainerStyle="{StaticResource FlatComboItem}"
                                                       DropDownOpened="OnModelDropDownOpened"
-                                                      SelectionChanged="OnModelSelectionChanged"  ui:Tip.Key="Denoise.Model"/>
+                                                      SelectionChanged="OnModelSelectionChanged"/>
                                             <!-- 打开模型文件夹：原先是独立卡片，现挪到模型下拉框右侧，不占额外空间 -->
                                             <Button x:Name="OpenModelsFolderButton" Grid.Column="2"
                                                     Style="{StaticResource IconButton}" Margin="6,0,0,0"
-                                                    Click="OnOpenModelsFolderClick"
-                                                    ui:Tip.Key="Denoise.OpenFolder">
+                                                    Click="OnOpenModelsFolderClick">
                                                 <Path Data="M 1 3 L 5 3 L 6.5 5 L 13 5 L 13 12 L 1 12 Z"
                                                       Stroke="{DynamicResource IconGlyphBrush}" StrokeThickness="1.3"
                                                       StrokeLineJoin="Round" Fill="Transparent" />
@@ -331,7 +323,7 @@
                                                 </Grid.ColumnDefinitions>
                                                 <Slider x:Name="DenoiseStrengthSlider" Grid.Column="0" VerticalAlignment="Center"
                                                         Style="{StaticResource FlatSlider}" Minimum="0" Maximum="100"
-                                                        Value="100" Tag="DenoiseStrength" ValueChanged="OnSliderChanged"  ui:Tip.Key="Denoise.Strength"/>
+                                                        Value="100" Tag="DenoiseStrength" ValueChanged="OnSliderChanged"/>
                                                 <TextBlock Grid.Column="1" Style="{StaticResource SliderValueText}"
                                                            Text="{Binding Value, ElementName=DenoiseStrengthSlider, StringFormat='{}{0:0}%'}" />
                                             </Grid>
@@ -350,7 +342,7 @@
                                                 </Grid.ColumnDefinitions>
                                                 <Slider x:Name="DenoiseWetSlider" Grid.Column="0" VerticalAlignment="Center"
                                                         Style="{StaticResource FlatSlider}" Minimum="0" Maximum="100"
-                                                        Value="100" Tag="DenoiseWet" ValueChanged="OnSliderChanged"  ui:Tip.Key="Denoise.Wet"/>
+                                                        Value="100" Tag="DenoiseWet" ValueChanged="OnSliderChanged"/>
                                                 <TextBlock Grid.Column="1" Style="{StaticResource SliderValueText}"
                                                            Text="{Binding Value, ElementName=DenoiseWetSlider, StringFormat='{}{0:0}%'}" />
                                             </Grid>
@@ -372,7 +364,7 @@
                                         <TextBlock Grid.Column="0" Style="{StaticResource SectionTitle}" Text="DSP 变声" />
                                         <CheckBox x:Name="ToggleVoiceChanger" Grid.Column="1"
                                                   Style="{StaticResource Switch}" Margin="0,0,8,0"
-                                                  Checked="OnEffectToggled" Unchecked="OnEffectToggled"  ui:Tip.Key="Voice.Enable"/>
+                                                  Checked="OnEffectToggled" Unchecked="OnEffectToggled"/>
                                         <Button x:Name="ExpandVoiceChanger" Grid.Column="2"
                                                 Style="{StaticResource ExpanderButton}"
                                                 Click="OnExpandClick" Tag="{Binding VoiceChangerExpanded, RelativeSource={RelativeSource AncestorType=Window}}" />
@@ -387,7 +379,7 @@
                                             <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="变调" />
                                             <Slider x:Name="VoicePitchSlider" Grid.Column="1" VerticalAlignment="Center"
                                                     Style="{StaticResource FlatSlider}" Minimum="-12" Maximum="12"
-                                                    Value="5" Tag="VoiceSemitones" ValueChanged="OnSliderChanged"  ui:Tip.Key="Voice.Pitch"/>
+                                                    Value="5" Tag="VoiceSemitones" ValueChanged="OnSliderChanged"/>
                                             <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
                                                        Text="{Binding Value, ElementName=VoicePitchSlider, StringFormat='{}{0:+0;-0;0} 半音'}" />
                                         </Grid>
@@ -397,8 +389,7 @@
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="62" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="声线"
-                                                       ui:Tip.Key="Voice.GenderFactor" />
+                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="声线" />
                                             <Slider x:Name="VoiceGenderSlider" Grid.Column="1" VerticalAlignment="Center"
                                                     Style="{StaticResource FlatSlider}" Minimum="-100" Maximum="100"
                                                     Value="0" Tag="VoiceGender" ValueChanged="OnSliderChanged" />
@@ -414,7 +405,7 @@
                                             <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="共振峰" />
                                             <Slider x:Name="VoiceFormantSlider" Grid.Column="1" VerticalAlignment="Center"
                                                     Style="{StaticResource FlatSlider}" Minimum="-12" Maximum="12"
-                                                    Value="0" Tag="VoiceFormantSemitones" ValueChanged="OnSliderChanged"  ui:Tip.Key="Voice.Formant"/>
+                                                    Value="0" Tag="VoiceFormantSemitones" ValueChanged="OnSliderChanged"/>
                                             <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
                                                        Text="{Binding Value, ElementName=VoiceFormantSlider, StringFormat='{}{0:+0;-0;0} 半音'}" />
                                         </Grid>
@@ -427,7 +418,7 @@
                                             <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="干湿比" />
                                             <Slider x:Name="VoiceMixSlider" Grid.Column="1" VerticalAlignment="Center"
                                                     Style="{StaticResource FlatSlider}" Minimum="0" Maximum="100"
-                                                    Value="100" Tag="VoiceMix" ValueChanged="OnSliderChanged"  ui:Tip.Key="Voice.Mix"/>
+                                                    Value="100" Tag="VoiceMix" ValueChanged="OnSliderChanged"/>
                                             <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
                                                        Text="{Binding Value, ElementName=VoiceMixSlider, StringFormat='{}{0:0}%'}" />
                                         </Grid>
@@ -448,7 +439,7 @@
                                                    Text="响度平衡" />
                                         <CheckBox x:Name="ToggleLoudness" Grid.Column="1"
                                                   Style="{StaticResource Switch}" Margin="0,0,8,0"
-                                                  Checked="OnEffectToggled" Unchecked="OnEffectToggled"  ui:Tip.Key="Loudness.Enable"/>
+                                                  Checked="OnEffectToggled" Unchecked="OnEffectToggled"/>
                                         <Button x:Name="ExpandLoudness" Grid.Column="2"
                                                 Style="{StaticResource ExpanderButton}"
                                                 Click="OnExpandClick" Tag="{Binding LoudnessExpanded, RelativeSource={RelativeSource AncestorType=Window}}" />
@@ -469,8 +460,7 @@
                                                 <Slider x:Name="LoudnessTargetSlider" Grid.Column="0" VerticalAlignment="Center"
                                                         Style="{StaticResource FlatSlider}" Minimum="-30" Maximum="-8"
                                                         Value="-20" Tag="LoudnessTarget"
-                                                        ValueChanged="OnSliderChanged"
-                                                        ui:Tip.Key="Loudness.Target" />
+                                                        ValueChanged="OnSliderChanged" />
                                                 <TextBlock Grid.Column="1" Style="{StaticResource SliderValueText}"
                                                            Text="{Binding Value, ElementName=LoudnessTargetSlider, StringFormat='{}{0:0} dB'}" />
                                             </Grid>
@@ -489,8 +479,7 @@
                                                 </Grid.ColumnDefinitions>
                                                 <Slider x:Name="LoudnessSpeedSlider" Grid.Column="0" VerticalAlignment="Center"
                                                         Style="{StaticResource FlatSlider}" Minimum="1" Maximum="10"
-                                                        Value="5" Tag="LoudnessSpeed" ValueChanged="OnSliderChanged"
-                                                        ui:Tip.Key="Loudness.Speed" />
+                                                        Value="5" Tag="LoudnessSpeed" ValueChanged="OnSliderChanged" />
                                                 <TextBlock Grid.Column="1" Style="{StaticResource SliderValueText}"
                                                            Text="{Binding Value, ElementName=LoudnessSpeedSlider, StringFormat='{}{0:0}/10'}" />
                                             </Grid>
@@ -512,7 +501,7 @@
                                                    Text="EQ 均衡器" />
                                         <CheckBox x:Name="ToggleTone" Grid.Column="1"
                                                   Style="{StaticResource Switch}" Margin="0,0,8,0"
-                                                  Checked="OnEffectToggled" Unchecked="OnEffectToggled"  ui:Tip.Key="Eq.Enable"/>
+                                                  Checked="OnEffectToggled" Unchecked="OnEffectToggled"/>
                                         <Button x:Name="ExpandTone" Grid.Column="2"
                                                 Style="{StaticResource ExpanderButton}"
                                                 Click="OnExpandClick" Tag="{Binding ToneExpanded, RelativeSource={RelativeSource AncestorType=Window}}" />
@@ -544,7 +533,7 @@
                                                 BorderBrush="{DynamicResource CardBorderBrush}"
                                                 BorderThickness="1">
                                             <Canvas x:Name="EqCurveCanvas" Height="46" ClipToBounds="True"
-                                                    SizeChanged="OnEqCurveSizeChanged"  ui:Tip.Key="Eq.Curve" Background="Transparent"/>
+                                                    SizeChanged="OnEqCurveSizeChanged" Background="Transparent"/>
                                         </Border>
 
                                         <!--
@@ -564,17 +553,17 @@
                                         <!-- 5 个预设 + 重置，一排 6 格（重置用同外观的 ChipButton） -->
                                         <UniformGrid x:Name="ToneGrid" Columns="6" Margin="0,11,0,0">
                                             <RadioButton Style="{StaticResource ChipToggle}" Content="清亮" Tag="Bright"
-                                                         Click="OnToneSelected"  ui:Tip.Key="Eq.Preset.Bright"/>
+                                                         Click="OnToneSelected"/>
                                             <RadioButton Style="{StaticResource ChipToggle}" Content="沉稳" Tag="Warm"
-                                                         Click="OnToneSelected"  ui:Tip.Key="Eq.Preset.Warm"/>
+                                                         Click="OnToneSelected"/>
                                             <RadioButton Style="{StaticResource ChipToggle}" Content="深邃" Tag="Deep"
-                                                         Click="OnToneSelected"  ui:Tip.Key="Eq.Preset.Deep"/>
+                                                         Click="OnToneSelected"/>
                                             <RadioButton Style="{StaticResource ChipToggle}" Content="尖锐" Tag="Sharp"
-                                                         Click="OnToneSelected"  ui:Tip.Key="Eq.Preset.Sharp"/>
+                                                         Click="OnToneSelected"/>
                                             <RadioButton Style="{StaticResource ChipToggle}" Content="空灵" Tag="Ethereal"
-                                                         Click="OnToneSelected"  ui:Tip.Key="Eq.Preset.Ethereal"/>
+                                                         Click="OnToneSelected"/>
                                             <Button x:Name="EqResetButton" Style="{StaticResource ChipButton}"
-                                                    Content="重置" Click="OnEqResetClick"  ui:Tip.Key="Eq.Reset"/>
+                                                    Content="重置" Click="OnEqResetClick"/>
                                         </UniformGrid>
                                     </StackPanel>
                                 </StackPanel>
@@ -592,7 +581,7 @@
                                         <TextBlock Grid.Column="0" Style="{StaticResource SectionTitle}" Text="效果器" />
                                         <CheckBox x:Name="ToggleEffect" Grid.Column="1"
                                                   Style="{StaticResource Switch}" Margin="0,0,8,0"
-                                                  Checked="OnEffectToggled" Unchecked="OnEffectToggled"  ui:Tip.Key="Effect.Enable"/>
+                                                  Checked="OnEffectToggled" Unchecked="OnEffectToggled"/>
                                         <Button x:Name="ExpandEffect" Grid.Column="2"
                                                 Style="{StaticResource ExpanderButton}"
                                                 Click="OnExpandClick" Tag="{Binding EffectExpanded, RelativeSource={RelativeSource AncestorType=Window}}" />
@@ -628,7 +617,7 @@
                                                 </Grid.ColumnDefinitions>
                                                 <Slider x:Name="EffectAmountSlider" Grid.Column="0" VerticalAlignment="Center"
                                                         Style="{StaticResource FlatSlider}" Minimum="0" Maximum="100"
-                                                        Value="55" Tag="EffectAmount" ValueChanged="OnSliderChanged"  ui:Tip.Key="Effect.Amount"/>
+                                                        Value="55" Tag="EffectAmount" ValueChanged="OnSliderChanged"/>
                                                 <TextBlock Grid.Column="1" Style="{StaticResource SliderValueText}"
                                                            Text="{Binding Value, ElementName=EffectAmountSlider, StringFormat='{}{0:0}%'}" />
                                             </Grid>
@@ -649,7 +638,7 @@
                                         <TextBlock Grid.Column="0" Style="{StaticResource SectionTitle}" Text="增益" />
                                         <CheckBox x:Name="ToggleGain" Grid.Column="1" Style="{StaticResource Switch}"
                                                   Margin="0,0,8,0" Checked="OnEffectToggled"
-                                                  Unchecked="OnEffectToggled"  ui:Tip.Key="Gain.Enable"/>
+                                                  Unchecked="OnEffectToggled"/>
                                         <Button x:Name="ExpandGain" Grid.Column="2"
                                                 Style="{StaticResource ExpanderButton}"
                                                 Click="OnExpandClick" Tag="{Binding GainExpanded, RelativeSource={RelativeSource AncestorType=Window}}" />
@@ -669,7 +658,7 @@
                                                 </Grid.ColumnDefinitions>
                                                 <Slider x:Name="GainSlider" Grid.Column="0" VerticalAlignment="Center"
                                                         Style="{StaticResource FlatSlider}" Minimum="-24" Maximum="24"
-                                                        Value="0" Tag="GainDb" ValueChanged="OnSliderChanged"  ui:Tip.Key="Gain.Amount"/>
+                                                        Value="0" Tag="GainDb" ValueChanged="OnSliderChanged"/>
                                                 <TextBlock Grid.Column="1" Style="{StaticResource SliderValueText}"
                                                            Text="{Binding Value, ElementName=GainSlider, StringFormat='{}{0:+0;-0;0} dB'}" />
                                             </Grid>
@@ -724,7 +713,7 @@
                                            Foreground="{DynamicResource TextBrush}" />
 
                                 <!-- 2026-10-04：按反馈去掉频谱的专属底色，直接用卡片底作为背景 -->
-                                <Canvas x:Name="InputSpectrumCanvas" Grid.Row="1" ClipToBounds="True"  ui:Tip.Key="Spectrum.Input" Background="Transparent"/>
+                                <Canvas x:Name="InputSpectrumCanvas" Grid.Row="1" ClipToBounds="True" Background="Transparent"/>
 
                                 <!-- 底部频率刻度：对数定位，用 Canvas 精确摆放（Grid 等分列放不准） -->
                                 <Canvas x:Name="InputAxisCanvas" Grid.Row="2" Height="14" Margin="0,4,0,0" ClipToBounds="True" />
@@ -747,7 +736,7 @@
                                            Foreground="{DynamicResource TextBrush}" />
 
                                 <!-- 2026-10-04：按反馈去掉频谱的专属底色，直接用卡片底作为背景 -->
-                                <Canvas x:Name="OutputSpectrumCanvas" Grid.Row="1" ClipToBounds="True"  ui:Tip.Key="Spectrum.Output" Background="Transparent"/>
+                                <Canvas x:Name="OutputSpectrumCanvas" Grid.Row="1" ClipToBounds="True" Background="Transparent"/>
 
                                 <!-- 底部频率刻度：对数定位，用 Canvas 精确摆放（Grid 等分列放不准） -->
                                 <Canvas x:Name="OutputAxisCanvas" Grid.Row="2" Height="14" Margin="0,4,0,0" ClipToBounds="True" />
@@ -779,7 +768,7 @@
                                         VerticalAlignment="Bottom" ClipToBounds="True" />
 
                                 <Border Grid.Row="1" CornerRadius="4" ClipToBounds="True" Height="16">
-                                    <Grid x:Name="LevelTrack" ui:Tip.Key="Level.Meter" Background="Transparent">
+                                    <Grid x:Name="LevelTrack" Background="Transparent">
                                         <Rectangle>
                                             <Rectangle.Fill>
                                                 <!-- 左 = 绿（电平低、音量偏小）→ 黄 → 右 = 红（电平高、偏大/过载）。
@@ -840,11 +829,10 @@
                                     <TextBlock Style="{StaticResource LabelText}" Text="音频监听" />
                                     <CheckBox x:Name="ToggleAudioMonitor" Style="{StaticResource Switch}"
                                               Margin="6,0,14,0" Checked="OnAudioMonitorToggled"
-                                              Unchecked="OnAudioMonitorToggled"
-                                              ui:Tip.Key="Player.AudioMonitor" />
+                                              Unchecked="OnAudioMonitorToggled" />
                                     <TextBlock Style="{StaticResource LabelText}" Text="循环播放" />
                                     <CheckBox x:Name="ToggleLoop" Style="{StaticResource Switch}" Margin="6,0,0,0"
-                                              Checked="OnLoopToggled" Unchecked="OnLoopToggled"  ui:Tip.Key="Player.Loop"/>
+                                              Checked="OnLoopToggled" Unchecked="OnLoopToggled"/>
                                 </StackPanel>
                                 <Grid Margin="0,8,0,0">
                                     <Grid.ColumnDefinitions>
@@ -859,7 +847,7 @@
                                         </Grid.ColumnDefinitions>
                                         <Slider x:Name="PlayerVolumeSlider" Grid.Column="0" VerticalAlignment="Center"
                                                 Style="{StaticResource FlatSlider}" Minimum="0" Maximum="100"
-                                                Value="80" ValueChanged="OnPlayerVolumeChanged"  ui:Tip.Key="Player.Volume"/>
+                                                Value="80" ValueChanged="OnPlayerVolumeChanged"/>
                                         <TextBlock Grid.Column="1" Style="{StaticResource SliderValueText}"
                                                    Text="{Binding Value, ElementName=PlayerVolumeSlider, StringFormat='{}{0:0}%'}" />
                                     </Grid>
@@ -873,17 +861,16 @@
                                     <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="同步按住键" />
                                     <CheckBox x:Name="ToggleHoldKey" Grid.Column="1" Style="{StaticResource Switch}"
                                               Margin="6,0,10,0" Checked="OnHoldKeyToggled"
-                                              Unchecked="OnHoldKeyToggled"
-                                              ui:Tip.Key="Player.HoldKeySwitch" />
+                                              Unchecked="OnHoldKeyToggled" />
                                     <Button Grid.Column="2" Style="{StaticResource FlatButton}" Content="风险说明"
                                             Padding="6,1,6,1" HorizontalAlignment="Left"
-                                            Click="OnHoldKeyRiskClick"  ui:Tip.Key="Player.Risk"/>
+                                            Click="OnHoldKeyRiskClick"/>
                                 </Grid>
                             </StackPanel>
                         </Border>
 
                         <Button Grid.Row="1" Style="{StaticResource FlatButton}" Content="添加音频文件"
-                                HorizontalAlignment="Stretch" Margin="0,0,0,6" Click="OnAddFilesClick"  ui:Tip.Key="Player.AddFiles"/>
+                                HorizontalAlignment="Stretch" Margin="0,0,0,6" Click="OnAddFilesClick"/>
 
                         <!-- 音频列表 -->
                         <Border Grid.Row="2" Style="{StaticResource CardLast}" Padding="0">
@@ -905,20 +892,49 @@
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
                                                 <Grid Height="30" Cursor="Hand"
-                                                      MouseLeftButtonUp="OnTrackRowClick"
-                                                      ui:Tip.Key="Track.Row">
-                                                    <Grid.Style>
-                                                        <Style TargetType="Grid">
-                                                            <Setter Property="Background" Value="Transparent" />
-                                                            <Style.Triggers>
-                                                                <DataTrigger Binding="{Binding IsCurrent}"
-                                                                             Value="True">
-                                                                    <Setter Property="Background"
-                                                                            Value="{DynamicResource AccentSoftHoverBrush}" />
-                                                                </DataTrigger>
-                                                            </Style.Triggers>
-                                                        </Style>
-                                                    </Grid.Style>
+                                                      MouseLeftButtonUp="OnTrackRowClick">
+                                                    <!--
+                                                      行的背景由三层叠出来（在同一个 Grid 里重叠，而不是各自设 Background）：
+                                                        ① 当前播放项的底色（强调色淡底）；
+                                                        ② 播放进度：从左往右填充的条（ProgressBar，轨道透明）；
+                                                        ③ 鼠标悬浮高亮（中性淡色）。
+                                                      三层各管一件事、互不覆盖 —— 之前只有一层 Background，
+                                                      既当「当前项标记」又当「悬浮反馈」，就没地方再放进度了。
+                                                      最上面的内容层负责接鼠标事件，所以这三层不必拦鼠标。
+                                                    -->
+                                                    <Border>
+                                                        <Border.Style>
+                                                            <Style TargetType="Border">
+                                                                <Setter Property="Background" Value="Transparent" />
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding IsCurrent}" Value="True">
+                                                                        <Setter Property="Background"
+                                                                                Value="{DynamicResource AccentSoftBrush}" />
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </Border.Style>
+                                                    </Border>
+
+                                                    <ProgressBar Value="{Binding ProgressPercent}" Minimum="0" Maximum="100"
+                                                                 Style="{StaticResource TrackProgressBar}" />
+
+                                                    <Border>
+                                                        <Border.Style>
+                                                            <Style TargetType="Border">
+                                                                <Setter Property="Background" Value="Transparent" />
+                                                                <Style.Triggers>
+                                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                                        <Setter Property="Background"
+                                                                                Value="{DynamicResource RowHoverBrush}" />
+                                                                    </Trigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </Border.Style>
+                                                    </Border>
+
+                                                    <!-- 内容层 -->
+                                                    <Grid>
                                                     <!--
                                                         按键控件的宽度**由内容决定**（绑定到实测文字宽度）：
                                                         TrackViewModel 用 FormattedText 按控件实际字号量出文字宽度再加内边距，
@@ -944,8 +960,7 @@
                                                     <Button Grid.Column="1"
                                                             Content="{Binding HotkeyText}"
                                                             Width="{Binding HotkeyButtonWidth}"
-                                                            Click="OnTrackHotkeyClick" Tag="{Binding}"
-                                                            ToolTip="{Binding HotkeyButtonTooltip}">
+                                                            Click="OnTrackHotkeyClick" Tag="{Binding}">
                                                         <Button.Style>
                                                             <Style TargetType="Button" BasedOn="{StaticResource InputBoxButton}">
                                                                 <Style.Triggers>
@@ -966,8 +981,7 @@
                                                             Width="{Binding HoldKeyButtonWidth}"
                                                             Margin="2,0,0,0"
                                                             IsEnabled="{Binding HoldKeyEnabled}"
-                                                            Click="OnTrackHoldKeyClick" Tag="{Binding}"
-                                                            ToolTip="{Binding HoldKeyTooltip}">
+                                                            Click="OnTrackHoldKeyClick" Tag="{Binding}">
                                                         <Button.Style>
                                                             <Style TargetType="Button" BasedOn="{StaticResource InputBoxButton}">
                                                                 <Style.Triggers>
@@ -982,8 +996,8 @@
                                                         </Button.Style>
                                                     </Button>
                                                     <Button Grid.Column="3" Style="{StaticResource RemoveButton}"
-                                                            Click="OnTrackRemoveClick" Tag="{Binding}"
-                                                            ui:Tip.Key="Track.Remove" />
+                                                            Click="OnTrackRemoveClick" Tag="{Binding}" />
+                                                    </Grid>
                                                 </Grid>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>

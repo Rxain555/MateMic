@@ -423,6 +423,27 @@
         </Setter>
     </Style>
 
+    <!--
+      播放列表行背景用的播放进度条：只画"已经播过"的那一段（从左往右），轨道透明。
+      同一行的背景还叠着「当前播放项底色」与「鼠标悬浮高亮」两层，
+      三者职责不同、互不干扰（见 MainWindow.xaml 里行模板的注释）。
+    -->
+    <Style x:Key="TrackProgressBar" TargetType="ProgressBar">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ProgressBar">
+                    <Grid>
+                        <Border x:Name="PART_Track" Background="Transparent" />
+                        <Border x:Name="PART_Indicator" HorizontalAlignment="Left"
+                                Background="{DynamicResource AccentSoftHoverBrush}" />
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- ============================ 按钮 ============================ -->
     <!-- 基础按钮：无边框、扁平、悬浮时轻微"抬升"（投影 + 背景变亮） -->
     <Style x:Key="FlatButton" TargetType="Button">
