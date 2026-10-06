@@ -137,6 +137,43 @@
     <DropShadowEffect x:Key="TopBarShadow" BlurRadius="16" ShadowDepth="3" Direction="270"
                       Color="#FF7A8290" Opacity="0.14" RenderingBias="Quality" />
 
+    <!--
+      ============================ 悬浮说明框（ToolTip） ============================
+      隐式样式，所有带 ToolTip 的控件自动套用，不需要逐个设置。
+
+      · 系统默认的 ToolTip 是方角 + 系统配色 + 系统字体，和自绘界面完全不搭；
+        这里换成「淡色圆角框 + 主题配色 + MiSans」，与卡片观感一致。
+      · **字体必须显式给**：ToolTip 是独立的弹出层，不会继承窗口的 FontFamily。
+      · 文字用 TextBrush 而不是 SmallText 那种 SubtleTextBrush —— 说明文字普遍较长，
+        在淡底上要保证可读性。
+      · 内容一律按纯文本渲染（TextBlock + TemplateBinding），这样才控制得住
+        自动换行与行高；本程序所有 ToolTip 都是字符串，没有富内容。
+    -->
+    <Style TargetType="ToolTip">
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        <Setter Property="FontFamily" Value="{DynamicResource AppFont}" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="HorizontalOffset" Value="10" />
+        <Setter Property="VerticalOffset" Value="8" />
+        <!-- 说明动辄四五句，限宽避免拉成一整条横线（与 DialogHost 对长文案的处理一致） -->
+        <Setter Property="MaxWidth" Value="420" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToolTip">
+                    <Border Background="{DynamicResource TooltipSurfaceBrush}"
+                            BorderBrush="{DynamicResource TooltipBorderBrush}"
+                            BorderThickness="1" CornerRadius="7" Padding="11,8">
+                        <TextBlock Text="{TemplateBinding Content}"
+                                   Foreground="{TemplateBinding Foreground}"
+                                   FontFamily="{TemplateBinding FontFamily}"
+                                   FontSize="{TemplateBinding FontSize}"
+                                   TextWrapping="Wrap" LineHeight="19" />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- ============================ 文本 ============================ -->
     <Style x:Key="LabelText" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="{DynamicResource AppFont}" />
@@ -300,6 +337,72 @@
                                                     </Ellipse.Effect>
                                                 </Ellipse>
                                                 <Ellipse Width="14" Height="14" Stroke="{DynamicResource AccentBrush}"
+                                                         StrokeThickness="2" />
+                                            </Grid>
+                                        </ControlTemplate>
+                                    </Thumb.Template>
+                                </Thumb>
+                            </Track.Thumb>
+                        </Track>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!--
+      EQ 均衡器的竖向推子。与 FlatSlider 同一套观感（白底强调色描边的圆点）。
+
+      ⚠ **本模板不画轨道，也不画填充**：两者都由 MainWindow 的 EqBarCanvas 画在推子下层。
+        原因是填充必须"从 0 dB 中线往两边长"，而原生 Slider 的 RepeatButton 只能从一端填；
+        增益有正有负时，从一端填会让人误读（0 dB 也会填掉一半）。
+        所以这里只保留一个透明的 Track（提供滑块定位与命中范围）和滑块本身。
+
+      垂直方向默认就是"上大下小"，与图形均衡器的直觉一致，不需要 IsDirectionReversed。
+      Height 必须与 XAML 里推子区 Grid 的高度（84）一致，否则填充条与滑块对不上。
+    -->
+    <Style x:Key="EqBandSlider" TargetType="Slider">
+        <Setter Property="Orientation" Value="Vertical" />
+        <Setter Property="IsMoveToPointEnabled" Value="True" />
+        <Setter Property="Height" Value="84" />
+        <Setter Property="Width" Value="20" />
+        <Setter Property="HorizontalAlignment" Value="Center" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Slider">
+                    <Grid HorizontalAlignment="Center">
+                        <Track x:Name="PART_Track" Orientation="Vertical">
+                            <Track.DecreaseRepeatButton>
+                                <RepeatButton Command="Slider.DecreaseLarge" Focusable="False">
+                                    <RepeatButton.Template>
+                                        <ControlTemplate TargetType="RepeatButton">
+                                            <Border Background="Transparent" Width="20" />
+                                        </ControlTemplate>
+                                    </RepeatButton.Template>
+                                </RepeatButton>
+                            </Track.DecreaseRepeatButton>
+                            <Track.IncreaseRepeatButton>
+                                <RepeatButton Command="Slider.IncreaseLarge" Focusable="False">
+                                    <RepeatButton.Template>
+                                        <ControlTemplate TargetType="RepeatButton">
+                                            <Border Background="Transparent" Width="20" />
+                                        </ControlTemplate>
+                                    </RepeatButton.Template>
+                                </RepeatButton>
+                            </Track.IncreaseRepeatButton>
+                            <Track.Thumb>
+                                <Thumb Width="13" Height="13" Focusable="False">
+                                    <Thumb.Template>
+                                        <ControlTemplate TargetType="Thumb">
+                                            <Grid>
+                                                <Ellipse Fill="White" Width="13" Height="13">
+                                                    <Ellipse.Effect>
+                                                        <DropShadowEffect BlurRadius="5" ShadowDepth="1"
+                                                                          Direction="270" Color="#FF7A8290"
+                                                                          Opacity="0.35" />
+                                                    </Ellipse.Effect>
+                                                </Ellipse>
+                                                <Ellipse Width="13" Height="13" Stroke="{DynamicResource AccentBrush}"
                                                          StrokeThickness="2" />
                                             </Grid>
                                         </ControlTemplate>

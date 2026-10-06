@@ -7,7 +7,7 @@
     覆盖的回归项：
       · DenoiseEffect        块长无关性 / 固定延迟 / 帧对齐 / 干湿混合 / 直通 / 模型切换 / 超时
       · LoudnessBalanceEffect 峰值保护是否真的立即生效 / 静音与底噪是否被加大 / 是否收敛到目标
-      · ToneStyleEffect      未选择风格时构造、之后再选风格，预设各段是否全部生效
+      · ToneStyleEffect      EQ 均衡器：平坦直通 / 预设整表生效 / 手动单段生效
       · SpectrumAnalyzer     对数频带 / 峰值检波 / 显示范围是否让"底噪与正常说话"都看得见
       · MicMixer             主输出与监听的混音比例是否互不干扰（播放器单独监听）
       · DeviceRecoveryPolicy 设备热插拔后"该不该重建音频流"的决策（8 种状态组合穷举）
@@ -27,6 +27,7 @@
   <ItemGroup>
     <Compile Include="..\..\..\Core\AppConfig.cs" />
     <Compile Include="..\..\..\Core\DeviceRecoveryPolicy.cs" />
+    <Compile Include="..\..\..\Core\EqPreset.cs" />
     <Compile Include="..\..\..\Core\Log.cs" />
     <Compile Include="..\..\..\Dsp\DenoiseEffect.cs" />
     <Compile Include="..\..\..\Dsp\DenoiseModels.cs" />

@@ -66,8 +66,8 @@ public sealed class TrackViewModel : INotifyPropertyChanged
     }
 
     public string HotkeyText => _isRecordingHotkey
-        ? "请按键…"
-        : string.IsNullOrWhiteSpace(_hotkey) ? "设快捷键" : _hotkey;
+        ? TextCatalog.Get("Track.Hotkey.Recording")
+        : string.IsNullOrWhiteSpace(_hotkey) ? TextCatalog.Get("Track.Hotkey.Placeholder") : _hotkey;
 
     /// <summary>
     /// 该条目正在录入**播放快捷键**。录入提示只显示在"被点的那一个控件"上，
@@ -125,8 +125,8 @@ public sealed class TrackViewModel : INotifyPropertyChanged
 
     /// <summary>快捷键控件的悬浮提示：说明怎么操作，并重复一遍当前键位（万一按钮里被截断）。</summary>
     public string HotkeyButtonTooltip => string.IsNullOrWhiteSpace(_hotkey)
-        ? "点击设置该文件的全局播放快捷键（录入时按 Esc 取消、Backspace 清除）"
-        : $"全局播放快捷键：{_hotkey}（点击可重新设置；录入时按 Esc 取消、Backspace 清除）";
+        ? TextCatalog.Get("Track.Hotkey.Empty")
+        : TextCatalog.Get("Track.Hotkey.Set").Replace("{键}", _hotkey);
 
     /// <summary>播放前自动按下、播放结束后松开的按键（空 = 不使用）。</summary>
     public string HoldKey
@@ -162,16 +162,17 @@ public sealed class TrackViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// 「设同步键」控件上显示的文字：未启用总开关时提示"未启用"，
-    /// 已启用但还没设按键时提示"设同步键"，设了就直接显示按键（像输入框一样）。
+    /// 「设同步键」控件上显示的文字：已启用但还没设按键时提示"设同步键"，设了就直接显示按键。
+    /// **没有"未启用"这个状态**：总开关关着时整个按钮是 Collapsed（见 MainWindow.xaml），
+    /// 这个属性根本不会被渲染出来。
     /// </summary>
     public string HoldKeyText
     {
         get
         {
-            if (_isRecordingHoldKey) return "请按键…";
-            if (!_holdKeyFeatureEnabled) return "未启用";
-            if (string.Equals(_holdKey, string.Empty, StringComparison.Ordinal)) return "设同步键";
+            if (_isRecordingHoldKey) return TextCatalog.Get("Track.Hotkey.Recording");
+            if (string.Equals(_holdKey, string.Empty, StringComparison.Ordinal))
+                return TextCatalog.Get("Track.HoldKey.Placeholder");
             return _holdKey;
         }
     }
@@ -181,18 +182,9 @@ public sealed class TrackViewModel : INotifyPropertyChanged
     /// <summary>和快捷键控件一样：宽度按实测文字给（单个按键名最长的是「小键盘 *」）。</summary>
     public double HoldKeyButtonWidth => MeasureButtonWidth(HoldKeyText);
 
-    public string HoldKeyTooltip
-    {
-        get
-        {
-            if (!_holdKeyFeatureEnabled)
-                return "「同步按住键」总开关未启用：请先在上方的「同步按住键」开关处启用（注意反作弊风险）。";
-
-            return string.IsNullOrEmpty(_holdKey)
-                ? "点击设置按键：播放该音频前自动按下、播放结束后自动松开（用来替代游戏里手动按「按键说话」）。"
-                : $"当前按键：{_holdKey}（点击可重新设置；录入时按 Esc 取消、Backspace 清除）";
-        }
-    }
+    public string HoldKeyTooltip => string.IsNullOrEmpty(_holdKey)
+        ? TextCatalog.Get("Track.HoldKey.Empty")
+        : TextCatalog.Get("Track.HoldKey.Set").Replace("{键}", _holdKey);
 
     /// <summary>是否已设好同步按键（未设或总开关关着时显示成灰字占位符）。</summary>
     public bool IsHoldKeySet => _holdKeyFeatureEnabled && !string.IsNullOrWhiteSpace(_holdKey);

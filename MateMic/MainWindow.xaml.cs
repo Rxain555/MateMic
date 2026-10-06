@@ -76,6 +76,10 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
     /// <summary>底部对数频率刻度的文字（Canvas 精确摆放，只随宽度重排）。</summary>
     private readonly TextBlock[][] _axisLabels = { new TextBlock[6], new TextBlock[6] };
+
+    /// <summary>EQ 的 10 段推子；构造时由 <see cref="BuildEqBands"/> 生成，索引与 EqPreset 的频段一致。</summary>
+    private readonly Slider[] _eqSliders = new Slider[EqPreset.BandCount];
+
     private readonly List<TrackViewModel> _tracks = new();
 
     private bool _loading = true;
@@ -134,6 +138,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         BuildSpectrumAxis(InputAxisCanvas, _axisLabels[0]);
         BuildSpectrumAxis(OutputAxisCanvas, _axisLabels[1]);
         BuildLevelScale();
+        BuildEqBands();
 
         // 构造期这些画布的 ActualWidth 还是 0，上面几次调用都会提前返回；SizeChanged 也不保证会补上。
         // 因此在窗口布局完成的 Loaded 里再排一次 —— 这是"刻度反复不出现"的根治手段。
@@ -144,6 +149,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             BuildSpectrumAxis(InputAxisCanvas, _axisLabels[0]);
             BuildSpectrumAxis(OutputAxisCanvas, _axisLabels[1]);
             BuildLevelScale();
+            RefreshEqVisuals();
         };
 
         TrackList.ItemsSource = _tracks;
@@ -501,6 +507,60 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     }
 
     /// <summary>
+    /// 自检：**预设 / 推子 / 曲线三者必须始终一致**（`--eqcheck`）。
+    ///
+    /// 这是本次改动最容易出错的地方：数据有两个入口（点预设、拖推子），
+    /// 界面有三处呈现（chip 勾选、推子位置、曲线形状），
+    /// 任何一处没跟上都会是"看起来对、实际不对"。所以这里按真实路径走一遍，
+    /// 并把每步的实际数值打进日志 —— 不靠肉眼比对截图。
+    /// </summary>
+    public void CheckEqPresetLinkage()
+    {
+        Log.Info("[EQ 自检] ==== 开始（预设 → 手动 → 重置）====");
+
+        // ① 点预设：增益表整体替换，推子与曲线都要跟上
+        var warm = ToneGrid.Children.OfType<RadioButton>()
+            .FirstOrDefault(c => string.Equals(c.Tag as string, nameof(ToneStyle.Warm), StringComparison.Ordinal));
+        if (warm == null)
+        {
+            Log.Warn("[EQ 自检] 找不到「沉稳」预设 chip，自检中止。");
+            return;
+        }
+
+        // 模拟真实点击：RadioButton 会先把自己置位，再触发 Click
+        warm.IsChecked = true;
+        OnToneSelected(warm, new RoutedEventArgs());
+        Log.Info($"[EQ 自检] ① 点「沉稳」→ chip 勾选={warm.IsChecked}（应 True）"
+                 + $"｜配置={DescribeGains()}"
+                 + $"｜推子={DescribeSliders()}"
+                 + $"｜期望={string.Join(",", EqPreset.GainsOf(ToneStyle.Warm).Select(g => g.ToString("0.#")))}");
+
+        // ② 手动拖第 1 段（31 Hz）：只该改这一段，且预设勾选必须被清掉
+        _eqSliders[0].Value = 9;
+        Log.Info($"[EQ 自检] ② 31 Hz 拖到 +9 → 配置={DescribeGains()}"
+                 + $"｜推子={DescribeSliders()}"
+                 + $"｜仍有预设勾选={AnyToneChipChecked()}（应 False）");
+
+        // ③ 重置：全部归零、预设清空
+        OnEqResetClick(EqResetButton, new RoutedEventArgs());
+        Log.Info($"[EQ 自检] ③ 重置 → 配置={DescribeGains()}"
+                 + $"｜推子={DescribeSliders()}"
+                 + $"｜仍有预设勾选={AnyToneChipChecked()}（应 False）"
+                 + $"｜曲线点数={(EqCurveCanvas.Children.OfType<System.Windows.Shapes.Polyline>().FirstOrDefault()?.Points.Count ?? 0)}（应 10）");
+
+        Log.Info("[EQ 自检] ==== 结束 ====");
+    }
+
+    private string DescribeGains()
+        => string.Join(",", EqPreset.Normalize(_config.Tone.Gains).Select(g => g.ToString("0.#")));
+
+    private string DescribeSliders()
+        => string.Join(",", _eqSliders.Select(s => s.Value.ToString("0.#")));
+
+    private bool AnyToneChipChecked()
+        => ToneGrid.Children.OfType<RadioButton>().Any(c => c.IsChecked == true);
+
+    /// <summary>
     /// 设置窗口（任务栏 / Alt+Tab）图标。
     /// 从输出目录的 Assets\appicon.ico 读取——不使用 XAML 的 pack URI，
     /// 因为该文件在 csproj 里以 None 方式复制，并未打包进程序集资源。
@@ -639,7 +699,10 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             LoudnessSpeedSlider.Value = _config.Loudness.Speed;
 
             ToggleTone.IsChecked = _config.Tone.Enabled;
+            // 增益表先规整（长度不对或为 null 一律当平坦），再把推子回填到同一份数据上
+            _config.Tone.Gains = EqPreset.Normalize(_config.Tone.Gains);
             SelectToneChip(_config.Tone.Style);
+            ApplyEqGainsToSliders();
 
             ToggleEffect.IsChecked = _config.Effect.Enabled;
             SelectEffectChip(_config.Effect.Kind);
@@ -840,7 +903,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             ("噪声门", ExpandGate, PanelGate),
             ("AI 降噪", ExpandDenoise, PanelDenoise),
             ("响度平衡", ExpandLoudness, PanelLoudness),
-            ("音色风格", ExpandTone, ToneGrid),
+            ("EQ 均衡器", ExpandTone, PanelTone),
             ("效果器", ExpandEffect, PanelCreative),
             ("增益", ExpandGain, PanelGain),
             ("DSP 变声", ExpandVoiceChanger, PanelVoiceChanger),
@@ -913,7 +976,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     /// </summary>
     public void CheckCollapseExpand()
     {
-        var panel = ToneGrid;
+        var panel = PanelTone;
         var button = ExpandTone;
         var step = 0;
         var timer = new System.Windows.Threading.DispatcherTimer
@@ -1002,7 +1065,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                      + $" ⇒ {(needed.Count > 0 && chips.Count > 0 && needed[0] > chips[0].ActualWidth ? "放不下" : "放得下")}");
         }
 
-        Dump("音色风格 ToneGrid", ToneGrid);
+        Dump("EQ 均衡器预设 ToneGrid", ToneGrid);
         Dump("效果器 EffectGrid", EffectGrid);
 
         // 左栏纵向空间是否够：滚动区视口 vs 内容自然高度，以及各卡片被分配到的实际高度
@@ -1037,7 +1100,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                     .FirstOrDefault(t => t.Style == (Style)FindResource("SectionTitle"))?.Text ?? "(无标题)";
                 var panelName = Descendants(card).OfType<FrameworkElement>()
                     .FirstOrDefault(e => e.Name is "PanelGate" or "PanelDenoise" or "PanelLoudness"
-                                              or "ToneGrid" or "PanelCreative" or "PanelGain"
+                                              or "PanelTone" or "PanelCreative" or "PanelGain"
                                               or "PanelVoiceChanger")?.Name ?? "-";
                 var panelHeight = Descendants(card).OfType<FrameworkElement>()
                     .FirstOrDefault(e => e.Name == panelName)?.ActualHeight ?? double.NaN;
@@ -1359,7 +1422,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             (ExpandGate, PanelGate),
             (ExpandDenoise, PanelDenoise),
             (ExpandLoudness, PanelLoudness),
-            (ExpandTone, ToneGrid),
+            (ExpandTone, PanelTone),
             (ExpandEffect, PanelCreative),
             (ExpandGain, PanelGain),
             (ExpandVoiceChanger, PanelVoiceChanger),
@@ -1384,7 +1447,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         var buttons = new (string Name, Button Button)[]
         {
             ("噪声门", ExpandGate), ("AI 降噪", ExpandDenoise), ("响度平衡", ExpandLoudness),
-            ("音色风格", ExpandTone), ("效果器", ExpandEffect), ("增益", ExpandGain),
+            ("EQ 均衡器", ExpandTone), ("效果器", ExpandEffect), ("增益", ExpandGain),
             ("DSP 变声", ExpandVoiceChanger),
         };
 
@@ -2101,7 +2164,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             "ExpandGate" => PanelGate,
             "ExpandDenoise" => PanelDenoise,
             "ExpandLoudness" => PanelLoudness,
-            "ExpandTone" => ToneGrid,
+            "ExpandTone" => PanelTone,
             "ExpandEffect" => PanelCreative,
             "ExpandGain" => PanelGain,
             "ExpandVoiceChanger" => PanelVoiceChanger,
@@ -2282,7 +2345,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         Apply(PanelGate, _config.Panels.Gate);
         Apply(PanelDenoise, _config.Panels.Denoise);
         Apply(PanelLoudness, _config.Panels.Loudness);
-        Apply(ToneGrid, _config.Panels.Tone);
+        Apply(PanelTone, _config.Panels.Tone);
         Apply(PanelCreative, _config.Panels.Effect);
         Apply(PanelGain, _config.Panels.Gain);
         Apply(PanelVoiceChanger, _config.Panels.VoiceChanger);
@@ -2366,7 +2429,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         ScheduleSave();
     }
 
-    /// <summary>按配置勾选音色风格；Style 为 null 时全部不选中。</summary>
+    /// <summary>按配置勾选预设 chip；Style 为 null（手动 / 未选择）时全部不选中。</summary>
     private void SelectToneChip(ToneStyle? style)
     {
         foreach (var chip in ToneGrid.Children.OfType<RadioButton>())
@@ -2383,12 +2446,258 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         if (_loading || sender is not RadioButton chip || chip.Tag is not string tag) return;
         if (!Enum.TryParse<ToneStyle>(tag, out var style)) return;
 
+        // 预设 = 把整条曲线写进增益表。此后音频与界面读的都是这一份数据，
+        // 不存在"界面显示预设、处理却用别的参数"的可能。
         _config.Tone.Style = style;
+        _config.Tone.Gains = EqPreset.GainsOf(style);
+
+        // 显式同步 chip 勾选：真实点击时 RadioButton 已经把自己置位（同组互斥），
+        // 但**程序化调用不会** —— 自检就是程序化调用，实测因此出现过
+        // "配置已是「沉稳」、界面却没有任何 chip 被勾选"。一行代价换掉这类不一致。
+        SelectToneChip(style);
+
         // 用户主动选了预设即视为要使用该模块
         if (ToggleTone.IsChecked != true) ToggleTone.IsChecked = true;
 
+        ApplyEqGainsToSliders();
+        RefreshEqVisuals();
         _engine.UpdateAllParameters();
         SaveConfig();
+    }
+
+    // =============================================================== EQ 均衡器
+
+    /// <summary>
+    /// 生成 10 段推子与频率标签。
+    ///
+    /// 放在代码里而不是 XAML：10 段手写出来有近 80 行、全是重复结构，
+    /// 而且代码本来就要按索引持有它们（预设联动、重置、启动回填都要逐段赋值）。
+    /// </summary>
+    private void BuildEqBands()
+    {
+        var sliderStyle = (Style)FindResource("EqBandSlider");
+        var labelStyle = (Style)FindResource("SmallText");
+
+        for (var i = 0; i < EqPreset.BandCount; i++)
+        {
+            var slider = new Slider
+            {
+                Style = sliderStyle,
+                Minimum = EqPreset.MinGainDb,
+                Maximum = EqPreset.MaxGainDb,
+                Value = 0,
+                Tag = i,                     // 事件里据此知道是哪一段
+                ToolTip = $"{EqPreset.LabelOf(i)} Hz",
+            };
+            slider.ValueChanged += OnEqBandChanged;
+
+            var label = new TextBlock
+            {
+                Text = EqPreset.LabelOf(i),
+                Style = labelStyle,
+                FontSize = 9,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                TextAlignment = TextAlignment.Center,
+            };
+
+            // 推子进推子区、标签进标签区：两个 UniformGrid 同列数，所以左右天然对齐；
+            // 分开是因为推子区那一层还要叠一个 Canvas 画轨道与填充（见 RedrawEqBars）。
+            _eqSliders[i] = slider;
+            EqBandGrid.Children.Add(slider);
+            EqLabelGrid.Children.Add(label);
+        }
+    }
+
+    /// <summary>手动拖动某一段：只改这一段，并脱离预设（取消 chip 选中）。</summary>
+    private void OnEqBandChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_loading || sender is not Slider slider || slider.Tag is not int index) return;
+        if (index < 0 || index >= EqPreset.BandCount) return;
+
+        var gains = EqPreset.Normalize(_config.Tone.Gains);
+        gains[index] = (float)Math.Round(e.NewValue, 1);
+        _config.Tone.Gains = gains;
+
+        // 手动一动就不再是"那个预设"了：取消勾选，避免界面在撒谎
+        if (_config.Tone.Style.HasValue)
+        {
+            _config.Tone.Style = null;
+            SelectToneChip(null);
+        }
+
+        if (ToggleTone.IsChecked != true) ToggleTone.IsChecked = true;
+
+        RefreshEqVisuals();
+        _engine.UpdateAllParameters();
+        ScheduleSave();
+    }
+
+    /// <summary>重置：全部归零，并清掉预设选中态。</summary>
+    private void OnEqResetClick(object sender, RoutedEventArgs e)
+    {
+        _config.Tone.Style = null;
+        _config.Tone.Gains = EqPreset.Flat();
+
+        SelectToneChip(null);
+        ApplyEqGainsToSliders();
+        RefreshEqVisuals();
+        _engine.UpdateAllParameters();
+        SaveConfig();
+
+        ShowStatus("均衡器已重置为平坦（各段 0 dB）。", false);
+    }
+
+    /// <summary>把配置里的增益写回推子。**必须屏蔽事件**，否则会与拖动互相触发。</summary>
+    private void ApplyEqGainsToSliders()
+    {
+        var wasLoading = _loading;
+        _loading = true;
+        try
+        {
+            var gains = EqPreset.Normalize(_config.Tone.Gains);
+            for (var i = 0; i < EqPreset.BandCount; i++) _eqSliders[i].Value = gains[i];
+        }
+        finally
+        {
+            _loading = wasLoading;
+        }
+    }
+
+    private void OnEqCurveSizeChanged(object sender, SizeChangedEventArgs e) => RefreshEqVisuals();
+
+    /// <summary>曲线 + 推子轨道/填充一起重画（两者共用同一份增益数据，必须同时更新）。</summary>
+    private void RefreshEqVisuals()
+    {
+        RedrawEqCurve();
+        RedrawEqBars();
+    }
+
+    /// <summary>
+    /// 画推子区的轨道与填充条。
+    ///
+    /// 填充**从中线（0 dB）往滑块长**，而不是从一端填满：增益有正有负，
+    /// 从一端填的话 0 dB 也会填掉一半，看起来像"已经调过了"。
+    ///
+    /// 坐标必须与 EqBandSlider 里 Thumb 的实际行程一致，否则滑块会跑出填充条端点：
+    /// 垂直 Slider 的 Thumb 中心从"半个滑块高"走到"高度 − 半个滑块高"，
+    /// 即 6.5 → 77.5（高度 84、滑块 13），所以振幅 = 高度/2 − 6.5。
+    /// 推子区 Grid 的高度（84）与 Slider 的 Height 相同，两层的 y 原点才对得上。
+    /// </summary>
+    private void RedrawEqBars()
+    {
+        var canvas = EqBarCanvas;
+        canvas.Children.Clear();
+
+        var width = canvas.ActualWidth;
+        var height = canvas.ActualHeight;
+        if (width <= 1 || height <= 1) return;
+
+        var middle = height / 2;
+        var amplitude = middle - 6.5;          // 与 Thumb 的真实行程对齐
+        var slot = width / EqPreset.BandCount;
+
+        var trackBrush = TryFindResource("TrackBrush") as Brush ?? Brushes.Gray;
+        var accent = TryFindResource("AccentBrush") as Brush ?? Brushes.DodgerBlue;
+
+        var gains = EqPreset.Normalize(_config.Tone.Gains);
+
+        for (var i = 0; i < EqPreset.BandCount; i++)
+        {
+            var x = (i + 0.5) * slot;
+            var y = middle - gains[i] / EqPreset.MaxGainDb * amplitude;
+
+            var track = new System.Windows.Shapes.Rectangle
+            {
+                Width = 5,
+                Height = height - 13,
+                RadiusX = 2.5,
+                RadiusY = 2.5,
+                Fill = trackBrush,
+            };
+            Canvas.SetLeft(track, x - 2.5);
+            Canvas.SetTop(track, 6.5);
+            canvas.Children.Add(track);
+
+            var barHeight = Math.Abs(y - middle);
+            if (barHeight < 1) continue;   // 0 dB 附近不画，避免留下一个突兀的小方块
+
+            var bar = new System.Windows.Shapes.Rectangle
+            {
+                Width = 5,
+                Height = barHeight,
+                RadiusX = 2.5,
+                RadiusY = 2.5,
+                Fill = accent,
+            };
+            Canvas.SetLeft(bar, x - 2.5);
+            Canvas.SetTop(bar, Math.Min(middle, y));
+            canvas.Children.Add(bar);
+        }
+    }
+
+    /// <summary>
+    /// 重画响应曲线：10 个增益点连成折线，叠加一条 0 dB 中线。
+    ///
+    /// 只是"把推子位置连起来"，不是真正的滤波器频响计算 —— 对图形均衡器来说，
+    /// 用户关心的是"我调成了什么形状"，折线已经足够准确，而且拖动时零延迟。
+    /// x 取每格中心，与下方推子严格对齐。
+    /// </summary>
+    private void RedrawEqCurve()
+    {
+        var canvas = EqCurveCanvas;
+        canvas.Children.Clear();
+
+        var width = canvas.ActualWidth;
+        var height = canvas.ActualHeight;
+        if (width <= 1 || height <= 1 || _eqSliders[0] == null) return;
+
+        var middle = height / 2;
+        // 上下各留 4px，保证 ±12 dB 的极值点不会被裁掉
+        var amplitude = middle - 4;
+
+        var hairline = TryFindResource("HairlineBrush") as Brush ?? Brushes.Gray;
+        canvas.Children.Add(new System.Windows.Shapes.Line
+        {
+            X1 = 0, Y1 = middle, X2 = width, Y2 = middle,
+            Stroke = hairline, StrokeThickness = 1,
+        });
+
+        var gains = EqPreset.Normalize(_config.Tone.Gains);
+        var points = new PointCollection();
+        for (var i = 0; i < EqPreset.BandCount; i++)
+        {
+            var x = (i + 0.5) * width / EqPreset.BandCount;
+            var y = middle - gains[i] / EqPreset.MaxGainDb * amplitude;
+            points.Add(new Point(x, y));
+        }
+
+        var accent = TryFindResource("AccentBrush") as Brush ?? Brushes.DodgerBlue;
+
+        // 先铺一层半透明的粗线当"填充感"，再压一条实线：比单线更容易看出曲线走向
+        canvas.Children.Add(new System.Windows.Shapes.Polyline
+        {
+            Points = points,
+            Stroke = accent,
+            StrokeThickness = 6,
+            Opacity = 0.18,
+            StrokeLineJoin = PenLineJoin.Round,
+        });
+        canvas.Children.Add(new System.Windows.Shapes.Polyline
+        {
+            Points = points,
+            Stroke = accent,
+            StrokeThickness = 2,
+            StrokeLineJoin = PenLineJoin.Round,
+        });
+
+        // 每段一个小圆点，拖哪一段一眼能对上
+        foreach (var point in points)
+        {
+            var dot = new System.Windows.Shapes.Ellipse { Width = 5, Height = 5, Fill = accent };
+            Canvas.SetLeft(dot, point.X - 2.5);
+            Canvas.SetTop(dot, point.Y - 2.5);
+            canvas.Children.Add(dot);
+        }
     }
 
     /// <summary>按配置勾选效果器类型；Kind 为 null 时全部不选中。</summary>
@@ -2551,40 +2860,21 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     /// </summary>
 
     private void OnUsageGuideClick(object sender, RoutedEventArgs e)
-    {
-        const string guide =
-            "一、Windows 声音设置\n\n" +
-            "将麦克风 MIXLINE Stream 设为默认输入设备。\n\n" +
-            "二、设备选择\n\n" +
-            "输入选择：实际在用的物理麦克风\n" +
-            "输出选择：扬声器 (MIXLINE)\n" +
-            "监听选择：实际在用的物理扬声器\n\n" +
-            "三、MIXLINE 中\n\n" +
-            "添加输入：MateMic\n" +
-            "添加输出：MIXLINE Stream\n" +
-            "将 MateMic 节点连接至 MIXLINE Stream 节点";
-
-        DialogHost.Info(this, "MateMic 使用指南", guide);
-    }
+        => DialogHost.Info(this, TextCatalog.Get("Dialog.UsageGuide.Title"), TextCatalog.Get("Guide.Usage"));
 
     /// <summary>
     /// 关于：把"必须声明的东西"集中在一处 —— 界面字体（MiSans 的授权要求）、
     /// 内置降噪模型、用户自备模型的许可归属、第三方组件。版本号与工具栏显示同一个来源。
+    /// 正文在「文案.txt」的 [About] 段里，{版本} 由这里替换。
     /// </summary>
     private void OnAboutClick(object sender, RoutedEventArgs e)
-        => DialogHost.Info(this, "关于 MateMic", AboutText());
+        => DialogHost.Info(this, TextCatalog.Get("Dialog.About.Title"), AboutText());
 
     private static string AboutText()
     {
         var version = typeof(MainWindow).Assembly.GetName().Version;
         var text = version == null ? "v?" : "v" + version.ToString(3);
-
-        return
-            "MateMic " + text + "   ·   MIT 许可\n" +
-            "https://github.com/Rxain555/MateMic\n\n" +
-            "界面字体 MiSans（小米，免费商用）。\n" +
-            "内置 3 个 ONNX 降噪模型；自备模型的许可由模型提供方决定。\n" +
-            "第三方组件：NAudio / NWaves / ONNX Runtime（均 MIT）。";
+        return TextCatalog.Get("About").Replace("{版本}", text);
     }
 
     // =============================================================== 播放器
@@ -2599,14 +2889,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         }
 
         TrackList.Items.Refresh();
-        UpdateTrackListHint();
     }
-
-    /// <summary>
-    /// 列表为空时显示提示文案（效果图里的文件名是示例内容，不作为默认值）。
-    /// </summary>
-    private void UpdateTrackListHint()
-        => TrackListEmptyHint.Visibility = _tracks.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
     private void OnAddFilesClick(object sender, RoutedEventArgs e)
     {
@@ -2694,7 +2977,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         if (added > 0)
         {
             TrackList.Items.Refresh();
-            UpdateTrackListHint();
             SaveConfig();
         }
 
@@ -2759,7 +3041,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
         if (!enabled) _keyboard.Release();
 
-        UpdateTrackListHint();
         ShowStatus(enabled
             ? "「同步按住键」已启用：现在可以为每个音频文件设置一个自动按住的按键。"
             : "「同步按住键」已关闭。", false);
@@ -2768,34 +3049,27 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
     private void OnHoldKeyRiskClick(object sender, RoutedEventArgs e) => ShowHoldKeyRisk(false);
 
-    /// <summary>开启前的确认框；返回 true 表示用户接受风险。</summary>
+    /// <summary>开启前的确认框；返回 true 表示用户接受风险。正文在「文案.txt」。</summary>
     private bool ConfirmHoldKeyRisk()
     {
         return DialogHost.Confirm(this,
-            "同步按住键 · 风险说明",
-            HoldKeyRiskText + "\n\n是否启用「同步按住键」？");
+            TextCatalog.Get("Dialog.HoldKeyRisk.Title"),
+            TextCatalog.Get("Risk.HoldKey") + "\n\n" + TextCatalog.Get("Risk.HoldKey.Confirm"));
     }
 
     private void ShowHoldKeyRisk(bool warning)
     {
-        var text = HoldKeyRiskText + (warning ? "\n\n当前开关：已启用。" : "\n\n当前开关：" + (_config.Player.EnableHoldKey ? "已启用。" : "未启用。"));
-        if (warning) DialogHost.Warn(this, "同步按住键 · 风险说明", text);
-        else DialogHost.Info(this, "同步按住键 · 风险说明", text);
-    }
+        // warning 为真表示"刚被启用"，此时配置未必已落盘，所以直接按已启用来显示
+        var state = warning || _config.Player.EnableHoldKey
+            ? TextCatalog.Get("Risk.HoldKey.StateOn")
+            : TextCatalog.Get("Risk.HoldKey.StateOff");
 
-    private const string HoldKeyRiskText =
-        "「同步按住键」会用 Win32 SendInput 向系统注入按键事件（按下 / 松开）：\n" +
-        "播放某个音频文件之前自动按下你指定的按键，播放结束后自动松开。\n" +
-        "典型用法：把该键设成游戏或语音软件里「按键说话」的那个键，\n" +
-        "这样按快捷键播放语音包时就不必再手动按住说话键。\n\n" +
-        "关于反作弊：\n" +
-        "· SendInput 注入的事件带有 LLKHF_INJECTED 标记，属于「软件模拟输入」。\n" +
-        "· 内核级反作弊（Riot Vanguard、Easy Anti-Cheat、BattlEye、FACEIT 等）有能力识别这类事件；\n" +
-        "  是否判定为违规由厂商的策略决定，【这个风险无法排除】。\n" +
-        "· 本功能只发送你自己录入的那一个按键，不连发、不循环、不读写任何其它进程、不注入代码。\n" +
-        "· 如果游戏对模拟输入查得很严，请不要使用本功能；\n" +
-        "  可改用硬件级方案（键盘宏 / 脚踏开关 / 手柄映射）达到同样的效果。\n\n" +
-        "因此该功能默认关闭，需要你自己开启。";
+        var title = TextCatalog.Get("Dialog.HoldKeyRisk.Title");
+        var text = TextCatalog.Get("Risk.HoldKey") + "\n\n" + state;
+
+        if (warning) DialogHost.Warn(this, title, text);
+        else DialogHost.Info(this, title, text);
+    }
 
     private (bool Ok, string? Error) RegisterTrackHotkey(TrackViewModel track, string gesture)
     {
@@ -2995,7 +3269,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         _tracks.Remove(track);
         _config.Player.Tracks.Remove(track.Model);
         TrackList.Items.Refresh();
-        UpdateTrackListHint();
         RegisterConfiguredHotkeys();   // 释放该条目占用的全局快捷键
         SaveConfig();
         Log.Info("已从播放列表移除：" + track.FilePath);
@@ -3070,19 +3343,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     private void OnStatusActionClick(object sender, RoutedEventArgs e) => _statusAction?.Invoke();
 
     private void ShowMixLineGuide()
-    {
-        const string guide =
-            "MIXLINE 配合设置步骤\n\n" +
-            "1. 安装并打开 MIXLINE。\n" +
-            "2. 在 MIXLINE 中新建一个输入通道，选择 MateMic 的主输出设备（即「扬声器 (MIXLINE)」）作为输入源。\n" +
-            "3. 将该通道路由到 MIXLINE Stream（虚拟麦克风）。\n" +
-            "4. 在 Windows 声音设置中，把默认录音设备设为 MIXLINE Stream。\n" +
-            "5. 回到 MateMic，把「输出」选择为 MIXLINE 的虚拟播放设备。\n" +
-            "6. 在语音软件（Discord / 微信 / QQ / 游戏语音）中把麦克风选为 MIXLINE Stream。\n\n" +
-            "提示：MateMic 自身不创建虚拟声卡，必须配合 MIXLINE 使用。";
-
-        DialogHost.Info(this, "MIXLINE 设置指南", guide);
-    }
+        => DialogHost.Info(this, TextCatalog.Get("Dialog.Mixline.Title"), TextCatalog.Get("Guide.Mixline"));
 
     /// <summary>
     /// 关闭主窗口。打开「关闭到托盘」时收进托盘（托盘双击恢复），否则真正退出。

@@ -73,9 +73,9 @@
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal">
                     <Button x:Name="CaptionMinimizeButton" Style="{StaticResource CaptionButton}"
-                            Click="OnCaptionMinimizeClick" ToolTip="最小化" Content="min" />
+                            Click="OnCaptionMinimizeClick" ToolTip="{DynamicResource 文案.Caption.Minimize}" Content="min" />
                     <Button x:Name="CaptionCloseButton" Style="{StaticResource CaptionCloseButton}"
-                            Click="OnCaptionCloseClick" ToolTip="关闭" Content="close" />
+                            Click="OnCaptionCloseClick" ToolTip="{DynamicResource 文案.Caption.Close}" Content="close" />
                 </StackPanel>
             </Grid>
         </Border>
@@ -103,18 +103,18 @@
                     <TextBlock Style="{StaticResource LabelText}" Text="音频处理" Margin="0,0,5,0" />
                     <CheckBox x:Name="ToggleProcessing" Style="{StaticResource Switch}" Margin="0,0,12,0"
                               Checked="OnProcessingToggled" Unchecked="OnProcessingToggled"
-                              ToolTip="总旁通开关：关闭后麦克风静音（播放器仍可送出）" />
+                              ToolTip="{DynamicResource 文案.Toolbar.Processing}" />
 
                     <TextBlock Style="{StaticResource LabelText}" Text="全局快捷键" Margin="0,0,5,0" />
                     <Button x:Name="HotkeyButton" Style="{StaticResource ToolbarButton}"
                             Width="118" Margin="0,0,12,0" Click="OnGlobalHotkeyClick"
                             Content="点击输入快捷键"
-                            ToolTip="点击后按下组合键，即可为「音频处理」总开关绑定全局快捷键。注意：全局快捷键会被 MateMic 独占，其他程序（含文本输入框）不会再收到该按键，建议使用带 Ctrl / Alt 的组合键。" />
+                            ToolTip="{DynamicResource 文案.Toolbar.Hotkey}" />
 
                     <TextBlock Style="{StaticResource LabelText}" Text="监听" Margin="0,0,5,0" />
                     <CheckBox x:Name="ToggleMonitor" Style="{StaticResource Switch}" Margin="0,0,12,0"
                               Checked="OnMonitorToggled" Unchecked="OnMonitorToggled"
-                              ToolTip="让麦克风进监听（物理扬声器）。与右侧播放器的「音频监听」是两个独立开关，四种组合：&#x0a;· 都关：没有监听；&#x0a;· 只开这个：只听麦克风；&#x0a;· 只开音频监听：只听播放的音频；&#x0a;· 都开：麦克风 + 播放的音频。" />
+                              ToolTip="{DynamicResource 文案.Toolbar.Monitor}" />
 
                     <TextBlock Style="{StaticResource LabelText}" Text="开机自启" Margin="0,0,5,0" />
                     <CheckBox x:Name="ToggleAutoStart" Style="{StaticResource Switch}" Margin="0,0,12,0"
@@ -123,11 +123,11 @@
                     <TextBlock Style="{StaticResource LabelText}" Text="关闭到托盘" Margin="0,0,5,0" />
                     <CheckBox x:Name="ToggleCloseTray" Style="{StaticResource Switch}" Margin="0,0,12,0"
                               Checked="OnTrayToggled" Unchecked="OnTrayToggled"
-                              ToolTip="打开：点右上角关闭按钮时收进系统托盘（双击托盘图标恢复）。关闭：关闭按钮直接退出程序。最小化按钮始终只最小化到任务栏。" />
+                              ToolTip="{DynamicResource 文案.Toolbar.CloseToTray}" />
                     <TextBlock Style="{StaticResource LabelText}" Text="深色模式" Margin="0,0,5,0" />
                     <CheckBox x:Name="ToggleDarkMode" Style="{StaticResource Switch}"
                               Checked="OnDarkModeToggled" Unchecked="OnDarkModeToggled"
-                              ToolTip="切换深色 / 浅色配色。深色配色在暗环境下更护眼；设置会保存，下次启动继续沿用。" />
+                              ToolTip="{DynamicResource 文案.Toolbar.DarkMode}" />
 
                     </WrapPanel>
 
@@ -140,7 +140,7 @@
                         <Button x:Name="UsageGuideButton" Style="{StaticResource ToolbarButton}"
                                 Content="使用指南" Padding="8,3,8,3" Margin="0,0,6,0"
                                 Click="OnUsageGuideClick"
-                                ToolTip="Windows 声音设置、设备选择、MIXLINE 接法" />
+                                ToolTip="{DynamicResource 文案.Toolbar.Guide}" />
                         <!--
                           关于：字体 / 降噪模型 / 第三方组件的署名与许可集中放这里。
                           一是 MiSans 的授权要求"应在软件中特别注明"，
@@ -149,7 +149,7 @@
                         <Button x:Name="AboutButton" Style="{StaticResource ToolbarButton}"
                                 Content="关于" Padding="8,3,8,3" Margin="0,0,6,0"
                                 Click="OnAboutClick"
-                                ToolTip="字体、模型与第三方组件的署名与许可" />
+                                ToolTip="{DynamicResource 文案.Toolbar.About}" />
                         <TextBlock x:Name="VersionText" Style="{StaticResource LabelText}"
                                    Text="v0.1.0" VerticalAlignment="Center" />
                     </StackPanel>
@@ -311,7 +311,7 @@
                                             <Button x:Name="OpenModelsFolderButton" Grid.Column="2"
                                                     Style="{StaticResource IconButton}" Margin="6,0,0,0"
                                                     Click="OnOpenModelsFolderClick"
-                                                    ToolTip="打开降噪模型文件夹">
+                                                    ToolTip="{DynamicResource 文案.Denoise.OpenFolder}">
                                                 <Path Data="M 1 3 L 5 3 L 6.5 5 L 13 5 L 13 12 L 1 12 Z"
                                                       Stroke="{DynamicResource IconGlyphBrush}" StrokeThickness="1.3"
                                                       StrokeLineJoin="Round" Fill="Transparent" />
@@ -398,7 +398,7 @@
                                                 <ColumnDefinition Width="52" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="声线"
-                                                       ToolTip="负值更低沉、正值更清亮。按你的基频分布自动适配，比单纯变调自然。" />
+                                                       ToolTip="{DynamicResource 文案.Voice.GenderFactor}" />
                                             <Slider x:Name="VoiceGenderSlider" Grid.Column="1" VerticalAlignment="Center"
                                                     Style="{StaticResource FlatSlider}" Minimum="-100" Maximum="100"
                                                     Value="0" Tag="VoiceGender" ValueChanged="OnSliderChanged" />
@@ -470,7 +470,7 @@
                                                         Style="{StaticResource FlatSlider}" Minimum="-30" Maximum="-8"
                                                         Value="-20" Tag="LoudnessTarget"
                                                         ValueChanged="OnSliderChanged"
-                                                        ToolTip="麦克风信号的平均电平要拉到多少 dBFS。说话偏小就把目标调高（如 −16），偏大就调低（如 −24）。" />
+                                                        ToolTip="{DynamicResource 文案.Loudness.Target}" />
                                                 <TextBlock Grid.Column="1" Style="{StaticResource SliderValueText}"
                                                            Text="{Binding Value, ElementName=LoudnessTargetSlider, StringFormat='{}{0:0} dB'}" />
                                             </Grid>
@@ -490,7 +490,7 @@
                                                 <Slider x:Name="LoudnessSpeedSlider" Grid.Column="0" VerticalAlignment="Center"
                                                         Style="{StaticResource FlatSlider}" Minimum="1" Maximum="10"
                                                         Value="5" Tag="LoudnessSpeed" ValueChanged="OnSliderChanged"
-                                                        ToolTip="增益跟随音量变化的快慢。数值越大反应越快（约 2.5 秒 → 0.15 秒）；太快会有明显的抽吸感，太慢会跟不上。" />
+                                                        ToolTip="{DynamicResource 文案.Loudness.Speed}" />
                                                 <TextBlock Grid.Column="1" Style="{StaticResource SliderValueText}"
                                                            Text="{Binding Value, ElementName=LoudnessSpeedSlider, StringFormat='{}{0:0}/10'}" />
                                             </Grid>
@@ -499,7 +499,7 @@
                                 </StackPanel>
                             </Border>
 
-                            <!-- 音色风格 -->
+                            <!-- EQ 均衡器（原「音色风格」） -->
                             <Border Style="{StaticResource Card}">
                                 <StackPanel>
                                     <Grid>
@@ -509,7 +509,7 @@
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
                                         <TextBlock Grid.Column="0" Style="{StaticResource SectionTitle}"
-                                                   Text="音色风格" />
+                                                   Text="EQ 均衡器" />
                                         <CheckBox x:Name="ToggleTone" Grid.Column="1"
                                                   Style="{StaticResource Switch}" Margin="0,0,8,0"
                                                   Checked="OnEffectToggled" Unchecked="OnEffectToggled" />
@@ -517,21 +517,61 @@
                                                 Style="{StaticResource ExpanderButton}"
                                                 Click="OnExpandClick" Tag="{Binding ToneExpanded, RelativeSource={RelativeSource AncestorType=Window}}" />
                                     </Grid>
-                                    <UniformGrid x:Name="ToneGrid" Columns="6" Margin="0,6,0,0"
-                                                 Visibility="Collapsed">
-                                        <RadioButton Style="{StaticResource ChipToggle}" Content="清亮" Tag="Bright"
-                                                     Click="OnToneSelected" />
-                                        <RadioButton Style="{StaticResource ChipToggle}" Content="沉稳" Tag="Warm"
-                                                     Click="OnToneSelected" />
-                                        <RadioButton Style="{StaticResource ChipToggle}" Content="深邃" Tag="Deep"
-                                                     Click="OnToneSelected" />
-                                        <RadioButton Style="{StaticResource ChipToggle}" Content="尖锐" Tag="Sharp"
-                                                     Click="OnToneSelected" />
-                                        <RadioButton Style="{StaticResource ChipToggle}" Content="空灵" Tag="Ethereal"
-                                                     Click="OnToneSelected" />
-                                        <RadioButton Style="{StaticResource ChipToggle}" Content="自然" Tag="Natural"
-                                                     Click="OnToneSelected" />
-                                    </UniformGrid>
+
+                                    <!--
+                                      展开面板（原 ToneGrid 升级成这一个整体）：预设 → 响应曲线 → 10 段推子 → 重置。
+
+                                      · 预设与手动推子共用同一份数据（ToneSettings.Gains）：
+                                        点预设 = 整表替换成该预设曲线，推子与曲线当场跟着变；
+                                        手动拖任一段 = 只改那一段，并取消预设的选中态。
+                                      · 10 段推子与频率标签由 BuildEqBands() 在代码里生成 ——
+                                        手写 80 行 XAML 不值当，而且代码要按索引持有它们。
+                                    -->
+                                    <StackPanel x:Name="PanelTone" Visibility="Collapsed" Margin="0,6,0,0">
+                                        <UniformGrid x:Name="ToneGrid" Columns="6">
+                                            <RadioButton Style="{StaticResource ChipToggle}" Content="清亮" Tag="Bright"
+                                                         Click="OnToneSelected" />
+                                            <RadioButton Style="{StaticResource ChipToggle}" Content="沉稳" Tag="Warm"
+                                                         Click="OnToneSelected" />
+                                            <RadioButton Style="{StaticResource ChipToggle}" Content="深邃" Tag="Deep"
+                                                         Click="OnToneSelected" />
+                                            <RadioButton Style="{StaticResource ChipToggle}" Content="尖锐" Tag="Sharp"
+                                                         Click="OnToneSelected" />
+                                            <RadioButton Style="{StaticResource ChipToggle}" Content="空灵" Tag="Ethereal"
+                                                         Click="OnToneSelected" />
+                                            <RadioButton Style="{StaticResource ChipToggle}" Content="自然" Tag="Natural"
+                                                         Click="OnToneSelected" />
+                                        </UniformGrid>
+
+                                        <!-- 实时响应曲线：拖推子时当场跟着变（10 点折线，x 与推子中心对齐） -->
+                                        <Border Margin="0,6,0,0" CornerRadius="6" ClipToBounds="True"
+                                                Background="{DynamicResource HeaderSurfaceBrush}"
+                                                BorderBrush="{DynamicResource CardBorderBrush}"
+                                                BorderThickness="1">
+                                            <Canvas x:Name="EqCurveCanvas" Height="46" ClipToBounds="True"
+                                                    SizeChanged="OnEqCurveSizeChanged" />
+                                        </Border>
+
+                                        <!--
+                                          10 段推子（代码填充）。
+                                          轨道与"从中线到滑块"的填充条由 EqBarCanvas 画在推子**下层**：
+                                          Slider 只提供滑块与交互。这样填充才能从 0 dB 中线往两边长，
+                                          而不是像原生 Slider 那样从一端填满 —— 增益有正有负，从一端填会误读
+                                          （0 dB 时也会填掉一半，看起来像"已经调过了"）。
+                                          高度固定 84，与 EqBandSlider 一致，两层的坐标才对得上。
+                                        -->
+                                        <Grid Margin="0,7,0,0" Height="84">
+                                            <Canvas x:Name="EqBarCanvas" ClipToBounds="True" IsHitTestVisible="False" />
+                                            <UniformGrid x:Name="EqBandGrid" Columns="10" Background="Transparent" />
+                                        </Grid>
+                                        <UniformGrid x:Name="EqLabelGrid" Columns="10" Margin="0,3,0,0" />
+
+                                        <Grid Margin="0,8,0,0">
+                                            <Button x:Name="EqResetButton" Style="{StaticResource FlatButton}"
+                                                    Content="重置" Padding="12,2,12,2"
+                                                    HorizontalAlignment="Right" Click="OnEqResetClick" />
+                                        </Grid>
+                                    </StackPanel>
                                 </StackPanel>
                             </Border>
 
@@ -796,7 +836,7 @@
                                     <CheckBox x:Name="ToggleAudioMonitor" Style="{StaticResource Switch}"
                                               Margin="6,0,14,0" Checked="OnAudioMonitorToggled"
                                               Unchecked="OnAudioMonitorToggled"
-                                              ToolTip="播放器音频（伴奏 / 语音包）是否接入混音总线。&#x0a;· 打开：播放器进主输出（MIXLINE，队友能听到），并在工具栏「监听」打开时进监听设备。&#x0a;· 关闭：两条输出都没有播放器音频。&#x0a;配合工具栏「监听」的四种组合：都关=没有监听；只开音频监听=只听播放器；只开监听=只听麦克风；都开=麦克风+播放器。" />
+                                              ToolTip="{DynamicResource 文案.Player.AudioMonitor}" />
                                     <TextBlock Style="{StaticResource LabelText}" Text="循环播放" />
                                     <CheckBox x:Name="ToggleLoop" Style="{StaticResource Switch}" Margin="6,0,0,0"
                                               Checked="OnLoopToggled" Unchecked="OnLoopToggled" />
@@ -829,7 +869,7 @@
                                     <CheckBox x:Name="ToggleHoldKey" Grid.Column="1" Style="{StaticResource Switch}"
                                               Margin="6,0,10,0" Checked="OnHoldKeyToggled"
                                               Unchecked="OnHoldKeyToggled"
-                                              ToolTip="启用后，可以为每个音频文件指定一个按键：播放前自动按下、播放结束后自动松开，用来替代游戏/语音软件里「按键说话」的手动按键。用 Win32 SendInput 注入按键，内核级反作弊（Vanguard / EAC / BattlEye 等）有能力识别注入事件，存在被判定风险，默认关闭。启用时会弹窗说明。" />
+                                              ToolTip="{DynamicResource 文案.Player.HoldKeySwitch}" />
                                     <Button Grid.Column="2" Style="{StaticResource FlatButton}" Content="风险说明"
                                             Padding="6,1,6,1" HorizontalAlignment="Left"
                                             Click="OnHoldKeyRiskClick" />
@@ -861,7 +901,7 @@
                                             <DataTemplate>
                                                 <Grid Height="30" Cursor="Hand"
                                                       MouseLeftButtonUp="OnTrackRowClick"
-                                                      ToolTip="点击播放；正在播放时再点一次即停止。右侧两个按钮分别设置「全局播放快捷键」与「同步按住键」，最右侧 ✕ 移除">
+                                                      ToolTip="{DynamicResource 文案.Track.Row}">
                                                     <Grid.Style>
                                                         <Style TargetType="Grid">
                                                             <Setter Property="Background" Value="Transparent" />
@@ -875,16 +915,19 @@
                                                         </Style>
                                                     </Grid.Style>
                                                     <!--
-                                                        两列按键控件的宽度**由内容决定**（绑定到实测文字宽度）：
+                                                        按键控件的宽度**由内容决定**（绑定到实测文字宽度）：
                                                         TrackViewModel 用 FormattedText 按控件实际字号量出文字宽度再加内边距，
-                                                        所以占位符「设快捷键 / 设同步键」时只有 ~60 DIP（比原来的 92 / 88 窄），
-                                                        而长键位（例：Ctrl + Alt + Shift + F12 ≈ 136 DIP）也不会被截断。
+                                                        所以占位符「设快捷键」时只有 ~60 DIP，而长键位
+                                                        （例：Ctrl + Alt + Shift + F12 ≈ 136 DIP）也不会被截断。
                                                         Auto 列 + 不打折的 * 列：省下的宽度全归文件名。
+
+                                                        「同步按住键」总开关关着时整个同步键按钮 **Collapsed**，
+                                                        不再占位 —— 该功能默认关闭且用得少，留着会一直挤占文件名宽度。
+                                                        列数也因此从 5 列减到 4 列（原 2px 间隔列改为按钮自身的左边距）。
                                                     -->
                                                     <Grid.ColumnDefinitions>
                                                         <ColumnDefinition Width="*" />
                                                         <ColumnDefinition Width="Auto" />
-                                                        <ColumnDefinition Width="2" />
                                                         <ColumnDefinition Width="Auto" />
                                                         <ColumnDefinition Width="26" />
                                                     </Grid.ColumnDefinitions>
@@ -909,15 +952,23 @@
                                                             </Style>
                                                         </Button.Style>
                                                     </Button>
-                                                    <Button Grid.Column="3"
+                                                    <!--
+                                                        同步按住键按钮：总开关未开启时整块隐藏（Visibility=Collapsed），
+                                                        把宽度让给文件名。因此这里不再需要「未启用」的灰字占位状态。
+                                                    -->
+                                                    <Button Grid.Column="2"
                                                             Content="{Binding HoldKeyText}"
                                                             Width="{Binding HoldKeyButtonWidth}"
+                                                            Margin="2,0,0,0"
                                                             IsEnabled="{Binding HoldKeyEnabled}"
                                                             Click="OnTrackHoldKeyClick" Tag="{Binding}"
                                                             ToolTip="{Binding HoldKeyTooltip}">
                                                         <Button.Style>
                                                             <Style TargetType="Button" BasedOn="{StaticResource InputBoxButton}">
                                                                 <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding HoldKeyFeatureEnabled}" Value="False">
+                                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                                    </DataTrigger>
                                                                     <DataTrigger Binding="{Binding IsHoldKeySet}" Value="False">
                                                                         <Setter Property="Foreground" Value="{DynamicResource PlaceholderBrush}" />
                                                                     </DataTrigger>
@@ -925,21 +976,14 @@
                                                             </Style>
                                                         </Button.Style>
                                                     </Button>
-                                                    <Button Grid.Column="4" Style="{StaticResource RemoveButton}"
+                                                    <Button Grid.Column="3" Style="{StaticResource RemoveButton}"
                                                             Click="OnTrackRemoveClick" Tag="{Binding}"
-                                                            ToolTip="从列表移除该音频文件" />
+                                                            ToolTip="{DynamicResource 文案.Track.Remove}" />
                                                 </Grid>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
                                 </ScrollViewer>
-
-                                <!-- 空列表提示（默认状态） -->
-                                <TextBlock x:Name="TrackListEmptyHint" Grid.Row="1"
-                                           Style="{StaticResource SmallText}"
-                                           Text="列表为空，点击上方「添加音频文件」添加伴奏或语音包"
-                                           HorizontalAlignment="Center" VerticalAlignment="Center"
-                                           Margin="12,0,12,0" TextWrapping="Wrap" TextAlignment="Center" />
                             </Grid>
                         </Border>
                     </Grid>

@@ -769,8 +769,9 @@ public sealed class AudioEngine : IDisposable
         Denoise.Enabled = _config.Denoise.Enabled;
         VoiceChanger.Enabled = _config.VoiceChanger.Enabled;
         Loudness.Enabled = _config.Loudness.Enabled;
-        // 音色风格 / 效果器：开关打开但未选择预设时不进入处理链，等价于关闭
-        Tone.Enabled = _config.Tone.Enabled && _config.Tone.Style.HasValue;
+        // EQ 均衡器 / 效果器：开关打开但"没有任何实际作用"时不进入处理链，等价于关闭。
+        // 均衡器看的是增益表是否平坦（选没选预设不重要——预设只是把曲线写进增益表）。
+        Tone.Enabled = _config.Tone.Enabled && !EqPreset.IsFlat(_config.Tone.Gains);
         Creative.Enabled = _config.Effect.Enabled && _config.Effect.Kind.HasValue;
         Gain.Enabled = _config.Gain.Enabled;
 

@@ -403,10 +403,10 @@ Section("10. 响度平衡：峰值保护立即生效、静音/底噪不被加大
     Check(Math.Abs(tailDb + 20) < 3, $"输入 {inDb:0.0} dBFS → 尾段 {tailDb:0.0} dBFS（目标 −20，容差 3 dB）");
 }
 
-// ---------------------------------------------------------------- 11. 音色风格
-Section("11. 音色风格：以「未选择」构造、之后再选预设，3 段必须全部生效");
+// ---------------------------------------------------------------- 11. EQ 均衡器
+Section("11. EQ 均衡器：平坦时直通、预设整表生效、手动单段生效");
 {
-    // 复现启动路径：界面默认一个预设都不选（Style = null），之后再点「沉稳」
+    // 复现启动路径：界面默认平坦（全 0 dB），之后再点「沉稳」
     var toneSettings = new ToneSettings { Enabled = true, Style = null };
     var effect = new ToneStyleEffect(format, toneSettings) { Enabled = true };
 
@@ -416,15 +416,28 @@ Section("11. 音色风格：以「未选择」构造、之后再选预设，3 �
     var flat = true;
     for (var i = 0; i < passthrough.Length && flat; i++)
         flat &= MathF.Abs(passthrough[i] - flatTone[i]) < 1e-6f;
-    Check(flat, "未选择风格时是直通（逐样本一致）");
+    Check(flat, "全 0 dB（平坦）时是直通（逐样本一致）");
 
-    toneSettings.Style = ToneStyle.Warm;
+    // 预设 = 整表替换：沉稳在 125–250 Hz 抬 5 dB、8–16 kHz 削 7 dB
+    toneSettings.Gains = EqPreset.GainsOf(ToneStyle.Warm);
     effect.UpdateParameters();
 
-    var at175 = MeasureGain(effect, 175f);
-    var at6k = MeasureGain(effect, 6000f);
-    Check(at175 > 1.6f, $"175 Hz 处 ≈ +6 dB（实测 {20 * Math.Log10(at175):0.0} dB）");
-    Check(at6k < 0.6f, $"6 kHz 处 ≈ −6 dB（实测 {20 * Math.Log10(at6k):0.0} dB；修复前该段根本没建，为 0 dB）");
+    var at250 = MeasureGain(effect, 250f);
+    var at8k = MeasureGain(effect, 8000f);
+    Check(at250 > 1.5f, $"250 Hz 处被抬起（实测 {20 * Math.Log10(at250):0.0} dB）");
+    Check(at8k < 0.6f, $"8 kHz 处被压低（实测 {20 * Math.Log10(at8k):0.0} dB）");
+
+    // 手动单段：只把 16 kHz 拉满，其余不动
+    var manual = EqPreset.Flat();
+    manual[9] = EqPreset.MaxGainDb;
+    toneSettings.Gains = manual;
+    toneSettings.Style = null;
+    effect.UpdateParameters();
+
+    var at16k = MeasureGain(effect, 16000f);
+    var at1k = MeasureGain(effect, 1000f);
+    Check(at16k > 2.5f, $"手动把第 10 段拉满后 16 kHz 抬起（实测 {20 * Math.Log10(at16k):0.0} dB）");
+    Check(MathF.Abs(at1k - 1f) < 0.12f, $"未动的第 6 段保持不动（1 kHz 实测 {20 * Math.Log10(at1k):0.0} dB）");
 }
 
 // ---------------------------------------------------------------- 12. 电音块长

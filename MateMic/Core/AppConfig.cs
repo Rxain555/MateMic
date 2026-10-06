@@ -73,8 +73,23 @@ public sealed class ToneSettings
 {
     public bool Enabled { get; set; }
 
-    /// <summary>null 表示用户尚未选择任何音色风格（此时模块不参与处理）。</summary>
+    /// <summary>
+    /// 当前选中的预设，**只用于界面勾选状态**；null 表示"手动 EQ"或"尚未选择"。
+    /// 音频处理不读它 —— 处理只看 <see cref="Gains"/>，因此界面与声音永远是同一份数据。
+    /// </summary>
     public ToneStyle? Style { get; set; }
+
+    /// <summary>
+    /// EQ 各段增益（dB），长度必须是 <see cref="EqPreset.BandCount"/>。
+    ///
+    /// **这是均衡器的唯一真相**：
+    ///   · 点预设 → 整表替换成该预设的曲线（并把 <see cref="Style"/> 设为它）；
+    ///   · 手动拖某一段推子 → 只改这一段，同时把 <see cref="Style"/> 清空（表示"自定义"）；
+    ///   · 重置 → 全 0，<see cref="Style"/> 也清空；
+    ///   · 全 0 视为平坦响应，模块会退出处理链（等价于关闭）。
+    /// 老配置没有这个字段，由 <see cref="ConfigMigrations"/> 按当时的 Style 补齐。
+    /// </summary>
+    public float[] Gains { get; set; } = new float[EqPreset.BandCount];
 }
 
 /// <summary>
@@ -191,7 +206,13 @@ public sealed class PanelExpandState
 
 public sealed class AppConfig
 {
-    public int Version { get; set; } = 1;
+    /// <summary>
+    /// 配置结构版本。**默认 0 表示"尚未迁移"**，`ConfigStore.Load` 会交给
+    /// <see cref="ConfigMigrations.Apply"/> 补到当前版本。
+    /// 刻意不用 <c>ConfigMigrations.Current</c> 当默认值：老配置的 JSON 里可能**没有** Version 字段，
+    /// 那样反序列化后会保留默认值、被误判成"已是最新"而跳过迁移。
+    /// </summary>
+    public int Version { get; set; }
 
     /// <summary>总旁通开关。首次启动默认关闭（未开始处理），由用户主动开启。</summary>
     public bool AudioProcessingEnabled { get; set; }
@@ -213,10 +234,13 @@ public sealed class AppConfig
     public bool CloseToTray { get; set; } = true;
 
     /// <summary>
-    /// 深色配色。默认关闭（沿用历史外观），由工具栏的「深色模式」开关切换。
+    /// 深色配色。**默认开启**（2026-10-05 用户要求默认深色），由工具栏的「深色模式」开关切换。
     /// 配色本身由 <c>Ui/ThemeManager.cs</c> 决定，这里只存开/关。
+    ///
+    /// ⚠ 老配置（Version 1）里存的 <c>false</c> 是**当时的旧默认值**而非用户主动选择，
+    /// 因此由 <see cref="ConfigMigrations"/> 一次性翻成 <c>true</c>；此后用户再关掉不会被改写。
     /// </summary>
-    public bool DarkMode { get; set; }
+    public bool DarkMode { get; set; } = true;
 
     public double WindowWidth { get; set; } = 1160;
     public double WindowHeight { get; set; } = 720;

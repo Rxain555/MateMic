@@ -313,18 +313,30 @@ public sealed class ConfigStore
     public AppConfig Load()
     {
         EnsureDirectories();
-        if (!File.Exists(ConfigPath)) return new AppConfig();
+        if (!File.Exists(ConfigPath))
+        {
+            var fresh = new AppConfig();
+            ConfigMigrations.Apply(fresh);
+            return fresh;
+        }
 
         try
         {
             var json = File.ReadAllText(ConfigPath);
-            return JsonSerializer.Deserialize<AppConfig>(json, Options) ?? new AppConfig();
+            var config = JsonSerializer.Deserialize<AppConfig>(json, Options) ?? new AppConfig();
+
+            // 迁移必须紧跟反序列化：早于它读配置的代码会拿到旧语义
+            // （典型是 MainWindow 构造函数里的 ApplyThemeToResources 读 DarkMode）。
+            ConfigMigrations.Apply(config);
+            return config;
         }
         catch (Exception ex)
         {
             Log.Error("配置读取失败，已回退到默认配置", ex);
             TryBackupBrokenConfig();
-            return new AppConfig();
+            var fallback = new AppConfig();
+            ConfigMigrations.Apply(fallback);
+            return fallback;
         }
     }
 

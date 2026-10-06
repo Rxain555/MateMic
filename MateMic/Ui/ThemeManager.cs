@@ -105,6 +105,9 @@ public static class ThemeManager
         ["TrackBrush"] = "#E7EAEF",
         ["ScrollThumbBrush"] = "#C6CBD3",
         ["PopupSurfaceBrush"] = "#FFFFFFFF",
+        // 悬浮说明框（ToolTip）：比卡片更"浮起"一点，靠圆角 + 细边框 + 投影与卡片区分
+        ["TooltipSurfaceBrush"] = "#FFFFFFFF",
+        ["TooltipBorderBrush"] = "#1A000000",
         ["InputBoxBrush"] = "#EDF0F4",
         ["InputBoxDisabledBrush"] = "#4DFFFFFF",
         ["SwitchTrackBrush"] = "#D8DCE2",
@@ -188,6 +191,9 @@ public static class ThemeManager
         ["TrackBrush"] = "#FF3A4048",
         ["ScrollThumbBrush"] = "#FF4C525B",
         ["PopupSurfaceBrush"] = "#FF2A2E35",
+        // 悬浮说明框：深色下比卡片（#24272D）**更亮**，与浅色下"更白"表达同一件事——浮起
+        ["TooltipSurfaceBrush"] = "#FF31363F",
+        ["TooltipBorderBrush"] = "#26FFFFFF",
         ["InputBoxBrush"] = "#FF2C3138",
         ["InputBoxDisabledBrush"] = "#FF1E2228",
         ["SwitchTrackBrush"] = "#FF454B54",
