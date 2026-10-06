@@ -2506,8 +2506,9 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                 Maximum = EqPreset.MaxGainDb,
                 Value = 0,
                 Tag = i,                     // 事件里据此知道是哪一段
-                ToolTip = $"{EqPreset.LabelOf(i)} Hz",
             };
+            // 10 段推子共用一条说明（具体是哪个频段看下方的频率标签）
+            Tip.SetKey(slider, "Eq.Band");
             slider.ValueChanged += OnEqBandChanged;
 
             var label = new TextBlock

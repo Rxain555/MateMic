@@ -57,8 +57,10 @@ public static class TextCatalog
             }
             else
             {
+                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var (key, text) in Parse(File.ReadAllLines(FilePath, Encoding.UTF8)))
                 {
+                    seen.Add(key);
                     if (!Values.ContainsKey(key))
                     {
                         // 文件里出现了程序不认识的标识（多半是手误）：记一条日志，不报错
@@ -72,6 +74,17 @@ public static class TextCatalog
                     Values[key] = text.Trim();
                     if (Values[key].Length == 0) blank++;
                     else fromFile++;
+                }
+
+                // 程序升级后可能新增了文案项。**把它们追加到文件末尾**，
+                // 这样用户手里那份文件始终是完整的"可改清单"，
+                // 不必去猜"还有哪些控件能加说明"（这正是用户 2026-10-06 提的诉求）。
+                // 只追加，**绝不改写已有内容** —— 用户可能已经逐条改过。
+                var missing = Defaults.Where(e => !seen.Contains(e.Key)).ToList();
+                if (missing.Count > 0)
+                {
+                    AppendEntries(missing);
+                    Log.Info($"文案文件已补齐 {missing.Count} 条新增项（追加到文件末尾，已有内容未改动）");
                 }
             }
         }
@@ -153,16 +166,18 @@ public static class TextCatalog
     {
         var builder = new StringBuilder();
         builder.AppendLine("# ============================================================");
-        builder.AppendLine("# MateMic 文案文件");
+        builder.AppendLine("# MateMic 文案文件 —— 全部「悬浮说明」与「说明对话框正文」都在这里");
         builder.AppendLine("#");
         builder.AppendLine("# 直接改下面的文字，另存为 UTF-8 编码，然后重新打开 MateMic 即可生效");
         builder.AppendLine("# —— 不需要重新编译，也不需要重新安装。");
         builder.AppendLine("#");
         builder.AppendLine("#   · [标识] 是这段文案的名字，请勿改动；要改的是它下面的内容。");
         builder.AppendLine("#   · 内容可以写多行，回车换行即可。");
-        builder.AppendLine("#   · 以 # 开头的行是注释，不会显示。");
+        builder.AppendLine("#   · 以 # 开头的行是注释（写着这段用在哪），不会显示。");
         builder.AppendLine("#   · 把某段的内容**清空**（[标识] 留着、下面空着）＝ 不再显示这条说明。");
-        builder.AppendLine("#   · 把某段**整段删掉**则退回内置的默认文字（与清空效果不同，按需要选）。");
+        builder.AppendLine("#   · 本文件按控件分组，**每一条都对应界面上一个具体的控件/部位**，");
+        builder.AppendLine("#     想给哪个控件改说明，按分组找过去就行。");
+        builder.AppendLine("#   · 程序升级后若新增了可改的条目，会**自动追加到本文件末尾**（不会改动你已改的内容）。");
         builder.AppendLine("#   · {版本} / {键} 这类花括号是占位符，由程序替换，请保留。");
         builder.AppendLine("# ============================================================");
         builder.AppendLine();
@@ -189,16 +204,50 @@ public static class TextCatalog
         File.WriteAllText(FilePath, builder.ToString(), new UTF8Encoding(true));
     }
 
+    /// <summary>
+    /// 把新增（文件里还没有）的条目追加到文件末尾。
+    ///
+    /// **只追加，不改写已有内容**：用户可能已经逐条改过，任何"重新生成整个文件"的做法
+    /// 都会把他的修改冲掉。用无 BOM 追加：文件本身是否带 BOM 由首次生成时决定，
+    /// 追加时再写一次 BOM 会在文件中间插入 EF BB BF。
+    /// </summary>
+    private static void AppendEntries(List<Entry> entries)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine();
+        builder.AppendLine("# ------------------------------------------------------------");
+        builder.AppendLine("# 以下条目是程序更新后新增的，等你来改");
+        builder.AppendLine("# ------------------------------------------------------------");
+        builder.AppendLine();
+
+        foreach (var entry in entries)
+        {
+            builder.AppendLine("# " + entry.Hint);
+            builder.AppendLine("[" + entry.Key + "]");
+            builder.AppendLine(entry.Text);
+            builder.AppendLine();
+        }
+
+        File.AppendAllText(FilePath, builder.ToString(), new UTF8Encoding(false));
+    }
+
     /// <summary>模板文件里的分组标题（只影响可读性，程序不读它）。</summary>
     private static string SectionOf(string key) => key.Split('.')[0] switch
     {
         "Caption" => "标题栏按钮",
         "Toolbar" => "工具栏",
+        "Device" => "设备选择（顶部三个下拉框）",
+        "Gate" => "噪声门",
         "Denoise" => "AI 降噪",
         "Voice" => "DSP 变声",
         "Loudness" => "响度平衡",
+        "Eq" => "EQ 均衡器",
+        "Effect" => "效果器",
+        "Gain" => "增益",
         "Player" => "播放器面板",
         "Track" => "音频列表",
+        "Spectrum" => "频谱与电平",
+        "Level" => "频谱与电平",
         "Dialog" => "说明对话框（标题）",
         "Guide" => "说明对话框（正文）",
         "Risk" => "风险说明",
@@ -241,20 +290,95 @@ public static class TextCatalog
             "Windows 声音设置、设备选择、MIXLINE 接法"),
         new("Toolbar.About", "工具栏「关于」按钮",
             "字体、模型与第三方组件的署名与许可"),
+        new("Toolbar.AutoStart", "工具栏「开机自启」开关",
+            "打开后，登录 Windows 时自动启动 MateMic 并直接收进系统托盘（不弹主窗口）。设置会保存，下次开机继续沿用。"),
+
+        // ---------------------------------------------------------- 设备选择
+        new("Device.Input", "顶部「输入」设备下拉框",
+            """
+            选择实际在用的物理麦克风。
+            ⚠ 这里不要选 MIXLINE Stream —— 那是给游戏/语音软件用的虚拟设备；MateMic 需要拿到真实麦克风的声音。
+            """),
+        new("Device.Output", "顶部「输出」设备下拉框",
+            """
+            处理后的声音送到哪里。
+            · 配合 MIXLINE 使用时选「扬声器 (MIXLINE)」；
+            · 也可以选普通扬声器，直接本地出声。
+            """),
+        new("Device.Monitor", "顶部「监听」设备下拉框",
+            "选择你实际在用的物理扬声器或耳机，用来听监听内容。要和左边的「输出」分开选，否则监听会绕回虚拟设备、听不到真实效果。"),
+
+        // ---------------------------------------------------------- 噪声门
+        new("Gate.Enable", "噪声门模块开关",
+            "打开噪声门：低于阈值的持续底噪（空调、风扇、电流声）被压掉；说话时自动让路，说完再关上。"),
+        new("Gate.Threshold", "噪声门「阈值」滑条",
+            "低于这个电平的声音被当作噪声压掉。−55 dBFS 接近安静房间的底噪水平；说话声音偏小就调高一些（例如 −45）。"),
+        new("Gate.Release", "噪声门「释放时间」滑条",
+            "声音停下后，噪声门再等多久才关上。太短会把句尾的尾音切掉，太长则能听出明显的“抽气”感。"),
 
         // ---------------------------------------------------------- AI 降噪
         new("Denoise.OpenFolder", "AI 降噪「打开模型文件夹」按钮",
             "打开降噪模型文件夹"),
+        new("Denoise.Enable", "AI 降噪模块开关",
+            "打开后按所选模型做 AI 降噪。模型越重，效果通常越好，但占用的 CPU / GPU 也越多。"),
+        new("Denoise.Model", "AI 降噪「模型」下拉框",
+            "选择降噪模型。列表里既有随程序内置的模型，也有你自己放进模型目录的 .onnx 文件（点右侧按钮可打开该目录）。"),
+        new("Denoise.Strength", "AI 降噪「强度」滑条",
+            "降噪的作用力度。调高更安静，但过高会让声音发闷、发“糊”。"),
+        new("Denoise.Wet", "AI 降噪「干湿比」滑条",
+            "降噪结果与原始声音的混合比例。100% 完全使用降噪后的声音；调低会混回一部分原声，更自然但底噪也回来一些。"),
 
         // ---------------------------------------------------------- 变声
+        new("Voice.Enable", "DSP 变声模块开关",
+            "打开后按下面四项改变你的音色。它工作在 AI 降噪之后。"),
+        new("Voice.Pitch", "DSP 变声「变调」滑条",
+            "整体移动音高，单位半音（12 半音 = 一个八度）。只动它会让声音像“加速 / 减速”，通常要和下面的共振峰一起调。"),
         new("Voice.GenderFactor", "DSP 变声「声线」滑条",
             "负值更低沉、正值更清亮。按你的基频分布自动适配，比单纯变调自然。"),
+        new("Voice.Formant", "DSP 变声「共振峰」滑条",
+            "独立搬移共振峰（声音的“粗细”），不影响音高。这是让变声听起来自然的关键：男→女时音高与共振峰都要往上走。"),
+        new("Voice.Mix", "DSP 变声「干湿比」滑条",
+            "变声结果与原始声音的混合比例。100% 完全是变声后的声音。"),
 
         // ---------------------------------------------------------- 响度
+        new("Loudness.Enable", "响度平衡模块开关",
+            "打开后自动把音量拉到目标响度，说话大声小声听起来一样响（类似“自动增益”）。"),
         new("Loudness.Target", "响度平衡「目标响度」滑条",
             "麦克风信号的平均电平要拉到多少 dBFS。说话偏小就把目标调高（如 −16），偏大就调低（如 −24）。"),
         new("Loudness.Speed", "响度平衡「跟随速度」滑条",
             "增益跟随音量变化的快慢。数值越大反应越快（约 2.5 秒 → 0.15 秒）；太快会有明显的抽吸感，太慢会跟不上。"),
+
+        // ---------------------------------------------------------- EQ 均衡器
+        new("Eq.Enable", "EQ 均衡器模块开关",
+            "打开后按下面的曲线调整音色。全部 0 dB（平坦）时它不参与处理，等于关闭。"),
+        new("Eq.Curve", "EQ 上方的响应曲线",
+            "当前 EQ 的形状：横轴是频率（与下方 10 段推子一一对应），中间那条横线是 0 dB。点预设或拖推子都会立刻反映在这里。"),
+        new("Eq.Band", "EQ 的垂直推子（10 段共用这一条说明）",
+            "上下拖动调整该频段的增益，范围 ±12 dB、0 dB 在正中间。手动拖过之后会自动脱离预设，变成“自定义”。"),
+        new("Eq.Preset.Bright", "EQ 预设「清亮」",
+            "抬升 4–8 kHz 的空气感、压低 300 Hz 以下的浑浊。适合想让声音更通透、更“靠前”的时候。"),
+        new("Eq.Preset.Warm", "EQ 预设「沉稳」",
+            "抬升 125–250 Hz 的厚度、削掉刺耳的高频。声音更厚实、更耐听。"),
+        new("Eq.Preset.Deep", "EQ 预设「深邃」",
+            "大幅加重低频、明显衰减 1–4 kHz 的存在感。声音低沉、有距离感。"),
+        new("Eq.Preset.Sharp", "EQ 预设「尖锐」",
+            "抬升 4–16 kHz 的清晰度。字头更锋利、更突出，但推得太多容易刺耳。"),
+        new("Eq.Preset.Ethereal", "EQ 预设「空灵」",
+            "轻抬 2–16 kHz、衰减 500 Hz 一带。声音更轻、更“飘”。"),
+        new("Eq.Reset", "EQ「重置」按钮",
+            "把所有频段恢复到 0 dB（平坦），并取消预设的选中状态。"),
+
+        // ---------------------------------------------------------- 效果器
+        new("Effect.Enable", "效果器模块开关",
+            "打开后按选中的效果处理声音（混响 / 延迟 / 和声 / 电话 / 颤音 / 电音 / 炸麦）。"),
+        new("Effect.Amount", "效果器「深度」滑条",
+            "效果的强度。越大越明显，具体听感取决于所选的那一项效果。"),
+
+        // ---------------------------------------------------------- 增益
+        new("Gain.Enable", "增益模块开关",
+            "打开后按固定值放大或衰减音量，用来补足麦克风本身的响度差异。"),
+        new("Gain.Amount", "增益「增益」滑条",
+            "固定的增益量，单位 dB。它是处理链的最后一环，调它不会影响前面各模块的判断。"),
 
         // ---------------------------------------------------------- 播放器
         new("Player.AudioMonitor", "播放器「音频监听」开关",
@@ -266,6 +390,14 @@ public static class TextCatalog
             """),
         new("Player.HoldKeySwitch", "播放器「同步按住键」开关",
             "启用后，可以为每个音频文件指定一个按键：播放前自动按下、播放结束后自动松开，用来替代游戏/语音软件里「按键说话」的手动按键。用 Win32 SendInput 注入按键，内核级反作弊（Vanguard / EAC / BattlEye 等）有能力识别注入事件，存在被判定风险，默认关闭。启用时会弹窗说明。"),
+        new("Player.Loop", "播放器「循环播放」开关",
+            "打开后，播放的音频放完会自动从头再来，直到你手动停止。"),
+        new("Player.Volume", "播放器「播放音量」滑条",
+            "播放器（伴奏 / 语音包）的音量。只影响播放器这一路，不影响麦克风。"),
+        new("Player.Risk", "播放器「风险说明」按钮",
+            "查看「同步按住键」的完整风险说明。建议在开启该功能之前读一遍。"),
+        new("Player.AddFiles", "播放器「添加音频文件」按钮",
+            "把伴奏或语音包加进列表。也可以直接把文件拖进窗口来添加。"),
 
         // ---------------------------------------------------------- 音频列表
         new("Track.Row", "音频列表每一行",
@@ -286,6 +418,14 @@ public static class TextCatalog
             "点击设置按键：播放该音频前自动按下、播放结束后自动松开（用来替代游戏里手动按「按键说话」）"),
         new("Track.HoldKey.Set", "同步按住键按钮（已设置）的悬浮提示；{键} 会被替换成当前按键",
             "当前按键：{键}（点击可重新设置；录入时按 Esc 取消、Backspace 清除）"),
+
+        // ---------------------------------------------------------- 频谱与电平
+        new("Spectrum.Input", "中栏上方「输入」实时频谱",
+            "麦克风经过处理之后的实时频谱：横轴是对数频率刻度（100 Hz – 16 kHz），纵轴是各频段的能量。哪一段抬起来，就是那个频段现在有声音。"),
+        new("Spectrum.Output", "中栏下方「输出」实时频谱",
+            "最终送出去的信号的频谱（含播放器混音）。与上面的输入频谱对比，能直观看出各模块改动了什么。"),
+        new("Level.Meter", "底部「音量合适度」参照尺",
+            "麦克风当前音量落在哪一档：左绿右红，越靠右越接近削波。黑色短线是最近几秒的峰值，会缓慢回落。"),
 
         // ---------------------------------------------------------- 说明对话框
         new("Dialog.UsageGuide.Title", "「使用指南」对话框标题",
