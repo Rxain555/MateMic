@@ -870,7 +870,8 @@
                                     <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="同步按住键" />
                                     <CheckBox x:Name="ToggleHoldKey" Grid.Column="1" Style="{StaticResource Switch}"
                                               Margin="6,0,10,0" Checked="OnHoldKeyToggled"
-                                              Unchecked="OnHoldKeyToggled" />
+                                              Unchecked="OnHoldKeyToggled"
+                                              PreviewMouseLeftButtonDown="OnHoldKeyTogglePreview" />
                                     <Button Grid.Column="2" Style="{StaticResource FlatButton}" Content="风险说明"
                                             Padding="6,1,6,1" HorizontalAlignment="Left"
                                             Click="OnHoldKeyRiskClick"/>

@@ -2911,11 +2911,10 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         var text = version == null ? "v?" : "v" + version.ToString(3);
 
         return
-            $"MateMic {text}   ·   MIT 许可\n" +
-            "https://github.com/Rxain555/MateMic\n\n" +
-            "界面字体 MiSans（小米，免费商用）。\n" +
-            "内置 3 个 ONNX 降噪模型；自备模型的许可由模型提供方决定。\n" +
-            "第三方组件：NAudio / NWaves / ONNX Runtime（均 MIT）。";
+            $"MateMic {text}   MIT 许可\n\n" +
+            "降噪模型   DPDFNet / gtcrn\n" +
+            "界面字体   MiSans\n" +
+            "第三方组件   NAudio / NWaves / ONNX Runtime";
     }
 
     // =============================================================== 播放器
@@ -3062,21 +3061,15 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         BeginKeyboardCapture();
     }
 
-    /// <summary>「同步按住键」总开关。开启前先弹一次风险说明，用户确认后才生效。</summary>
+    /// <summary>
+    /// 「同步按住键」总开关。风险确认已在 <see cref="OnHoldKeyTogglePreview"/> 里做完，
+    /// 这里只负责把开关的新状态落到配置与列表中。
+    /// </summary>
     private void OnHoldKeyToggled(object sender, RoutedEventArgs e)
     {
         if (_loading) return;
 
         var enabled = ToggleHoldKey.IsChecked == true;
-        if (enabled && !_config.Player.EnableHoldKey && !ConfirmHoldKeyRisk())
-        {
-            // 用户没有确认风险：把开关拨回去（不会再次触发本方法，因为 _loading 期间忽略回调）
-            _loading = true;
-            ToggleHoldKey.IsChecked = false;
-            _loading = false;
-            return;
-        }
-
         _config.Player.EnableHoldKey = enabled;
         foreach (var track in _tracks) track.HoldKeyFeatureEnabled = enabled;
 
@@ -3086,6 +3079,42 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             ? "「同步按住键」已启用：现在可以为每个音频文件设置一个自动按住的按键。"
             : "「同步按住键」已关闭。", false);
         SaveConfig();
+    }
+
+    /// <summary>
+    /// 「同步按住键」开关的**前置拦截**：没确认过风险就不让开关真的拨过去。
+    ///
+    /// ⚠ 为什么不在 Checked 事件里"先拨到开 → 弹窗 → 用户取消 → 再设回 false"：
+    /// 开关的**底色**是模板 Trigger 的 `Setter` 驱动的，设回 false 会立刻变回灰；
+    /// 但**滑块位置是 Storyboard 动画**驱动的（`EnterActions`/`ExitActions` 各跑一个），
+    /// 实测这样"拨过去再拨回来"之后动画会残留，滑块停在"开"的那一头 ——
+    /// 于是出现"底色是灰的、滑块却在右边"这种自相矛盾的样子
+    /// （用户 2026-10-06 报的问题，已复现并抓图）。
+    ///
+    /// 在**切换发生之前**下载这次点击，IsChecked 从头到尾都是 false，不会产生那个中间状态。
+    /// 开关是 `Focusable=False` 的（见 `Theme.Modern.xaml` 的 `Switch` 样式），键盘切不动，所以只需拦鼠标。
+    ///
+    /// ⚠ 确认之后**必须自己把 IsChecked 拨过去**：这里弹的是模态对话框，
+    /// 用户点"确认继续"时鼠标左键已经在对话框上抬起了，而 CheckBox 要等到
+    /// `MouseLeftButtonUp` 才切换 —— 那个事件永远不会再来，不手动拨就开不了。
+    /// </summary>
+    private void OnHoldKeyTogglePreview(object sender, MouseButtonEventArgs e)
+    {
+        if (_loading) return;
+
+        // 已经开着 = 这次点击是要"关掉"，不需要再确认
+        if (_config.Player.EnableHoldKey) return;
+
+        if (!ConfirmHoldKeyRisk())
+        {
+            // 用户没有确认风险：吃掉这次点击，开关保持关闭、也不会动
+            e.Handled = true;
+            return;
+        }
+
+        // 确认了：手动拨过去（会走 Checked → OnHoldKeyToggled 把配置落地）
+        ToggleHoldKey.IsChecked = true;
+        e.Handled = true;
     }
 
     private void OnHoldKeyRiskClick(object sender, RoutedEventArgs e) => ShowHoldKeyRisk(false);
@@ -3101,25 +3130,28 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
     private const string HoldKeyRiskText =
         """
-        「同步按住键」会用 Win32 SendInput 向系统注入按键事件（按下 / 松开）：
-        播放某个音频文件之前自动按下你指定的按键，播放结束后自动松开。
-        典型用法：把该键设成游戏或语音软件里「按键说话」的那个键，
-        这样按快捷键播放语音包时就不必再手动按住说话键。
+        请不要在反作弊运行时使用此功能！
+        请不要在反作弊运行时使用此功能！
+        请不要在反作弊运行时使用此功能！
 
-        关于反作弊：
-        · SendInput 注入的事件带有 LLKHF_INJECTED 标记，属于「软件模拟输入」。
-        · 内核级反作弊（Riot Vanguard、Easy Anti-Cheat、BattlEye、FACEIT 等）有能力识别这类事件；
-          是否判定为违规由厂商的策略决定，【这个风险无法排除】。
-        · 本功能只发送你自己录入的那一个按键，不连发、不循环、不读写任何其它进程、不注入代码。
-        · 如果游戏对模拟输入查得很严，请不要使用本功能；
-          可改用硬件级方案（键盘宏 / 脚踏开关 / 手柄映射）达到同样的效果。
+        同步按住键功能使用 Win32 SendInput 向系统注入按键事件
+        SendInput 注入带有 LLKHF_INJECTED 标记，属于软件模拟输入
+        此种行为是否违规由反作弊的策略决定
+        此功能不包含任何作弊功能，仅在用户播放音频时通过模拟输入同步按住一个用户设置的按键
+        请遵守游戏或第三方平台的用户协议及相关规则
+        因开启此功能导致被反作弊封禁，本软件开发者及关联方不承担任何责任
 
-        因此该功能默认关闭，需要你自己开启。
+        请认真阅读以上内容，点击下方确认继续按钮将视为已阅读并了解相应风险
+        并自行承担由此产生的一切后果
         """;
+
+    /// <summary>确认框的主按钮文案（用户指定：把"继续"写清楚，避免顺手点过）。</summary>
+    private const string HoldKeyRiskConfirmText = "我已阅读并了解风险，确认继续";
 
     /// <summary>开启前的确认框；返回 true 表示用户接受风险。</summary>
     private bool ConfirmHoldKeyRisk()
-        => DialogHost.Confirm(this, HoldKeyRiskTitle, HoldKeyRiskText + "\n\n是否启用「同步按住键」？");
+        => DialogHost.Ask(this, HoldKeyRiskTitle, HoldKeyRiskText,
+                          "取消", HoldKeyRiskConfirmText);
 
     private void ShowHoldKeyRisk(bool warning)
     {

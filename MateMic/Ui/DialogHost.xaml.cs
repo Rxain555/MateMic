@@ -262,6 +262,15 @@ public sealed class DialogHost : Window
     public static bool Confirm(Window? owner, string title, string message)
         => Show(owner, title, message, "取消", "继续");
 
+    /// <summary>
+    /// 按钮文案自己定的确认框。
+    /// 风险说明这类"点错了后果很重"的地方，把主按钮写成一句完整的话
+    /// （而不是笼统的「继续」），用户得真的读一遍才点得下去。
+    /// </summary>
+    public static bool Ask(Window? owner, string title, string message,
+                           string secondaryText, string primaryText)
+        => Show(owner, title, message, secondaryText, primaryText);
+
     /// <summary>是否框：主按钮是「是」。</summary>
     public static bool YesNo(Window? owner, string title, string message)
         => Show(owner, title, message, "否", "是");
