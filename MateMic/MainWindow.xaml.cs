@@ -3064,6 +3064,10 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     /// <summary>
     /// 「同步按住键」总开关。风险确认已在 <see cref="OnHoldKeyTogglePreview"/> 里做完，
     /// 这里只负责把开关的新状态落到配置与列表中。
+    ///
+    /// **刻意不弹状态条**：开关本身就是反馈（蓝=开、灰=关），
+    /// 打开后列表里每条也立刻多出「设同步键」按钮，再弹一条黄字纯属重复
+    /// （用户 2026-10-07 要求去掉，与之前取消「重置」提示是同一个理由）。
     /// </summary>
     private void OnHoldKeyToggled(object sender, RoutedEventArgs e)
     {
@@ -3075,9 +3079,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
         if (!enabled) _keyboard.Release();
 
-        ShowStatus(enabled
-            ? "「同步按住键」已启用：现在可以为每个音频文件设置一个自动按住的按键。"
-            : "「同步按住键」已关闭。", false);
         SaveConfig();
     }
 
