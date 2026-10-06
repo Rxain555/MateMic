@@ -123,10 +123,21 @@ public sealed class TrackViewModel : INotifyPropertyChanged
             Math.Ceiling(formatted.WidthIncludingTrailingWhitespace) + ButtonChromeWidth + WidthSafetyMargin);
     }
 
-    /// <summary>快捷键控件的悬浮提示：说明怎么操作，并重复一遍当前键位（万一按钮里被截断）。</summary>
-    public string HotkeyButtonTooltip => string.IsNullOrWhiteSpace(_hotkey)
-        ? TextCatalog.Get("Track.Hotkey.Empty")
-        : TextCatalog.Get("Track.Hotkey.Set").Replace("{键}", _hotkey);
+    /// <summary>
+    /// 快捷键控件的悬浮提示：说明怎么操作，并重复一遍当前键位（万一按钮里被截断）。
+    /// 文案留空时返回 <c>null</c> —— 与 <see cref="MateMic.Ui.Tip"/> 一致：
+    /// "空"表示作者关掉了这条说明，此时不显示提示框（而不是弹一个空框）。
+    /// </summary>
+    public string? HotkeyButtonTooltip
+    {
+        get
+        {
+            var text = string.IsNullOrWhiteSpace(_hotkey)
+                ? TextCatalog.Get("Track.Hotkey.Empty")
+                : TextCatalog.Get("Track.Hotkey.Set").Replace("{键}", _hotkey);
+            return string.IsNullOrWhiteSpace(text) ? null : text;
+        }
+    }
 
     /// <summary>播放前自动按下、播放结束后松开的按键（空 = 不使用）。</summary>
     public string HoldKey
@@ -182,9 +193,17 @@ public sealed class TrackViewModel : INotifyPropertyChanged
     /// <summary>和快捷键控件一样：宽度按实测文字给（单个按键名最长的是「小键盘 *」）。</summary>
     public double HoldKeyButtonWidth => MeasureButtonWidth(HoldKeyText);
 
-    public string HoldKeyTooltip => string.IsNullOrEmpty(_holdKey)
-        ? TextCatalog.Get("Track.HoldKey.Empty")
-        : TextCatalog.Get("Track.HoldKey.Set").Replace("{键}", _holdKey);
+    /// <summary>同步按住键控件的悬浮提示；文案留空时返回 <c>null</c>（不显示），理由同上。</summary>
+    public string? HoldKeyTooltip
+    {
+        get
+        {
+            var text = string.IsNullOrEmpty(_holdKey)
+                ? TextCatalog.Get("Track.HoldKey.Empty")
+                : TextCatalog.Get("Track.HoldKey.Set").Replace("{键}", _holdKey);
+            return string.IsNullOrWhiteSpace(text) ? null : text;
+        }
+    }
 
     /// <summary>是否已设好同步按键（未设或总开关关着时显示成灰字占位符）。</summary>
     public bool IsHoldKeySet => _holdKeyFeatureEnabled && !string.IsNullOrWhiteSpace(_holdKey);

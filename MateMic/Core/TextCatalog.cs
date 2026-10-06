@@ -47,6 +47,7 @@ public static class TextCatalog
         foreach (var entry in Defaults) Values[entry.Key] = entry.Text;
 
         var fromFile = 0;
+        var blank = 0;
         try
         {
             if (!File.Exists(FilePath))
@@ -58,8 +59,6 @@ public static class TextCatalog
             {
                 foreach (var (key, text) in Parse(File.ReadAllLines(FilePath, Encoding.UTF8)))
                 {
-                    // 空内容视为"用户把这句留空了"，退回默认值，避免界面上出现空白
-                    if (string.IsNullOrWhiteSpace(text)) continue;
                     if (!Values.ContainsKey(key))
                     {
                         // 文件里出现了程序不认识的标识（多半是手误）：记一条日志，不报错
@@ -67,8 +66,12 @@ public static class TextCatalog
                         continue;
                     }
 
-                    Values[key] = text;
-                    fromFile++;
+                    // **内容留空 = 用户明确关掉这条说明**（相应的悬浮说明会整个不显示）。
+                    // 注意与"整段删掉"的区别：删掉会退回内置默认值，留空才是关闭。
+                    // 这两种手段各有用处，所以不能把空值也当成"没写"而回退默认。
+                    Values[key] = text.Trim();
+                    if (Values[key].Length == 0) blank++;
+                    else fromFile++;
                 }
             }
         }
@@ -77,7 +80,8 @@ public static class TextCatalog
             Log.Warn("文案文件读取失败，全部改用内置默认文案：" + ex.Message);
         }
 
-        Log.Info($"界面文案已就绪：共 {Values.Count} 条，其中 {fromFile} 条来自 {FilePath}");
+        Log.Info($"界面文案已就绪：共 {Values.Count} 条，其中 {fromFile} 条来自 {FilePath}"
+                 + (blank > 0 ? $"，另有 {blank} 条留空（不显示）" : string.Empty));
         _loaded = true;
 
         Publish();
@@ -157,7 +161,8 @@ public static class TextCatalog
         builder.AppendLine("#   · [标识] 是这段文案的名字，请勿改动；要改的是它下面的内容。");
         builder.AppendLine("#   · 内容可以写多行，回车换行即可。");
         builder.AppendLine("#   · 以 # 开头的行是注释，不会显示。");
-        builder.AppendLine("#   · 整段删掉也没关系：程序会退回内置的默认文字。");
+        builder.AppendLine("#   · 把某段的内容**清空**（[标识] 留着、下面空着）＝ 不再显示这条说明。");
+        builder.AppendLine("#   · 把某段**整段删掉**则退回内置的默认文字（与清空效果不同，按需要选）。");
         builder.AppendLine("#   · {版本} / {键} 这类花括号是占位符，由程序替换，请保留。");
         builder.AppendLine("# ============================================================");
         builder.AppendLine();

@@ -73,9 +73,9 @@
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal">
                     <Button x:Name="CaptionMinimizeButton" Style="{StaticResource CaptionButton}"
-                            Click="OnCaptionMinimizeClick" ToolTip="{DynamicResource 文案.Caption.Minimize}" Content="min" />
+                            Click="OnCaptionMinimizeClick" ui:Tip.Key="Caption.Minimize" Content="min" />
                     <Button x:Name="CaptionCloseButton" Style="{StaticResource CaptionCloseButton}"
-                            Click="OnCaptionCloseClick" ToolTip="{DynamicResource 文案.Caption.Close}" Content="close" />
+                            Click="OnCaptionCloseClick" ui:Tip.Key="Caption.Close" Content="close" />
                 </StackPanel>
             </Grid>
         </Border>
@@ -103,18 +103,18 @@
                     <TextBlock Style="{StaticResource LabelText}" Text="音频处理" Margin="0,0,5,0" />
                     <CheckBox x:Name="ToggleProcessing" Style="{StaticResource Switch}" Margin="0,0,12,0"
                               Checked="OnProcessingToggled" Unchecked="OnProcessingToggled"
-                              ToolTip="{DynamicResource 文案.Toolbar.Processing}" />
+                              ui:Tip.Key="Toolbar.Processing" />
 
                     <TextBlock Style="{StaticResource LabelText}" Text="全局快捷键" Margin="0,0,5,0" />
                     <Button x:Name="HotkeyButton" Style="{StaticResource ToolbarButton}"
                             Width="118" Margin="0,0,12,0" Click="OnGlobalHotkeyClick"
                             Content="点击输入快捷键"
-                            ToolTip="{DynamicResource 文案.Toolbar.Hotkey}" />
+                            ui:Tip.Key="Toolbar.Hotkey" />
 
                     <TextBlock Style="{StaticResource LabelText}" Text="监听" Margin="0,0,5,0" />
                     <CheckBox x:Name="ToggleMonitor" Style="{StaticResource Switch}" Margin="0,0,12,0"
                               Checked="OnMonitorToggled" Unchecked="OnMonitorToggled"
-                              ToolTip="{DynamicResource 文案.Toolbar.Monitor}" />
+                              ui:Tip.Key="Toolbar.Monitor" />
 
                     <TextBlock Style="{StaticResource LabelText}" Text="开机自启" Margin="0,0,5,0" />
                     <CheckBox x:Name="ToggleAutoStart" Style="{StaticResource Switch}" Margin="0,0,12,0"
@@ -123,11 +123,11 @@
                     <TextBlock Style="{StaticResource LabelText}" Text="关闭到托盘" Margin="0,0,5,0" />
                     <CheckBox x:Name="ToggleCloseTray" Style="{StaticResource Switch}" Margin="0,0,12,0"
                               Checked="OnTrayToggled" Unchecked="OnTrayToggled"
-                              ToolTip="{DynamicResource 文案.Toolbar.CloseToTray}" />
+                              ui:Tip.Key="Toolbar.CloseToTray" />
                     <TextBlock Style="{StaticResource LabelText}" Text="深色模式" Margin="0,0,5,0" />
                     <CheckBox x:Name="ToggleDarkMode" Style="{StaticResource Switch}"
                               Checked="OnDarkModeToggled" Unchecked="OnDarkModeToggled"
-                              ToolTip="{DynamicResource 文案.Toolbar.DarkMode}" />
+                              ui:Tip.Key="Toolbar.DarkMode" />
 
                     </WrapPanel>
 
@@ -140,7 +140,7 @@
                         <Button x:Name="UsageGuideButton" Style="{StaticResource ToolbarButton}"
                                 Content="使用指南" Padding="8,3,8,3" Margin="0,0,6,0"
                                 Click="OnUsageGuideClick"
-                                ToolTip="{DynamicResource 文案.Toolbar.Guide}" />
+                                ui:Tip.Key="Toolbar.Guide" />
                         <!--
                           关于：字体 / 降噪模型 / 第三方组件的署名与许可集中放这里。
                           一是 MiSans 的授权要求"应在软件中特别注明"，
@@ -149,7 +149,7 @@
                         <Button x:Name="AboutButton" Style="{StaticResource ToolbarButton}"
                                 Content="关于" Padding="8,3,8,3" Margin="0,0,6,0"
                                 Click="OnAboutClick"
-                                ToolTip="{DynamicResource 文案.Toolbar.About}" />
+                                ui:Tip.Key="Toolbar.About" />
                         <TextBlock x:Name="VersionText" Style="{StaticResource LabelText}"
                                    Text="v0.1.0" VerticalAlignment="Center" />
                     </StackPanel>
@@ -238,14 +238,14 @@
                                     <StackPanel x:Name="PanelGate" Visibility="Collapsed" Margin="0,6,0,0">
                                         <Grid Margin="0,2,0,2">
                                             <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="60" />
+                                                <ColumnDefinition Width="62" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="阈值" />
                                             <Grid Grid.Column="1">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="*" />
-                                                    <ColumnDefinition Width="52" />
+                                                    <ColumnDefinition Width="62" />
                                                 </Grid.ColumnDefinitions>
                                                 <Slider x:Name="GateThresholdSlider" Grid.Column="0" VerticalAlignment="Center"
                                                         Style="{StaticResource FlatSlider}" Minimum="-80" Maximum="0"
@@ -256,7 +256,7 @@
                                         </Grid>
                                         <Grid Margin="0,2,0,2">
                                             <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="60" />
+                                                <ColumnDefinition Width="62" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" Style="{StaticResource LabelText}"
@@ -264,7 +264,7 @@
                                             <Grid Grid.Column="1">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="*" />
-                                                    <ColumnDefinition Width="52" />
+                                                    <ColumnDefinition Width="62" />
                                                 </Grid.ColumnDefinitions>
                                                 <Slider x:Name="GateReleaseSlider" Grid.Column="0" VerticalAlignment="Center"
                                                         Style="{StaticResource FlatSlider}" Minimum="10" Maximum="600"
@@ -297,7 +297,7 @@
                                     <StackPanel x:Name="PanelDenoise" Visibility="Collapsed" Margin="0,6,0,0">
                                         <Grid Margin="0,2,0,2">
                                             <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="60" />
+                                                <ColumnDefinition Width="62" />
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
@@ -311,7 +311,7 @@
                                             <Button x:Name="OpenModelsFolderButton" Grid.Column="2"
                                                     Style="{StaticResource IconButton}" Margin="6,0,0,0"
                                                     Click="OnOpenModelsFolderClick"
-                                                    ToolTip="{DynamicResource 文案.Denoise.OpenFolder}">
+                                                    ui:Tip.Key="Denoise.OpenFolder">
                                                 <Path Data="M 1 3 L 5 3 L 6.5 5 L 13 5 L 13 12 L 1 12 Z"
                                                       Stroke="{DynamicResource IconGlyphBrush}" StrokeThickness="1.3"
                                                       StrokeLineJoin="Round" Fill="Transparent" />
@@ -319,7 +319,7 @@
                                         </Grid>
                                         <Grid Margin="0,2,0,2">
                                             <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="60" />
+                                                <ColumnDefinition Width="62" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" Style="{StaticResource LabelText}"
@@ -327,7 +327,7 @@
                                             <Grid Grid.Column="1">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="*" />
-                                                    <ColumnDefinition Width="52" />
+                                                    <ColumnDefinition Width="62" />
                                                 </Grid.ColumnDefinitions>
                                                 <Slider x:Name="DenoiseStrengthSlider" Grid.Column="0" VerticalAlignment="Center"
                                                         Style="{StaticResource FlatSlider}" Minimum="0" Maximum="100"
@@ -338,7 +338,7 @@
                                         </Grid>
                                         <Grid Margin="0,2,0,2">
                                             <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="60" />
+                                                <ColumnDefinition Width="62" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" Style="{StaticResource LabelText}"
@@ -346,7 +346,7 @@
                                             <Grid Grid.Column="1">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="*" />
-                                                    <ColumnDefinition Width="52" />
+                                                    <ColumnDefinition Width="62" />
                                                 </Grid.ColumnDefinitions>
                                                 <Slider x:Name="DenoiseWetSlider" Grid.Column="0" VerticalAlignment="Center"
                                                         Style="{StaticResource FlatSlider}" Minimum="0" Maximum="100"
@@ -380,9 +380,9 @@
                                     <StackPanel x:Name="PanelVoiceChanger" Visibility="Collapsed" Margin="0,6,0,0">
                                         <Grid x:Name="VoicePitchRow" Margin="0,2,0,2">
                                             <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="60" />
+                                                <ColumnDefinition Width="62" />
                                                 <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="52" />
+                                                <ColumnDefinition Width="62" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="变调" />
                                             <Slider x:Name="VoicePitchSlider" Grid.Column="1" VerticalAlignment="Center"
@@ -393,12 +393,12 @@
                                         </Grid>
                                         <Grid x:Name="VoiceGenderRow" Margin="0,2,0,2">
                                             <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="60" />
+                                                <ColumnDefinition Width="62" />
                                                 <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="52" />
+                                                <ColumnDefinition Width="62" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="声线"
-                                                       ToolTip="{DynamicResource 文案.Voice.GenderFactor}" />
+                                                       ui:Tip.Key="Voice.GenderFactor" />
                                             <Slider x:Name="VoiceGenderSlider" Grid.Column="1" VerticalAlignment="Center"
                                                     Style="{StaticResource FlatSlider}" Minimum="-100" Maximum="100"
                                                     Value="0" Tag="VoiceGender" ValueChanged="OnSliderChanged" />
@@ -407,9 +407,9 @@
                                         </Grid>
                                         <Grid x:Name="VoiceFormantRow" Margin="0,2,0,2">
                                             <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="60" />
+                                                <ColumnDefinition Width="62" />
                                                 <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="52" />
+                                                <ColumnDefinition Width="62" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="共振峰" />
                                             <Slider x:Name="VoiceFormantSlider" Grid.Column="1" VerticalAlignment="Center"
@@ -420,9 +420,9 @@
                                         </Grid>
                                         <Grid x:Name="VoiceMixRow" Margin="0,2,0,2">
                                             <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="60" />
+                                                <ColumnDefinition Width="62" />
                                                 <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="52" />
+                                                <ColumnDefinition Width="62" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="干湿比" />
                                             <Slider x:Name="VoiceMixSlider" Grid.Column="1" VerticalAlignment="Center"
@@ -456,7 +456,7 @@
                                     <StackPanel x:Name="PanelLoudness" Visibility="Collapsed" Margin="0,6,0,0">
                                         <Grid Margin="0,2,0,2">
                                             <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="60" />
+                                                <ColumnDefinition Width="62" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" Style="{StaticResource LabelText}"
@@ -464,20 +464,20 @@
                                             <Grid Grid.Column="1">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="*" />
-                                                    <ColumnDefinition Width="52" />
+                                                    <ColumnDefinition Width="62" />
                                                 </Grid.ColumnDefinitions>
                                                 <Slider x:Name="LoudnessTargetSlider" Grid.Column="0" VerticalAlignment="Center"
                                                         Style="{StaticResource FlatSlider}" Minimum="-30" Maximum="-8"
                                                         Value="-20" Tag="LoudnessTarget"
                                                         ValueChanged="OnSliderChanged"
-                                                        ToolTip="{DynamicResource 文案.Loudness.Target}" />
+                                                        ui:Tip.Key="Loudness.Target" />
                                                 <TextBlock Grid.Column="1" Style="{StaticResource SliderValueText}"
                                                            Text="{Binding Value, ElementName=LoudnessTargetSlider, StringFormat='{}{0:0} dB'}" />
                                             </Grid>
                                         </Grid>
                                         <Grid Margin="0,2,0,2">
                                             <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="60" />
+                                                <ColumnDefinition Width="62" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" Style="{StaticResource LabelText}"
@@ -485,12 +485,12 @@
                                             <Grid Grid.Column="1">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="*" />
-                                                    <ColumnDefinition Width="52" />
+                                                    <ColumnDefinition Width="62" />
                                                 </Grid.ColumnDefinitions>
                                                 <Slider x:Name="LoudnessSpeedSlider" Grid.Column="0" VerticalAlignment="Center"
                                                         Style="{StaticResource FlatSlider}" Minimum="1" Maximum="10"
                                                         Value="5" Tag="LoudnessSpeed" ValueChanged="OnSliderChanged"
-                                                        ToolTip="{DynamicResource 文案.Loudness.Speed}" />
+                                                        ui:Tip.Key="Loudness.Speed" />
                                                 <TextBlock Grid.Column="1" Style="{StaticResource SliderValueText}"
                                                            Text="{Binding Value, ElementName=LoudnessSpeedSlider, StringFormat='{}{0:0}/10'}" />
                                             </Grid>
@@ -519,7 +519,17 @@
                                     </Grid>
 
                                     <!--
-                                      展开面板（原 ToneGrid 升级成这一个整体）：预设 → 响应曲线 → 10 段推子 → 重置。
+                                      展开面板：响应曲线 → 10 段推子 → 预设与重置（一整排）。
+
+                                      排布顺序按用户 2026-10-06 的意见调整过：
+                                        · 预设 chip 从顶部**移到最下面**，与推子拉开距离 ——
+                                          原来它紧贴曲线上边，曲线卡片显得"上面很窄、下面很宽"；
+                                        · 原来的「自然」预设删掉，位置换成「重置」按钮 ——
+                                          两者作用重合（都是回到平坦响应），
+                                          而重置单独占一行放在最底下很突兀。
+                                          于是现在是一整排 6 格：5 个预设 + 重置。
+                                          （ToneStyle.Natural 枚举值保留：老配置里可能存着它，
+                                            删枚举会让反序列化失败；只是界面上不再有入口。）
 
                                       · 预设与手动推子共用同一份数据（ToneSettings.Gains）：
                                         点预设 = 整表替换成该预设曲线，推子与曲线当场跟着变；
@@ -528,23 +538,8 @@
                                         手写 80 行 XAML 不值当，而且代码要按索引持有它们。
                                     -->
                                     <StackPanel x:Name="PanelTone" Visibility="Collapsed" Margin="0,6,0,0">
-                                        <UniformGrid x:Name="ToneGrid" Columns="6">
-                                            <RadioButton Style="{StaticResource ChipToggle}" Content="清亮" Tag="Bright"
-                                                         Click="OnToneSelected" />
-                                            <RadioButton Style="{StaticResource ChipToggle}" Content="沉稳" Tag="Warm"
-                                                         Click="OnToneSelected" />
-                                            <RadioButton Style="{StaticResource ChipToggle}" Content="深邃" Tag="Deep"
-                                                         Click="OnToneSelected" />
-                                            <RadioButton Style="{StaticResource ChipToggle}" Content="尖锐" Tag="Sharp"
-                                                         Click="OnToneSelected" />
-                                            <RadioButton Style="{StaticResource ChipToggle}" Content="空灵" Tag="Ethereal"
-                                                         Click="OnToneSelected" />
-                                            <RadioButton Style="{StaticResource ChipToggle}" Content="自然" Tag="Natural"
-                                                         Click="OnToneSelected" />
-                                        </UniformGrid>
-
                                         <!-- 实时响应曲线：拖推子时当场跟着变（10 点折线，x 与推子中心对齐） -->
-                                        <Border Margin="0,6,0,0" CornerRadius="6" ClipToBounds="True"
+                                        <Border CornerRadius="6" ClipToBounds="True"
                                                 Background="{DynamicResource HeaderSurfaceBrush}"
                                                 BorderBrush="{DynamicResource CardBorderBrush}"
                                                 BorderThickness="1">
@@ -560,17 +555,27 @@
                                           （0 dB 时也会填掉一半，看起来像"已经调过了"）。
                                           高度固定 84，与 EqBandSlider 一致，两层的坐标才对得上。
                                         -->
-                                        <Grid Margin="0,7,0,0" Height="84">
+                                        <Grid Margin="0,9,0,0" Height="84">
                                             <Canvas x:Name="EqBarCanvas" ClipToBounds="True" IsHitTestVisible="False" />
                                             <UniformGrid x:Name="EqBandGrid" Columns="10" Background="Transparent" />
                                         </Grid>
                                         <UniformGrid x:Name="EqLabelGrid" Columns="10" Margin="0,3,0,0" />
 
-                                        <Grid Margin="0,8,0,0">
-                                            <Button x:Name="EqResetButton" Style="{StaticResource FlatButton}"
-                                                    Content="重置" Padding="12,2,12,2"
-                                                    HorizontalAlignment="Right" Click="OnEqResetClick" />
-                                        </Grid>
+                                        <!-- 5 个预设 + 重置，一排 6 格（重置用同外观的 ChipButton） -->
+                                        <UniformGrid x:Name="ToneGrid" Columns="6" Margin="0,11,0,0">
+                                            <RadioButton Style="{StaticResource ChipToggle}" Content="清亮" Tag="Bright"
+                                                         Click="OnToneSelected" />
+                                            <RadioButton Style="{StaticResource ChipToggle}" Content="沉稳" Tag="Warm"
+                                                         Click="OnToneSelected" />
+                                            <RadioButton Style="{StaticResource ChipToggle}" Content="深邃" Tag="Deep"
+                                                         Click="OnToneSelected" />
+                                            <RadioButton Style="{StaticResource ChipToggle}" Content="尖锐" Tag="Sharp"
+                                                         Click="OnToneSelected" />
+                                            <RadioButton Style="{StaticResource ChipToggle}" Content="空灵" Tag="Ethereal"
+                                                         Click="OnToneSelected" />
+                                            <Button x:Name="EqResetButton" Style="{StaticResource ChipButton}"
+                                                    Content="重置" Click="OnEqResetClick" />
+                                        </UniformGrid>
                                     </StackPanel>
                                 </StackPanel>
                             </Border>
@@ -611,7 +616,7 @@
                                         </UniformGrid>
                                         <Grid Margin="0,4,0,0">
                                             <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="60" />
+                                                <ColumnDefinition Width="62" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" Style="{StaticResource LabelText}"
@@ -619,7 +624,7 @@
                                             <Grid Grid.Column="1">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="*" />
-                                                    <ColumnDefinition Width="52" />
+                                                    <ColumnDefinition Width="62" />
                                                 </Grid.ColumnDefinitions>
                                                 <Slider x:Name="EffectAmountSlider" Grid.Column="0" VerticalAlignment="Center"
                                                         Style="{StaticResource FlatSlider}" Minimum="0" Maximum="100"
@@ -652,7 +657,7 @@
                                     <StackPanel x:Name="PanelGain" Visibility="Collapsed" Margin="0,6,0,0">
                                         <Grid>
                                             <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="60" />
+                                                <ColumnDefinition Width="62" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" Style="{StaticResource LabelText}"
@@ -660,7 +665,7 @@
                                             <Grid Grid.Column="1">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="*" />
-                                                    <ColumnDefinition Width="52" />
+                                                    <ColumnDefinition Width="62" />
                                                 </Grid.ColumnDefinitions>
                                                 <Slider x:Name="GainSlider" Grid.Column="0" VerticalAlignment="Center"
                                                         Style="{StaticResource FlatSlider}" Minimum="-24" Maximum="24"
@@ -836,21 +841,21 @@
                                     <CheckBox x:Name="ToggleAudioMonitor" Style="{StaticResource Switch}"
                                               Margin="6,0,14,0" Checked="OnAudioMonitorToggled"
                                               Unchecked="OnAudioMonitorToggled"
-                                              ToolTip="{DynamicResource 文案.Player.AudioMonitor}" />
+                                              ui:Tip.Key="Player.AudioMonitor" />
                                     <TextBlock Style="{StaticResource LabelText}" Text="循环播放" />
                                     <CheckBox x:Name="ToggleLoop" Style="{StaticResource Switch}" Margin="6,0,0,0"
                                               Checked="OnLoopToggled" Unchecked="OnLoopToggled" />
                                 </StackPanel>
                                 <Grid Margin="0,8,0,0">
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="60" />
+                                        <ColumnDefinition Width="62" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
                                     <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="播放音量" />
                                     <Grid Grid.Column="1">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="52" />
+                                            <ColumnDefinition Width="62" />
                                         </Grid.ColumnDefinitions>
                                         <Slider x:Name="PlayerVolumeSlider" Grid.Column="0" VerticalAlignment="Center"
                                                 Style="{StaticResource FlatSlider}" Minimum="0" Maximum="100"
@@ -869,7 +874,7 @@
                                     <CheckBox x:Name="ToggleHoldKey" Grid.Column="1" Style="{StaticResource Switch}"
                                               Margin="6,0,10,0" Checked="OnHoldKeyToggled"
                                               Unchecked="OnHoldKeyToggled"
-                                              ToolTip="{DynamicResource 文案.Player.HoldKeySwitch}" />
+                                              ui:Tip.Key="Player.HoldKeySwitch" />
                                     <Button Grid.Column="2" Style="{StaticResource FlatButton}" Content="风险说明"
                                             Padding="6,1,6,1" HorizontalAlignment="Left"
                                             Click="OnHoldKeyRiskClick" />
@@ -901,7 +906,7 @@
                                             <DataTemplate>
                                                 <Grid Height="30" Cursor="Hand"
                                                       MouseLeftButtonUp="OnTrackRowClick"
-                                                      ToolTip="{DynamicResource 文案.Track.Row}">
+                                                      ui:Tip.Key="Track.Row">
                                                     <Grid.Style>
                                                         <Style TargetType="Grid">
                                                             <Setter Property="Background" Value="Transparent" />
@@ -978,7 +983,7 @@
                                                     </Button>
                                                     <Button Grid.Column="3" Style="{StaticResource RemoveButton}"
                                                             Click="OnTrackRemoveClick" Tag="{Binding}"
-                                                            ToolTip="{DynamicResource 文案.Track.Remove}" />
+                                                            ui:Tip.Key="Track.Remove" />
                                                 </Grid>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>

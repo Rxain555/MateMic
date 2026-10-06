@@ -1139,6 +1139,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         if (!IsSelfCheckMode) return;
         try
         {
+            LogTipCoverage();
             LogLayoutGeometryCore();
         }
         catch (Exception ex)
@@ -1147,6 +1148,24 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             // 显式兜住并打印，避免再次误判成"测量没生效"。
             Log.Info($"[布局测量] 测量过程异常：{ex.GetType().Name}: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// 悬浮说明自检：统计"接了文案的控件里有多少当前没有提示"。
+    ///
+    /// 对应「文案留空 = 不显示这条说明」这条语义（见 <see cref="Tip"/>）。
+    /// 启动日志里已经会打印"另有 N 条留空"，这里核对的是**控件侧**的落地结果：
+    /// 留空之后控件上确实没有 ToolTip，而不是留着一个空的提示框。
+    /// </summary>
+    private void LogTipCoverage()
+    {
+        var withKey = Descendants(this).OfType<FrameworkElement>()
+            .Where(e => Tip.GetKey(e) != null)
+            .ToList();
+        var blank = withKey.Count(e => e.ToolTip == null);
+
+        Log.Info($"[悬浮说明自检] 共 {withKey.Count} 个控件接了文案，"
+                 + $"其中 {blank} 个当前无提示（文案留空）");
     }
 
     private void LogLayoutGeometryCore()
