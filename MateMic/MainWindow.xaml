@@ -955,8 +955,7 @@
                                                     <TextBlock Grid.Column="0"
                                                                Style="{StaticResource LabelText}"
                                                                Text="{Binding DisplayName}" Margin="8,0,4,0"
-                                                               TextTrimming="CharacterEllipsis"
-                                                               ToolTip="{Binding FilePath}" />
+                                                               TextTrimming="CharacterEllipsis" />
                                                     <Button Grid.Column="1"
                                                             Content="{Binding HotkeyText}"
                                                             Width="{Binding HotkeyButtonWidth}"

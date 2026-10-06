@@ -88,6 +88,16 @@ public sealed class DialogHost : Window
             MaxHeight = 380,
         };
 
+        // 分页（使用指南）时把正文区**钉死成固定尺寸**：
+        // 每页长短不一，若让它随内容变化，翻页时整个对话框会重新居中、
+        // 底部按钮也跟着在屏幕上跳来跳去，点「下一页」时按钮会从鼠标底下跑掉
+        //（用户 2026-10-06 反馈"变来变去、很难受"）。
+        if (paged)
+        {
+            body.Width = 520;
+            body.Height = 360;
+        }
+
         var messagePanel = new StackPanel
         {
             HorizontalAlignment = HorizontalAlignment.Stretch,

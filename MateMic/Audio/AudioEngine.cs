@@ -477,8 +477,11 @@ public sealed class AudioEngine : IDisposable
                 BuildMonitorPlayer();
                 MicMixer.SetMonitorSink(new MonitorBufferSink(_monitorBuffer!));
                 SyncMonitorMic();
+                // 先算实际生效值再打日志：否则会先报"播放器进监听=True"、
+                // 紧接着又报"为避免两层不再重复送"，读日志的人会以为自相矛盾。
+                SyncPlayerMonitor();
                 Log.Info("监听输出已开启：" + (_monitorDevice?.FriendlyName ?? "系统默认扬声器") +
-                         $"，麦克风进监听={_config.MonitorEnabled}，播放器进监听={_config.Player.AudioMonitor}");
+                         $"，麦克风进监听={MicMixer.MonitorMicEnabled}，播放器进监听={MicMixer.PlayerMonitorEnabled}");
             }
             catch (Exception ex)
             {
@@ -509,6 +512,60 @@ public sealed class AudioEngine : IDisposable
             _monitorDevice = null;
             Log.Info("监听输出已关闭（麦克风监听与音频监听都关着）");
         }
+
+        // 无论走了哪个分支，都要按"监听设备与输出设备是不是同一个"重算一次
+        // 播放器要不要额外送监听（见 SyncPlayerMonitor）
+        SyncPlayerMonitor();
+    }
+
+    /// <summary>
+    /// 播放器要不要**额外**送进监听设备。
+    ///
+    /// ⚠ **去重**：主输出与监听输出可能落在**同一个物理设备**上。最典型的是
+    /// 「输出」没有显式选择、退回系统默认扬声器，而监听也选了同一个扬声器：
+    /// 此时播放器音频已经在主输出里送过一遍，监听侧再送一次，同一份声音就会
+    /// 先后到达同一个设备 —— 听感就是"有两层声音"（用户 2026-10-06 报的问题）。
+    /// 因此同设备时强制关掉监听侧的播放器。
+    ///
+    /// 麦克风那一路不在这里去重：主输出里的麦克风受「音频处理」总开关控制、
+    /// 监听里的受「监听」开关控制，两者语义不同（例如闭麦 + 开监听 = 只听自己），
+    /// 合并会把这个用途直接抹掉。
+    /// </summary>
+    private void SyncPlayerMonitor()
+    {
+        var wanted = _config.Player.AudioMonitor && _monitorPlayer != null;
+        var sameSink = SameDevice(_outputDevice, _monitorDevice);
+        var suppressed = wanted && sameSink;
+
+        MicMixer.PlayerMonitorEnabled = wanted && !sameSink;
+
+        // 只在状态**变化**时打印：这个方法每次同步监听都会被调到，
+        // 不加判断同一句话会连打两遍，日志反而看不出真正发生了什么。
+        if (suppressed && !_playerMonitorSuppressed)
+        {
+            Log.Info("监听设备与输出设备是同一个（" + (_monitorDevice?.FriendlyName ?? "系统默认") +
+                     "）：「音频监听」已请求播放器进监听，但主输出本来就送到这个设备，" +
+                     "为避免听到两层，监听侧不再重复送。");
+        }
+        else if (!suppressed && _playerMonitorSuppressed)
+        {
+            Log.Info("监听侧恢复送出播放器音频（监听设备与输出设备已不是同一个）。");
+        }
+
+        _playerMonitorSuppressed = suppressed;
+    }
+
+    /// <summary>上一次是否处于"同设备、已抑制监听侧播放器"的状态（只为日志去重）。</summary>
+    private bool _playerMonitorSuppressed;
+
+    /// <summary>
+    /// 两个输出是不是同一个物理设备。
+    /// 都为 null 时视为"都退回系统默认" ⇒ 同一个；只有一个为 null 时无法确定，按不同处理（宁可多送一次也不误抑制）。
+    /// </summary>
+    private static bool SameDevice(MMDevice? a, MMDevice? b)
+    {
+        if (a == null || b == null) return a == null && b == null;
+        return string.Equals(a.ID, b.ID, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>工具栏「监听」开关：让麦克风进监听（播放器的音频监听是另一个开关）。</summary>
@@ -538,9 +595,11 @@ public sealed class AudioEngine : IDisposable
     public void SetAudioMonitor(bool enabled)
     {
         _config.Player.AudioMonitor = enabled;
-        MicMixer.PlayerMonitorEnabled = enabled;
 
-        // 只开音频监听时也要有监听设备；两个都关时要把设备放掉
+        // ⚠ 不要在这里直接写 MicMixer.PlayerMonitorEnabled：那个值要经过
+        // SyncPlayerMonitor 做"监听设备与输出设备相同就去重"的判断，
+        // 直接写会把去重绕过去，用户又会听到两层。
+        // 只开音频监听时也要有监听设备；两个都关时要把设备放掉。
         SyncMonitor(force: true);
 
         Log.Info(enabled
