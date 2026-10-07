@@ -48,8 +48,16 @@ public sealed class AiVoiceEffect : IAudioEffect
     /// <summary>引擎正在后台加载。界面据此显示加载动画。</summary>
     public bool IsLoading => _starting;
 
+    /// <summary>加载进度 0~100。</summary>
+    public int LoadProgress => _loadProgress;
+
+    private volatile int _loadProgress;
+
     /// <summary>加载状态变化（true=开始加载，false=结束）。在后台线程触发。</summary>
     public event EventHandler<bool>? LoadingChanged;
+
+    /// <summary>加载进度变化（0~100）。在后台线程触发。</summary>
+    public event EventHandler<int>? ProgressChanged;
 
     private int _blockSamples48;           // 一个音频块在 48k 下的样本数
     private float[] _inScratch = Array.Empty<float>();
@@ -198,12 +206,15 @@ public sealed class AiVoiceEffect : IAudioEffect
         }
 
         _starting = true;
+        _loadProgress = 0;
         LoadingChanged?.Invoke(this, true);
         _ = Task.Run(() =>
         {
             try
             {
                 CreateEngineCore();
+                _loadProgress = 100;
+                ProgressChanged?.Invoke(this, 100);
             }
             catch (Exception ex)
             {
@@ -230,7 +241,12 @@ public sealed class AiVoiceEffect : IAudioEffect
             _config.AiVoice.ContextMs,
             _config.AiVoice.CrossfadeMs,
             (int)Math.Round(_config.AiVoice.Semitones),
-            useGpu: true);
+            useGpu: true,
+            onProgress: p =>
+            {
+                _loadProgress = p;
+                ProgressChanged?.Invoke(this, p);
+            });
 
         _toModel = new RateConverter(ChainRate, ModelRate, _blockSamples48 + 64);
         _fromModel = new RateConverter(ModelRate, ChainRate, _blockSamples48 * ModelRate / ChainRate + 64);

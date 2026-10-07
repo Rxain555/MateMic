@@ -24,6 +24,14 @@ public sealed class StreamingRvc : IDisposable
     private const int Zc = 400;              // 40 kHz 下 10 ms
     private const double F0Min = 50.0, F0Max = 1100.0;
 
+    /// <summary>
+    /// SOLA 可信度下限：重叠区的平均能量低于它、或最佳归一化得分低于它，
+    /// 就认为"这段没有可对齐的内容"（静音或极低电平），偏移保持 0。
+    /// 见 Process 里 SOLA 一段的说明。
+    /// </summary>
+    private const double SolaMinEnergy = 1e-5;
+    private const double SolaMinScore = 0.15;
+
     private readonly ContentEncoder _encoder;
     private readonly RmvpeF0 _rmvpe;
     private readonly RvcSynthesizer _synth;
@@ -41,12 +49,18 @@ public sealed class StreamingRvc : IDisposable
 
     public StreamingRvc(string cvModel, string rmvpeModel, string voiceModel,
                         int blockMs = 160, int contextMs = 320, int crossfadeMs = 40,
-                        int semitones = 12, bool useGpu = true, bool disableSola = false)
+                        int semitones = 12, bool useGpu = true, bool disableSola = false,
+                        Action<int>? onProgress = null)
     {
         Semitones = semitones;
+        // 三个模型逐个加载，按权重报进度（contentvec 约占一半体积、合成器次之、rmvpe 最小）
+        onProgress?.Invoke(2);
         _encoder = new ContentEncoder(cvModel, useGpu);
+        onProgress?.Invoke(45);
         _rmvpe = new RmvpeF0(rmvpeModel, useGpu);
+        onProgress?.Invoke(65);
         _synth = new RvcSynthesizer(voiceModel, useGpu);
+        onProgress?.Invoke(90);
 
         static int ToSamples(int ms) => (int)Math.Round(ms / 1000.0 * OutputRate / Zc) * Zc;
         _block = ToSamples(blockMs);
@@ -161,6 +175,7 @@ public sealed class StreamingRvc : IDisposable
             var search = _solaSearch + 1;
             var bestOffset = 0;
             var bestScore = double.NegativeInfinity;
+            double bestEnergy = 0;
             for (var off = 0; off < search; off++)
             {
                 double dot = 0, energy = 0;
@@ -171,8 +186,19 @@ public sealed class StreamingRvc : IDisposable
                     energy += h * h;
                 }
                 var score = dot / Math.Sqrt(energy + 1e-8);
-                if (score > bestScore) { bestScore = score; bestOffset = off; }
+                if (score > bestScore) { bestScore = score; bestOffset = off; bestEnergy = energy; }
             }
+
+            // ⚠ 相关性不可信时**必须回退到偏移 0**。
+            //
+            // 对静音/极低电平的片段，所有偏移的归一化互相关都接近 0，argmax 等同于**随机取一个偏移**
+            // （离线复现：连续几块选到 345、随机分布），于是每块错位都不同，
+            // 输出被搅成一团不连续的噪声——这正是"不说话也有底噪、一说话噪声混着人声"的重要来源之一。
+            // 判据：重叠区能量太低、或最佳得分仍然很低，就不动偏移。
+            var meanEnergy = bestEnergy / Math.Max(1, _solaBuffer);
+            var trustworthy = meanEnergy > SolaMinEnergy && bestScore > SolaMinScore;
+            if (!trustworthy) bestOffset = 0;
+
             if (bestOffset > 0)
             {
                 Array.Copy(seg, bestOffset, seg, 0, need - bestOffset);

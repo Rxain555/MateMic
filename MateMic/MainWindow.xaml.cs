@@ -125,12 +125,13 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
         InitializeComponent();
 
-        // AI 变声引擎在后台加载（约 2 秒），期间把开关的 Tag 置 True 显示轨道进度条，
-        // 避免用户以为没反应而反复点击。
+        // AI 变声引擎在后台加载（约 2 秒），期间在开关上显示**真实进度**：
+        // 三个模型逐个加载，ProgressChanged 报的是实际阶段；宽度用 150ms 补间平滑过渡，
+        // 看起来是连续的推进而不是几个跳变。加载期间界面与音频都不受影响。
         _engine.AiVoice.LoadingChanged += (_, loading) => Dispatcher.BeginInvoke(() =>
-        {
-            ToggleAiVoice.Tag = loading;
-        });
+            UpdateAiVoiceLoading(loading, _engine.AiVoice.LoadProgress));
+        _engine.AiVoice.ProgressChanged += (_, percent) => Dispatcher.BeginInvoke(() =>
+            UpdateAiVoiceLoading(true, percent));
 
         // 主题必须在窗口第一次渲染之前定下来，否则会先闪一下浅色。
         ApplyThemeToResources();
@@ -2388,6 +2389,11 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         AiVoiceBlockSlider.Value = _config.AiVoice.BlockMs;
         AiVoiceContextSlider.Value = _config.AiVoice.ContextMs;
         AiVoiceCrossfadeSlider.Value = _config.AiVoice.CrossfadeMs;
+
+        // ⚠ 必须在这里扫一次音色/索引目录：原先只有点过「添加 AI 变声」之后才调用
+        // RefreshAiVoiceLists()，于是**启动后音色下拉框一直是空的**，
+        // 而配置里其实存着选择——用户看到"没选模型却能打开功能"（2026-10-07 反馈）。
+        RefreshAiVoiceLists();
         UpdateAiVoiceIndexAvailability();
     }
 
@@ -2433,9 +2439,27 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         SaveConfig();
     }
 
-    /// <summary>「AI 变声」开关的前置拦截：组件或音色不齐备就不让开关真的拨过去。</summary>
-    private void OnAiVoiceTogglePreview(object sender, MouseButtonEventArgs e)
+    /// <summary>
+    /// 更新「AI 变声」开关上的加载进度填充条。
+    /// 模板元素要用 Template.FindName 取（ToggleAiVoice 是 CheckBox，ProgressFill 在其模板里）。
+    /// </summary>
+    private void UpdateAiVoiceLoading(bool loading, int percent)
     {
+        ToggleAiVoice.ApplyTemplate();
+        if (ToggleAiVoice.Template?.FindName("ProgressFill", ToggleAiVoice) is not Border fill) return;
+
+        fill.Visibility = loading ? Visibility.Visible : Visibility.Collapsed;
+        var target = loading ? 38.0 * Math.Clamp(percent, 0, 100) / 100.0 : 0.0;
+        fill.BeginAnimation(FrameworkElement.WidthProperty,
+            new DoubleAnimation(target, TimeSpan.FromMilliseconds(150))
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            });
+        if (!loading) fill.BeginAnimation(FrameworkElement.WidthProperty, null);   // 结束后清掉动画时钟
+    }
+
+    /// <summary>「AI 变声」开关的前置拦截：组件或音色不齐备就不让开关真的拨过去。</summary>
+    private void OnAiVoiceTogglePreview(object sender, MouseButtonEventArgs e)    {
         if (_loading) return;
         if (ToggleAiVoice.IsChecked == true) return;      // 关闭时永远允许
 
