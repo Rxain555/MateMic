@@ -182,9 +182,11 @@ public sealed class AiVoiceSettings
 
     /// <summary>
     /// 索引特征占比 0~100：检索结果替换内容特征的比例（RVC 的 index_rate）。
-    /// 越高越贴近目标音色，但过高会损失咬字。
+    /// 越高越贴近目标音色，但过高会损失咬字、也让无声段"编造"更像语音。
+    ///
+    /// **官方默认 0**（`realtime_gui.py:132` `"index_rate": 0`，即默认不使用索引）。
     /// </summary>
-    public float IndexRate { get; set; } = 75f;
+    public float IndexRate { get; set; }
 
     /// <summary>
     /// 声线（共振峰搬移，半音）。RVC 自身不做共振峰调整，这里是**在 AI 输出之后**
@@ -193,19 +195,27 @@ public sealed class AiVoiceSettings
     public float FormantSemitones { get; set; }
 
     /// <summary>
-    /// 音频块长度（ms）。**决定算法延迟：延迟 = 2 × block**（官方口径）。
-    /// 越小延迟越低、但每次推理要算的窗口相对越大，负载越高。
+    /// 音频块长度（ms）。**官方默认 0.25s**（`realtime_gui.py:134` `"block_time": 0.25`）。
+    /// 决定算法延迟（约 2×块长），越小延迟越低但推理越吃力。
     /// </summary>
-    public int BlockMs { get; set; } = 160;
+    public int BlockMs { get; set; } = 250;
 
     /// <summary>
-    /// 上下文长度（ms）：每次推理额外多喂给模型的历史，用于保证音质连续性。
-    /// 越大越稳，但耗时随 (block + context) 线性增长。
+    /// 上下文长度（ms）：每次推理额外多喂给模型的历史音频。
+    /// **官方默认 2.5s**（`realtime_gui.py:136` `"extra_time": 2.5`）。
+    ///
+    /// ⚠ 这个值很关键：上下文越长，模型在无声/非语音处的"编造"越少。
+    /// 实测同一素材，整段 2 秒合成只有 −61.7 dBFS，而 530ms 短窗口是 −50 dBFS。
+    /// 此前这里被我设成 320ms（官方值的 1/8），本身就在放大底噪。
+    /// 它**不增加延迟**，只增加每次推理的计算量。
     /// </summary>
-    public int ContextMs { get; set; } = 320;
+    public int ContextMs { get; set; } = 2500;
 
-    /// <summary>交叉淡化长度（ms）：块与块之间的平滑过渡。SOLA 重叠会被封顶在 40ms。</summary>
-    public int CrossfadeMs { get; set; } = 40;
+    /// <summary>
+    /// 交叉淡化长度（ms）。**官方默认 0.05s**
+    ///（`realtime_gui.py:135` `"crossfade_length": 0.05`）。
+    /// </summary>
+    public int CrossfadeMs { get; set; } = 50;
 
 }
 
