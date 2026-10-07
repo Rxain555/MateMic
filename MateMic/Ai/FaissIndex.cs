@@ -26,6 +26,28 @@ public sealed class FaissIndex : IDisposable
     private IntPtr _handle;
     private bool _disposed;
 
+    // 检索用的复用缓冲。
+    //
+    // ⚠ 绝不能每次 new：近邻向量是 frames × k × Dim 个 float，
+    // 在"块 250ms + 上下文 2500ms"下约 275 帧 ⇒ 275×8×768×4 ≈ 6.7 MB，
+    // 而每 250ms 就要检索一次 ⇒ 约 28 MB/s 的分配速率 ⇒ GC 持续触发，
+    // 听感是"连续的卡顿感"且延迟升高（2026-10-08 用户实测）。
+    private float[] _dists = Array.Empty<float>();
+    private long[] _labels = Array.Empty<long>();
+    private float[] _vectors = Array.Empty<float>();
+
+    private void EnsureBuffers(int frames, int k)
+    {
+        var need = (long)frames * k;
+        if (_dists.Length < need)
+        {
+            _dists = new float[need];
+            _labels = new long[need];
+        }
+        var vectorNeed = need * Dim;
+        if (_vectors.Length < vectorNeed) _vectors = new float[vectorNeed];
+    }
+
     public int Dim { get; }
     public long Ntotal { get; }
     public int Nlist { get; }
@@ -172,9 +194,10 @@ public sealed class FaissIndex : IDisposable
         if (indexRate <= 0 || frames <= 0) return;
 
         var rate = Math.Clamp(indexRate, 0f, 1f);
-        var dists = new float[(long)frames * k];
-        var labels = new long[(long)frames * k];
-        var vectors = new float[(long)frames * k * Dim];      // search_and_reconstruct 一次取回近邻向量
+        EnsureBuffers(frames, k);
+        var dists = _dists;
+        var labels = _labels;
+        var vectors = _vectors;
 
         if (mm_index_search(_handle, feats, frames, k, dists, labels, vectors) != 0)
         {
@@ -217,6 +240,9 @@ public sealed class FaissIndex : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _dists = Array.Empty<float>();
+        _labels = Array.Empty<long>();
+        _vectors = Array.Empty<float>();
         if (_handle != IntPtr.Zero)
         {
             try { mm_index_close(_handle); } catch { /* 忽略 */ }
