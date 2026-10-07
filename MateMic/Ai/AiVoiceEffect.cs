@@ -191,7 +191,7 @@ public sealed class AiVoiceEffect : IAudioEffect
     private void Restart()
     {
         StopWorker();
-        Allocate();
+        lock (_ringGate) { Allocate(); }     // 只锁住"换缓冲"这一瞬，音频线程最多等微秒
         StartWorker();
     }
 
@@ -290,13 +290,26 @@ public sealed class AiVoiceEffect : IAudioEffect
     {
         _running = false;
         _wake.Set();
-        try { _worker?.Join(1500); } catch { /* 忽略 */ }
+
+        // ⚠ 必须检查 Join 的结果：超时说明工作线程还在跑（可能正卡在一次推理里），
+        // 这时若继续 Dispose 引擎并置 null，旧线程会踩到已释放的对象；
+        // 而它还持有输出环的写入位置，与新线程并发写就会让音频"一颤一颤"
+        //（2026-10-08 用户实测：重启软件后抖动就不明显了 —— 正是这类状态残留的特征）。
+        var stopped = true;
+        try { stopped = _worker?.Join(3000) ?? true; } catch { /* 忽略 */ }
+        if (!stopped)
+            Log.Warn("[AI 变声] 旧工作线程未能在 3 秒内退出，将等待其自然结束再释放引擎");
+
         _worker = null;
         _wake.Reset();
         try { _engine?.Dispose(); } catch { /* 忽略 */ }
         _engine = null;
         _toModel = null;
         _fromModel = null;
+
+        // 关键：清掉"正在加载"标记。否则上一次后台加载还没结束时，
+        // StartWorker 会因为 _starting == true 直接 return，引擎永远建不起来。
+        _starting = false;
     }
 
     // ---------------------------------------------------------------- 音频线程
@@ -305,10 +318,30 @@ public sealed class AiVoiceEffect : IAudioEffect
     /// 音频线程调用，**必须立刻返回**：把输入塞进输入环，再从输出环取同样长度返回。
     /// 输出环空了就补静音并记一次欠载（正常运行时不该发生）。
     /// </summary>
+    /// <summary>
+    /// 保护"缓冲交换"的锁：<see cref="Allocate"/>（界面线程，改参数时）与
+    /// <see cref="Read"/>（音频线程）必须互斥。
+    ///
+    /// 不加锁的后果（2026-10-08 用户实测"一颤一颤"）：Allocate 会把读写下标归零、
+    /// 把数组换成新的，而音频线程此刻可能正按旧下标读写 —— 数据立刻错位。
+    /// 表现就是"改过参数之后开始抖，重启软件（不经 Allocate）就不抖了"。
+    ///
+    /// 锁内**只有内存操作**（微秒级），1.5 秒的模型加载在锁外，不会阻塞音频线程。
+    /// </summary>
+    private readonly object _ringGate = new();
+
     public int Read(Span<float> buffer)
     {
         if (buffer.Length == 0) return 0;
 
+        lock (_ringGate)
+        {
+            return ReadCore(buffer);
+        }
+    }
+
+    private int ReadCore(Span<float> buffer)
+    {
         // 输入环：只有积压到接近容量上限（这种情况只可能是引擎创建期间的追赶）才丢最老的。
         // 平时**绝不能丢**——丢输入会让音频出现断裂，听感是"呲呲/咔哒"。
         var inAvailNow = Available(_inRing, _inRead, _inWrite);
