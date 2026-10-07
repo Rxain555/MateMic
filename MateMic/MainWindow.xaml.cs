@@ -2447,25 +2447,30 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
     /// <summary>
     /// 更新「AI 变声」开关上的加载进度填充条。
-    /// 模板元素要用 Template.FindName 取（ToggleAiVoice 是 CheckBox，ProgressFill 在其模板里）。
     ///
-    /// ⚠ 宽度**不能小于圆角直径**（轨道 38×20、圆角 10）：进度很小时若宽度只有两三像素，
-    /// 圆角画不出来就成了一条蓝色竖线，用户看到的是"开关左边露出一道缝"
-    ///（2026-10-08 反馈）。所以下限取 20。
+    /// 改的是**裁剪矩形的宽度**而不是填充条自身的宽度：
+    /// 填充条宽度恒为轨道全长 38、圆角 10，所以形状永远是完整跑道形。
+    /// 若改宽度，进度小时圆角画不出来会成一条竖线、稍大又是一个椭圆 —— 两种都被用户看到过
+    ///（2026-10-08）。
     /// </summary>
     private void UpdateAiVoiceLoading(bool loading, int percent)
     {
         ToggleAiVoice.ApplyTemplate();
         if (ToggleAiVoice.Template?.FindName("ProgressFill", ToggleAiVoice) is not Border fill) return;
+        if (ToggleAiVoice.Template?.FindName("ProgressClip", ToggleAiVoice) is not RectangleGeometry clip) return;
 
         fill.Visibility = loading ? Visibility.Visible : Visibility.Collapsed;
-        var target = loading ? Math.Max(20.0, 38.0 * Math.Clamp(percent, 0, 100) / 100.0) : 0.0;
-        fill.BeginAnimation(FrameworkElement.WidthProperty,
-            new DoubleAnimation(target, TimeSpan.FromMilliseconds(300))
+        var target = loading ? 38.0 * Math.Clamp(percent, 0, 100) / 100.0 : 0.0;
+        clip.BeginAnimation(RectangleGeometry.RectProperty,
+            new RectAnimation(new Rect(0, 0, target, 20), TimeSpan.FromMilliseconds(300))
             {
                 EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
             });
-        if (!loading) fill.BeginAnimation(FrameworkElement.WidthProperty, null);   // 结束后清掉动画时钟
+        if (!loading)
+        {
+            clip.BeginAnimation(RectangleGeometry.RectProperty, null);
+            clip.Rect = new Rect(0, 0, 0, 20);
+        }
     }
 
     /// <summary>

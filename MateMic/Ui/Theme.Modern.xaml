@@ -572,14 +572,18 @@
         <Grid Width="38" Height="20">
             <Border x:Name="Track" CornerRadius="10" Background="{DynamicResource SwitchTrackBrush}" />
             <!--
-              加载进度填充层（方案 02「轨道进度条」）：加载时从左填满轨道，
-              明确告诉用户"还剩多少"，填满后旋钮再滑过去。
-              平时 Tag 不为 True，宽度恒为 0，对其它开关完全无影响。
+              加载进度填充层（方案 02「轨道进度条」）。
+              **宽度恒为轨道全长 38，靠 Clip 从左揭示**：
+              若改用"改宽度"，进度小时圆角画不出来会变成一条竖线，稍大一点又是一个椭圆
+              （两种都被用户看到过）。固定宽度 + 裁剪则圆角始终是轨道的圆角，形状永不变形。
             -->
-            <Border x:Name="ProgressFill" CornerRadius="10" Width="0"
+            <Border x:Name="ProgressFill" CornerRadius="10" Width="38"
                     HorizontalAlignment="Left" Background="{DynamicResource AccentBrush}"
-                    Visibility="Collapsed" />
-            <Border x:Name="Knob" Width="16" Height="16" CornerRadius="8" Background="White"
+                    Visibility="Collapsed">
+                <Border.Clip>
+                    <RectangleGeometry x:Name="ProgressClip" Rect="0,0,0,20" />
+                </Border.Clip>
+            </Border>            <Border x:Name="Knob" Width="16" Height="16" CornerRadius="8" Background="White"
                     HorizontalAlignment="Left" Margin="2,0,0,0" RenderTransformOrigin="0.5,0.5">
                 <Border.RenderTransform>
                     <TranslateTransform x:Name="KnobShift" X="0" />
