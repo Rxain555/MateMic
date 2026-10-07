@@ -52,6 +52,20 @@ public sealed class ConfigStore
     public static string AiVoicesDirectory => Path.Combine(AiComponentDirectory, "voices");
     public static string AiIndexDirectory => Path.Combine(AiComponentDirectory, "index");
 
+    /// <summary>
+    /// AI 变声的**派生缓存**目录（<c>data\components\ai\cache</c>）。
+    ///
+    /// 放"由用户文件生成、程序自己读"的中间产物，目前是索引的转换结果
+    /// （FAISS 的 .index 是私有二进制格式，C# 无可用绑定，必须先转成裸数组）。
+    /// **刻意与 <see cref="AiIndexDirectory"/> 分开**：那里只放用户自己添加的 .index 文件，
+    /// 界面下拉也只列 .index，用户不会看到一堆自己没放过的目录
+    ///（2026-10-08 用户要求）。
+    /// </summary>
+    public static string AiCacheDirectory => Path.Combine(AiComponentDirectory, "cache");
+
+    /// <summary>索引转换结果的存放目录：cache\index\</summary>
+    public static string AiIndexCacheDirectory => Path.Combine(AiCacheDirectory, "index");
+
     public static string LogsDirectory => Path.Combine(Root, "logs");
     public static string ConfigPath => Path.Combine(Root, "config.json");
 

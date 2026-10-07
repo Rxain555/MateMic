@@ -259,10 +259,13 @@ public sealed class StreamingRvc : IDisposable
     }
 
     /// <summary>
-    /// 响度包络混合比例：**0 = 完全用输入包络（官方默认，静音处彻底安静）**，
-    /// 1 = 不做处理。刻意不加界面滑条，先用官方默认值。
+    /// 响度包络混合比例：0 = 完全用输入包络（静音最干净，但整体电平跟随输入、听感变小），
+    /// 1 = 不做处理（静音处有底噪）。
+    ///
+    /// 取 **0.5** 折中：静音段仍能从 −54.8 压到 −81.5 dBFS（足够安静），
+    /// 而整体电平只下降约 9dB 而不是 17dB（2026-10-08 用户反馈"底噪好多了，但声音变小了"）。
     /// </summary>
-    public float RmsMix { get; set; } = 0.0f;
+    public float RmsMix { get; set; } = 0.5f;
 
     /// <summary>
     /// 响度包络混合（官方 `rms_mix`）。就地修改 <paramref name="seg"/>。
@@ -292,11 +295,20 @@ public sealed class StreamingRvc : IDisposable
         }
     }
 
-    /// <summary>短时 RMS 包络（窗 4×zc=40ms、跳 zc=10ms），线性插值到逐样本长度。</summary>
+    /// <summary>
+    /// 短时 RMS 包络（窗 4×zc=40ms、跳 zc=10ms），线性插值到逐样本长度。
+    ///
+    /// ⚠ 边界不能"跳过越界样本"：最后一个窗口必然越过数组末尾，
+    /// 若把越界部分丢掉，末尾几点的 RMS 会塌陷成很小的值
+    /// ⇒ 每块末尾都被那个比值压一下 ⇒ 听感是**周期性的颤动**（2026-10-08 用户反馈"一颤一颤"）。
+    /// 这里改成**边界复制**（越界处取最近的有效样本），与 librosa 的 center padding 等效。
+    /// </summary>
     private static float[] ShortTimeRms(float[] source, int offset, int length)
     {
         const int win = 4 * Zc;
         const int hop = Zc;
+        if (source.Length == 0) return new float[length];
+
         var frames = Math.Max(1, length / hop);
         var env = new float[frames + 1];
 
@@ -304,16 +316,13 @@ public sealed class StreamingRvc : IDisposable
         {
             var start = offset + f * hop;
             double sum = 0;
-            var count = 0;
             for (var i = 0; i < win; i++)
             {
-                var idx = start + i;
-                if (idx < 0 || idx >= source.Length) continue;
+                var idx = Math.Clamp(start + i, 0, source.Length - 1);   // 边界复制
                 var v = source[idx];
                 sum += (double)v * v;
-                count++;
             }
-            env[f] = count > 0 ? (float)Math.Sqrt(sum / count) : 0f;
+            env[f] = (float)Math.Sqrt(sum / win);
         }
 
         // 线性插值到逐样本（对应官方的 F.interpolate(..., mode="linear")）
@@ -321,7 +330,7 @@ public sealed class StreamingRvc : IDisposable
         for (var i = 0; i < length; i++)
         {
             var pos = (double)i * frames / Math.Max(1, length - 1);
-            var i0 = (int)pos;
+            var i0 = Math.Clamp((int)pos, 0, frames);
             var frac = (float)(pos - i0);
             var i1 = Math.Min(i0 + 1, frames);
             result[i] = env[i0] * (1 - frac) + env[i1] * frac;

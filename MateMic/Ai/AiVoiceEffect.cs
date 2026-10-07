@@ -241,15 +241,16 @@ public sealed class AiVoiceEffect : IAudioEffect
     {
         var engineDir = ConfigStore.AiEngineDirectory;
 
-        // 索引：与音色同名的 .simple 目录（由 Python 侧一次性转换而来，见 RvcIndex 注释）
+        // 索引：与音色同名的转换结果，放在 cache\index\ 下（不在用户可见的 index\ 里）
         string? indexDir = null;
         var rate = 0f;
         if (!string.IsNullOrWhiteSpace(_config.AiVoice.IndexFile))
         {
             var name = Path.GetFileNameWithoutExtension(_config.AiVoice.IndexFile);
-            var dir = Path.Combine(ConfigStore.AiIndexDirectory, name + ".simple");
+            var dir = Path.Combine(ConfigStore.AiIndexCacheDirectory, name + ".simple");
             if (Directory.Exists(dir)) { indexDir = dir; rate = _config.AiVoice.IndexRate / 100f; }
-            else Log.Warn($"[AI 变声] 索引 {name} 尚未转换（缺 {name}.simple 目录），本次不使用索引");
+            else Log.Warn($"[AI 变声] 索引 {name} 尚未转换（缺 cache\\index\\{name}.simple），"
+                          + "本次不使用索引；可用 文档\\AI变声\\转换索引.py 转换一次。");
         }
 
         _engine = new StreamingRvc(
