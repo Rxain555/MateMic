@@ -2401,6 +2401,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         // 而配置里其实存着选择——用户看到"没选模型却能打开功能"（2026-10-07 反馈）。
         RefreshAiVoiceLists();
         UpdateAiVoiceIndexAvailability();
+        UpdateAiVoiceControlAvailability();      // 若配置里 AI 变声是开着的，相应控件应为禁用态
     }
 
     /// <summary>
@@ -2428,25 +2429,45 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         _config.VoiceChanger.Enabled = ToggleVoiceChanger.IsChecked == true;
         _config.AiVoice.Enabled = ToggleAiVoice.IsChecked == true;
 
-        // AI 变声：组件或音色不齐备时**在开关被拨动之前**就拦住。
-        //
-        // 为什么不放在 OnEffectToggled 里"事后弹回"：开关的视觉状态由 Storyboard 动画驱动，
-        // 事后改 IsChecked 会让动画反向播一遍——用户看到的是"有动画、没变色、功能也没开"，
-        // 正是 2026-10-07 用户报的现象（与「同步按住键」当初的问题同源）。
-        // 在 PreviewMouseLeftButtonDown 里 e.Handled = true 则根本不进入切换流程。
-        if (sender is CheckBox { IsChecked: not true } toggle && !_engine.AiVoice.Ready(out var aiReason))
-        {
-            e.Handled = true;
-            ShowStatus("AI 变声暂不可用：" + aiReason, false);
-            return;
-        }
+        // 开着 AI 变声时禁用"会重建引擎"的控件（见 UpdateAiVoiceControlAvailability）。
+        // 关闭 AI 变声的路径走这里；开启的路径由 OnAiVoiceTogglePreview 拦住并单独处理。
+        RefreshAiVoiceControlAvailability();
 
         _engine.UpdateAllParameters();
         SaveConfig();
     }
 
     /// <summary>
-    /// 更新「AI 变声」开关上的加载进度填充条。
+    /// 按"是否需要重建引擎"来启停 AI 变声卡片里的控件。
+    ///
+    /// **理由（2026-10-08 用户要求）**：音频块 / 上下文 / 交叉淡化 / 音色 / 索引
+    /// 每变一次都会重建引擎（约 1.5 秒）。与其做防抖、让用户拖动后等半秒才生效，
+    /// 不如**开着 AI 变声时直接禁用这些控件**，要调就先把 AI 变声关掉——
+    /// 用户明确、没有等待、也不会误触。
+    ///
+    /// **不受影响**的：变调与索引占比走热更新（只影响每块计算，不动缓冲几何），
+    /// 开着也能实时调。
+    /// </summary>
+    private void UpdateAiVoiceControlAvailability()
+    {
+        var running = _config.AiVoice.Enabled;
+
+        // 会重建引擎的：开着 AI 变声时禁用
+        foreach (var control in new System.Windows.FrameworkElement[]
+                 {
+                     AiVoiceBlockSlider, AiVoiceContextSlider, AiVoiceCrossfadeSlider,
+                     AiVoiceModelCombo, AiVoiceIndexCombo,
+                 })
+        {
+            control.IsEnabled = !running;
+        }
+
+        // 走热更新的：保持可用
+        AiVoicePitchSlider.IsEnabled = true;
+        AiVoiceIndexRateRow.IsEnabled = !running || _config.AiVoice.IndexFile is { Length: > 0 };
+    }
+
+    /// <summary>更新「AI 变声」开关上的加载进度填充条。
     ///
     /// 改的是**裁剪矩形的宽度**而不是填充条自身的宽度：
     /// 填充条宽度恒为轨道全长 38、圆角 10，所以形状永远是完整跑道形。
@@ -2499,6 +2520,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         // 开启：拦住默认切换，改为"先加载、完成后再打开"
         e.Handled = true;
         _config.AiVoice.Enabled = true;
+        RefreshAiVoiceControlAvailability();     // 立刻禁用会重建引擎的控件
         _engine.UpdateAllParameters();          // 触发后台加载，进度显示在开关上
         SaveConfig();
     }
@@ -2510,6 +2532,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         _loading = true;
         try { ToggleAiVoice.IsChecked = value; }
         finally { _loading = false; }
+        RefreshAiVoiceControlAvailability();
     }
 
     private void OnSliderChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -2586,6 +2609,13 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             _engine.UpdateAllParameters();
             ScheduleSave();
         }
+    }
+
+    /// <summary>AI 变声开关状态变化后，刷新卡片里控件的可用性（见 UpdateAiVoiceControlAvailability）。</summary>
+    private void RefreshAiVoiceControlAvailability()
+    {
+        if (AiVoiceBlockSlider == null) return;
+        UpdateAiVoiceControlAvailability();
     }
 
     /// <summary>
