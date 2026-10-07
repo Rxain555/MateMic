@@ -2381,30 +2381,19 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         AiVoiceBlockSlider.Value = _config.AiVoice.BlockMs;
         AiVoiceContextSlider.Value = _config.AiVoice.ContextMs;
         AiVoiceCrossfadeSlider.Value = _config.AiVoice.CrossfadeMs;
-        UpdateAiVoiceLatencyText();
         UpdateAiVoiceIndexAvailability();
     }
 
     /// <summary>
-    /// 刷新"音频块 → 算法延迟"读数。
-    /// 官方口径的算法延迟 = 2 × block（见 RVCRealtimeVST 的参数说明）。
-    /// </summary>
-    private void UpdateAiVoiceLatencyText()
-    {
-        if (AiVoiceLatencyText == null) return;
-        var block = (int)Math.Round(AiVoiceBlockSlider.Value);
-        AiVoiceLatencyText.Text = $"算法延迟 ≈ {2 * block} ms";
-    }
-
-    /// <summary>
-    /// 没有加载索引时，"索引占比"置灰不可调（用户明确要求）。
+    /// 没有加载索引时，"索引占比"**整行**置灰——标签、滑条、数值一起变淡。
+    /// （只灰滑条会显得那一行半死不活，整行一致更整齐。）
     /// </summary>
     private void UpdateAiVoiceIndexAvailability()
     {
-        if (AiVoiceIndexRateSlider == null) return;
+        if (AiVoiceIndexRateRow == null) return;
         var hasIndex = AiVoiceIndexCombo?.SelectedItem is AiVoiceIndexItem;
-        AiVoiceIndexRateSlider.IsEnabled = hasIndex;
-        AiVoiceIndexRateSlider.Opacity = hasIndex ? 1.0 : 0.45;
+        AiVoiceIndexRateRow.IsEnabled = hasIndex;
+        AiVoiceIndexRateRow.Opacity = hasIndex ? 1.0 : 0.4;
     }
 
     private void OnEffectToggled(object sender, RoutedEventArgs e)
@@ -3013,12 +3002,11 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     private void OnOpenAiIndexFolderClick(object sender, RoutedEventArgs e)
         => OpenFolder(ConfigStore.AiIndexDirectory, "索引");
 
-    /// <summary>音频块长度变动：记配置 + 刷新延迟读数（延迟 = 2 × block）。</summary>
+    /// <summary>音频块长度变动：只记配置。</summary>
     private void OnAiVoicePerfChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
         if (_loading) return;
         _config.AiVoice.BlockMs = (int)Math.Round(e.NewValue);
-        UpdateAiVoiceLatencyText();
         SaveConfig();
     }
 

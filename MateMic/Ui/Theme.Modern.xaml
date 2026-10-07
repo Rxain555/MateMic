@@ -301,7 +301,13 @@
   <Setter Property="Typography.NumeralAlignment" Value="Tabular" />
 </Style>
 <Style x:Key="FlatSlider" TargetType="Slider">
-        <Setter Property="Height" Value="20" />
+        <!--
+          高度与 FlatCombo / IconButton 对齐（都是 26）。
+          原先滑条是 20，导致"有滑条的行"比"有下拉框/按钮的行"矮 6px，
+          同一张卡片里两种行高交替出现，观感不整齐（2026-10-07 用户指出，且不止 AI 变声模块）。
+          EQ 均衡器用的是另一套竖向推子样式，不受这里影响。
+        -->
+        <Setter Property="Height" Value="26" />
         <Setter Property="VerticalAlignment" Value="Center" />
         <Setter Property="IsMoveToPointEnabled" Value="True" />
         <Setter Property="Template">

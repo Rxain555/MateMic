@@ -394,8 +394,7 @@
                                                       SelectionChanged="OnAiVoiceModelSelectionChanged"/>
                                             <Button x:Name="OpenAiVoicesFolderButton" Grid.Column="2"
                                                     Style="{StaticResource IconButton}" Margin="6,0,0,0"
-                                                    Click="OnOpenAiVoicesFolderClick"
-                                                    ToolTip="打开音色模型文件夹">
+                                                    Click="OnOpenAiVoicesFolderClick">
                                                 <Path Data="M 1 3 L 5 3 L 6.5 5 L 13 5 L 13 12 L 1 12 Z"
                                                       Stroke="{DynamicResource IconGlyphBrush}" StrokeThickness="1.3"
                                                       StrokeLineJoin="Round" Fill="Transparent" />
@@ -415,8 +414,7 @@
                                                       SelectionChanged="OnAiVoiceIndexSelectionChanged"/>
                                             <Button x:Name="OpenAiIndexFolderButton" Grid.Column="2"
                                                     Style="{StaticResource IconButton}" Margin="6,0,0,0"
-                                                    Click="OnOpenAiIndexFolderClick"
-                                                    ToolTip="打开索引文件夹">
+                                                    Click="OnOpenAiIndexFolderClick">
                                                 <Path Data="M 1 3 L 5 3 L 6.5 5 L 13 5 L 13 12 L 1 12 Z"
                                                       Stroke="{DynamicResource IconGlyphBrush}" StrokeThickness="1.3"
                                                       StrokeLineJoin="Round" Fill="Transparent" />
@@ -448,7 +446,7 @@
                                             <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
                                                        Text="{Binding Value, ElementName=AiVoiceFormantSlider, StringFormat='{}{0:+0;-0;0} 半音'}" />
                                         </Grid>
-                                        <Grid Margin="0,2,0,2">
+                                        <Grid x:Name="AiVoiceIndexRateRow" Margin="0,2,0,2">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="62" />
                                                 <ColumnDefinition Width="*" />
@@ -473,10 +471,6 @@
                                                     Value="160" Tag="AiVoiceBlockMs" ValueChanged="OnAiVoicePerfChanged"/>
                                             <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
                                                        Text="{Binding Value, ElementName=AiVoiceBlockSlider, StringFormat='{}{0:0} ms'}" />
-                                        </Grid>
-                                        <Grid Margin="62,0,0,2">
-                                            <TextBlock x:Name="AiVoiceLatencyText" Style="{StaticResource SliderValueText}"
-                                                       Text="≈ 320 ms 延迟" />
                                         </Grid>
                                         <Grid Margin="0,2,0,2">
                                             <Grid.ColumnDefinitions>
