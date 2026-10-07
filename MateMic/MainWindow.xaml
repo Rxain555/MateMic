@@ -447,7 +447,7 @@
                                             <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
                                                        Text="{Binding Value, ElementName=AiVoiceIndexRateSlider, StringFormat='{}{0:0}%'}" />
                                         </Grid>
-                                        <Grid Margin="0,2,0,2">
+                                        <Grid x:Name="AiVoiceBlockRow" Margin="0,2,0,2">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="62" />
                                                 <ColumnDefinition Width="*" />
@@ -461,7 +461,7 @@
                                             <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
                                                        Text="{Binding Value, ElementName=AiVoiceBlockSlider, StringFormat='{}{0:0} ms'}" />
                                         </Grid>
-                                        <Grid Margin="0,2,0,2">
+                                        <Grid x:Name="AiVoiceContextRow" Margin="0,2,0,2">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="62" />
                                                 <ColumnDefinition Width="*" />
@@ -475,7 +475,7 @@
                                             <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
                                                        Text="{Binding Value, ElementName=AiVoiceContextSlider, StringFormat='{}{0:0} ms'}" />
                                         </Grid>
-                                        <Grid Margin="0,2,0,2">
+                                        <Grid x:Name="AiVoiceCrossfadeRow" Margin="0,2,0,2">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="62" />
                                                 <ColumnDefinition Width="*" />

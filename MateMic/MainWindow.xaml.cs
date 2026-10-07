@@ -2452,19 +2452,31 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     {
         var running = _config.AiVoice.Enabled;
 
-        // 会重建引擎的：开着 AI 变声时禁用
-        foreach (var control in new System.Windows.FrameworkElement[]
+        // ⚠ 必须**整行**置灰（含前面的文字与后面的数值），不能只灰滑条本身。
+        // 用户 2026-10-07 与 2026-10-08 两次指出这一点：只让滑条变灰会让一行里
+        // "文字正常、控件灰、数值正常"，看起来像是控件坏了而不是"这一项暂时不可调"。
+        // 与 AiVoiceIndexRateRow 的做法保持一致：整行 IsEnabled + Opacity 0.4。
+        foreach (var row in new System.Windows.FrameworkElement[]
                  {
-                     AiVoiceBlockSlider, AiVoiceContextSlider, AiVoiceCrossfadeSlider,
-                     AiVoiceModelCombo, AiVoiceIndexCombo,
+                     AiVoiceBlockRow, AiVoiceContextRow, AiVoiceCrossfadeRow,
                  })
         {
-            control.IsEnabled = !running;
+            row.IsEnabled = !running;
+            row.Opacity = running ? 0.4 : 1.0;
         }
+
+        // 下拉框是独立控件（不占整行），单独置灰
+        AiVoiceModelCombo.IsEnabled = !running;
+        AiVoiceIndexCombo.IsEnabled = !running;
 
         // 走热更新的：保持可用
         AiVoicePitchSlider.IsEnabled = true;
-        AiVoiceIndexRateRow.IsEnabled = !running || _config.AiVoice.IndexFile is { Length: > 0 };
+
+        // 索引占比只在真的选了索引文件时可调（没选时整行置灰），
+        // 与 AI 变声的开关状态无关——它是热更新，开着也能改。
+        var hasIndex = _config.AiVoice.IndexFile is { Length: > 0 };
+        AiVoiceIndexRateRow.IsEnabled = hasIndex;
+        AiVoiceIndexRateRow.Opacity = hasIndex ? 1.0 : 0.4;
     }
 
     /// <summary>更新「AI 变声」开关上的加载进度填充条。
