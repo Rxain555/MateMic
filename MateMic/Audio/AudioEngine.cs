@@ -14,7 +14,24 @@ namespace MateMic.Audio;
 public sealed class AudioEngine : IDisposable
 {
     public const int SampleRate = 48000;
-    private const int CaptureBufferMilliseconds = 80;
+
+    /// <summary>
+    /// **采集端点缓冲**（ms）—— 直接决定采集延迟，所以要小。
+    ///
+    /// 原先只有 80 一个常量同时管着"端点缓冲"和"环形缓冲容量"，两者性质完全不同：
+    /// 端点缓冲是真的延迟，环形缓冲容量只是上限（不积压就不产生延迟）。
+    /// 实测该端点回调非常稳（3 秒 600 次，恰好 200 次/秒、每 5ms 一次、一次不差），
+    /// 80ms 的端点缓冲属于过度保守。
+    /// 设备若不接受这个长度，会自动降级到下一档（见 BuildRecorderAndStart），不会启动失败。
+    /// </summary>
+    private const int CaptureEndpointBufferMs = 20;
+
+    /// <summary>
+    /// **采集环形缓冲的容量**（ms）—— 只是上限，不增加延迟，留足是为了让下游
+    /// （AI 变声要攒一个音频块才推理、以及降噪等）偶尔抖动时不至于丢数据。
+    /// </summary>
+    private const int CaptureRingCapacityMs = 500;
+
     private const int MonitorBufferMilliseconds = 250;
 
     private readonly object _gate = new();
@@ -201,7 +218,7 @@ public sealed class AudioEngine : IDisposable
                                   !string.Equals(_config.Devices.InputDeviceId, _inputDevice.ID,
                                       StringComparison.OrdinalIgnoreCase);
 
-        _captureBuffer = new BufferedWaveProvider(Format, TimeSpan.FromMilliseconds(CaptureBufferMilliseconds))
+        _captureBuffer = new BufferedWaveProvider(Format, TimeSpan.FromMilliseconds(CaptureRingCapacityMs))
         {
             DiscardOnBufferOverflow = true,
             ReadFully = true,
@@ -251,7 +268,7 @@ public sealed class AudioEngine : IDisposable
                     .WithDevice(device)
                     .WithSharedMode()
                     .WithMmcssThreadPriority("Pro Audio")
-                    .WithBufferLength(CaptureBufferMilliseconds)
+                    .WithBufferLength(CaptureEndpointBufferMs)
                     .WithFormat(Format);
 
                 if (attempt.LowLatency) builder = builder.WithLowLatency();
