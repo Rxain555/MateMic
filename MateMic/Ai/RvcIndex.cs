@@ -96,8 +96,15 @@ public sealed class RvcIndex : IDisposable
     /// <summary>
     /// 就地对 <paramref name="feats"/>（行优先 [frames × 768]）做检索替换。
     /// indexRate 为 0 时直接返回。
+    ///
+    /// 参数与 faiss 的默认行为保持一致：
+    ///   · <paramref name="nprobe"/> **默认 1** —— 这是 faiss `IndexIVFFlat` 的默认值，
+    ///     也是官方 RVC 的用法（它直接 `index.search(npy, 8)`，没有改过 nprobe）。
+    ///     我此前擅自取 8，等于把一级检索的候选簇扩大 8 倍，在长上下文下直接拖垮实时性
+    ///     （用户实测："索引开到 100 时声音直接变成一卡一卡"）。
+    ///   · <paramref name="k"/> = 8 —— 对应官方 `index.search(npy, 8)` 的 k。
     /// </summary>
-    public void Retrieve(float[] feats, int frames, float indexRate, int k = 8, int nprobe = 8)
+    public void Retrieve(float[] feats, int frames, float indexRate, int k = 8, int nprobe = 1)
     {
         if (indexRate <= 0 || frames <= 0) return;
         var rate = Math.Clamp(indexRate, 0f, 1f);
