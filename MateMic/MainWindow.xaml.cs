@@ -2517,6 +2517,10 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         if (_loading || sender is not Slider slider) return;
         var value = (float)e.NewValue;
 
+        // 这几项会改变缓冲几何 / 模型 ⇒ 命中参数指纹 ⇒ 引擎重建（约 1.5 秒）。
+        // 必须防抖，否则拖动经过的每个数值都发起一次重建，直接把软件拖死。
+        var needsRebuild = false;
+
         switch (slider.Tag as string)
         {
             case "GateThreshold":
@@ -2559,21 +2563,64 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                 _config.AiVoice.Semitones = value;
                 break;
             case "AiVoiceIndexRate":
-                _config.AiVoice.IndexRate = value;
+                _config.AiVoice.IndexRate = value;      // 只影响每块计算，热更新，不重建
                 break;
             case "AiVoiceContextMs":
                 _config.AiVoice.ContextMs = (int)Math.Round(value);
+                needsRebuild = true;
                 break;
             case "AiVoiceCrossfadeMs":
                 _config.AiVoice.CrossfadeMs = (int)Math.Round(value);
+                needsRebuild = true;
                 break;
             default:
                 return;
         }
 
-        _engine.UpdateAllParameters();
+        if (needsRebuild)
+        {
+            ScheduleAiVoiceApply();          // 停手 500ms 后才真正重建一次
+        }
+        else
+        {
+            _engine.UpdateAllParameters();
+            ScheduleSave();
+        }
+    }
+
+    /// <summary>
+    /// AI 变声的"参数生效"防抖。
+    ///
+    /// ⚠ 为什么必须防抖：音频块 / 上下文 / 交叉淡化变化会让引擎**重建**（约 1.5 秒）。
+    /// 若在 ValueChanged 里直接重建，拖动滑条经过的每一个数值都会发起一次重建，
+    /// 几十次排队叠加会把软件卡死甚至闪退
+    ///（2026-10-08 用户实测："上下文滑条跟随我鼠标拖动经过的每一个数值热重载，导致软件卡死闪退"）。
+    /// 现在：拖动期间只更新配置与数值显示，停手 500ms 后才真正应用一次。
+    /// </summary>
+    private void ScheduleAiVoiceApply()
+    {
+        _aiVoiceApplyTimer ??= new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(500),
+        };
+        _aiVoiceApplyTimer.Stop();      // 重新计时：连续拖动期间始终不触发
+        _aiVoiceApplyTimer.Tick -= OnAiVoiceApplyTick;
+        _aiVoiceApplyTimer.Tick += OnAiVoiceApplyTick;
+        _aiVoiceApplyTimer.Start();
         ScheduleSave();
     }
+
+    private void OnAiVoiceApplyTick(object? sender, EventArgs e)
+    {
+        _aiVoiceApplyTimer?.Stop();
+        _engine.UpdateAllParameters();
+        SaveConfig();
+    }
+
+    private System.Windows.Threading.DispatcherTimer? _aiVoiceApplyTimer;
+
+    /// <summary>窗口关闭时停掉待生效的计时器，避免它对着已释放的引擎调用。</summary>
+    private void CancelAiVoiceApply() => _aiVoiceApplyTimer?.Stop();
 
     /// <summary>按配置勾选预设 chip；Style 为 null（手动 / 未选择）时全部不选中。</summary>
     private void SelectToneChip(ToneStyle? style)
@@ -3110,8 +3157,8 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     {
         if (_loading) return;
         _config.AiVoice.BlockMs = (int)Math.Round(e.NewValue);
-        _engine.UpdateAllParameters();          // 参数指纹变化 → 重建引擎与工作线程
-        SaveConfig();
+        // 同样要防抖：块长变化会重建引擎（见 ScheduleAiVoiceApply 的说明）
+        ScheduleAiVoiceApply();
     }
 
     private void OnAddAiVoiceClick(object sender, RoutedEventArgs e)
@@ -3812,6 +3859,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         _hotkeys.Dispose();
         _tray.Dispose();
         _player.Dispose();
+        CancelAiVoiceApply();       // 先停掉待生效的"AI 变声参数应用"，避免它调用已释放的引擎
         _engine.Dispose();
         _devices.Dispose();
         Application.Current.Shutdown();
