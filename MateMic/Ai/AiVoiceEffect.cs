@@ -233,6 +233,18 @@ public sealed class AiVoiceEffect : IAudioEffect
     private void CreateEngineCore()
     {
         var engineDir = ConfigStore.AiEngineDirectory;
+
+        // 索引：与音色同名的 .simple 目录（由 Python 侧一次性转换而来，见 RvcIndex 注释）
+        string? indexDir = null;
+        var rate = 0f;
+        if (!string.IsNullOrWhiteSpace(_config.AiVoice.IndexFile))
+        {
+            var name = Path.GetFileNameWithoutExtension(_config.AiVoice.IndexFile);
+            var dir = Path.Combine(ConfigStore.AiIndexDirectory, name + ".simple");
+            if (Directory.Exists(dir)) { indexDir = dir; rate = _config.AiVoice.IndexRate / 100f; }
+            else Log.Warn($"[AI 变声] 索引 {name} 尚未转换（缺 {name}.simple 目录），本次不使用索引");
+        }
+
         _engine = new StreamingRvc(
             Path.Combine(engineDir, "contentvec.onnx"),
             Path.Combine(engineDir, "rmvpe.onnx"),
@@ -242,6 +254,8 @@ public sealed class AiVoiceEffect : IAudioEffect
             _config.AiVoice.CrossfadeMs,
             (int)Math.Round(_config.AiVoice.Semitones),
             useGpu: true,
+            indexSimpleDir: indexDir,
+            indexRate: rate,
             onProgress: p =>
             {
                 _loadProgress = p;
@@ -360,8 +374,8 @@ public sealed class AiVoiceEffect : IAudioEffect
                      + $"，上次推理 {LastInferMs:F0}ms");
         }
 
-        // AI 变声自己的输出噪声门（静音处 RVC 仍有微弱输出，实测原始素材 6.3% 静音帧、
-        // 转换后变成 0.0%）。放在这里而不是复用链上的噪声门，是因为它只该作用于本模块的产物。
+        // 输出噪声门：**只作为兜底**。真正压掉静音底噪的是上面"静音不推理"那条路径，
+        // 门的作用是处理"输入有微弱电平、但合成结果仍很轻"的边缘情况。
         ApplyOutputGate(buffer);
 
         return buffer.Length;
@@ -439,6 +453,41 @@ public sealed class AiVoiceEffect : IAudioEffect
     private static int Available(float[] ring, int read, int write)
         => (write - read + ring.Length) % ring.Length;
 
+    /// <summary>静音判定阈值：−55 dBFS。远低于正常说话（约 −20~−35 dBFS）。</summary>
+    private const float SilenceRms = 0.00178f;
+
+    /// <summary>淡出长度（样本）：10ms @ 48kHz。</summary>
+    private const int FadeSamples = 480;
+
+    /// <summary>上一块输出的尾部，用于静音段的淡出。</summary>
+    private readonly float[] _tail = new float[FadeSamples];
+
+    /// <summary>
+    /// 输出"淡出 + 静音"。
+    /// 先让上一块的最后 10ms 平滑衰减到 0，再补静音——这样块边界处没有硬切，
+    /// 听感是"话音自然收尾"而不是"被剪断"。
+    /// </summary>
+    private void WriteSilenceWithFade()
+    {
+        for (var i = 0; i < _blockSamples48; i++)
+        {
+            float v;
+            if (i < FadeSamples)
+            {
+                var k = 1f - (float)i / FadeSamples;      // 线性淡出，块内 10ms，足够听不出台阶
+                v = _tail[i] * k * k;                     // 平方让尾部更快收敛
+            }
+            else
+            {
+                v = 0f;
+            }
+            _outRing[_outWrite] = v;
+            _outWrite = (_outWrite + 1) % _outRing.Length;
+        }
+        Array.Clear(_tail);
+        Interlocked.Increment(ref _blocks);
+    }
+
     private void ProcessOneBlock()
     {
         // 取一个块（40k 域）
@@ -449,16 +498,23 @@ public sealed class AiVoiceEffect : IAudioEffect
         }
 
         // ------------------------------------------------------------------
-        // 这里**刻意不做**"输入静音就整块输出静音"的抑制。
+        // 输入几乎无声时**不推理**，直接输出一段"上一块尾部的淡出 + 静音"。
         //
-        // 曾经这么做过，理由是"静音时推理没意义、还能省算力"。但它会造成**整段被切断**：
-        // 语音的字头字尾一旦落在被判为静音的块里就被削掉，听感生硬
-        //（用户实测："我说的话的声音前面也切断后面也切断"）。
+        // 依据（离线实测，见工作日志）：
+        //   · 合成器对静音/极低电平输入仍会输出约 −50~−61 dBFS 的内容；
+        //   · 而**把无声帧的特征置 0 反而更糟**（−61 → −41 dBFS），模型不认识零特征会乱编；
+        //   · 所以"静音处不推理"才是唯一能得到**绝对静音**的做法。
         //
-        // 正确做法是让信号**始终连续**，由输出端的平滑噪声门
-        //（见 ApplyOutputGate）在幅度域把静音处压下去——那里是逐样本的连续增益，
-        // 不会产生块边界上的突变。
+        // 上一版之所以被用户评价"前面也切断后面也切断、很生硬"，是因为整块硬切。
+        // 这里改为：用上一块尾部做 **10ms 指数淡出**再进静音，边界就听不出来了。
         // ------------------------------------------------------------------
+        var sum = 0f;
+        foreach (var s in _inScratch) sum += s * s;
+        if (MathF.Sqrt(sum / _inScratch.Length) < SilenceRms)
+        {
+            WriteSilenceWithFade();
+            return;
+        }
 
         var modelBlock = _blockSamples48 * ModelRate / ChainRate;
         var block40 = new float[modelBlock];

@@ -35,6 +35,10 @@ public sealed class StreamingRvc : IDisposable
     private readonly ContentEncoder _encoder;
     private readonly RmvpeF0 _rmvpe;
     private readonly RvcSynthesizer _synth;
+    private RvcIndex? _index;
+
+    /// <summary>索引特征占比（0~1）。没有索引时恒为 0。</summary>
+    public float IndexRate { get; set; }
 
     private readonly int _block, _extra, _crossfade, _solaBuffer, _solaSearch, _total;
     private readonly float[] _in40;
@@ -50,9 +54,11 @@ public sealed class StreamingRvc : IDisposable
     public StreamingRvc(string cvModel, string rmvpeModel, string voiceModel,
                         int blockMs = 160, int contextMs = 320, int crossfadeMs = 40,
                         int semitones = 12, bool useGpu = true, bool disableSola = false,
+                        string? indexSimpleDir = null, float indexRate = 0f,
                         Action<int>? onProgress = null)
     {
         Semitones = semitones;
+        IndexRate = indexRate;
         // 三个模型逐个加载，按权重报进度（contentvec 约占一半体积、合成器次之、rmvpe 最小）
         onProgress?.Invoke(2);
         _encoder = new ContentEncoder(cvModel, useGpu);
@@ -61,6 +67,17 @@ public sealed class StreamingRvc : IDisposable
         onProgress?.Invoke(65);
         _synth = new RvcSynthesizer(voiceModel, useGpu);
         onProgress?.Invoke(90);
+
+        // 音色索引（可选）：放在转换后的简单格式目录里
+        if (!string.IsNullOrWhiteSpace(indexSimpleDir) && Directory.Exists(indexSimpleDir))
+        {
+            _index = RvcIndex.Load(indexSimpleDir);
+            if (_index == null) IndexRate = 0f;
+        }
+        else
+        {
+            IndexRate = 0f;
+        }
 
         static int ToSamples(int ms) => (int)Math.Round(ms / 1000.0 * OutputRate / Zc) * Zc;
         _block = ToSamples(blockMs);
@@ -114,6 +131,12 @@ public sealed class StreamingRvc : IDisposable
 
         var (features, f50) = _encoder.Encode(a16);
         var (f0raw, _, _) = _rmvpe.Extract(a16);
+
+        // 索引检索：**在 2 倍插值之前**做，与官方一致
+        //（官方顺序是 hubert → index.search → interpolate）。
+        // 放在插值前还省一半计算量。
+        if (_index != null && IndexRate > 0)
+            _index.Retrieve(features, f50, IndexRate);
 
         // 特征 2 倍插值（nearest，输出 2T）
         var f100 = 2 * f50;
@@ -224,5 +247,6 @@ public sealed class StreamingRvc : IDisposable
         _encoder.Dispose();
         _rmvpe.Dispose();
         _synth.Dispose();
+        _index?.Dispose();
     }
 }
