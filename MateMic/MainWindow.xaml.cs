@@ -3099,11 +3099,18 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     private void OnOpenAiIndexFolderClick(object sender, RoutedEventArgs e)
         => OpenFolder(ConfigStore.AiIndexDirectory, "索引");
 
-    /// <summary>音频块长度变动：只记配置。</summary>
+    /// <summary>
+    /// 音频块长度变动：记配置 + **重建引擎**。
+    ///
+    /// ⚠ 必须调 UpdateAllParameters：块长决定了缓冲几何与 StreamingRvc 的块大小，
+    /// 只写 config 是不生效的（2026-10-08 用户反馈"音频块这个滑条是不是没功能，
+    /// 我调了没效果"）。其它滑条走 OnSliderChanged，其末尾本来就有这一步，唯独这里漏了。
+    /// </summary>
     private void OnAiVoicePerfChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
         if (_loading) return;
         _config.AiVoice.BlockMs = (int)Math.Round(e.NewValue);
+        _engine.UpdateAllParameters();          // 参数指纹变化 → 重建引擎与工作线程
         SaveConfig();
     }
 
