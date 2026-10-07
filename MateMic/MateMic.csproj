@@ -31,8 +31,11 @@
     <!-- 变声：变调 + 共振峰独立搬移（MIT；自带 win-x64 原生库约 136 KB） -->
     <PackageReference Include="SignalsmithStretch-CS" Version="1.1.2" />
     <!-- 降噪模型（dpdfnet / gtcrn）用的 CPU ONNX 运行时。
-         AI 变声曾额外引入 DirectML 版做 GPU 推理；该功能已剔除，故换回 CPU 版。 -->
-    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.20.1" />
+         AI 变声曾额外引入 DirectML 版做 GPU 推理；该功能已剔除，故换回 CPU 版。
+         1.24.1：1.20.1 的 shape 推断有缺陷，AI 变声的流式分块会报
+                 "Reshape ... Input shape:{1,2,56,112}"（整段推理不会暴露）。
+                 1.27+ 需要 CUDA 13，故以 1.24.1 为 CUDA 12 线上的可用版本。 -->
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.24.1" />
   </ItemGroup>
 
   <!-- tools 目录只放脚本与独立小工具，绝不参与主程序编译（否则里面的顶级语句会抢占入口点） -->
