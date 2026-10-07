@@ -624,25 +624,12 @@
                     </BeginStoryboard>
                 </Trigger.ExitActions>
             </Trigger>
-            <!-- 加载中（Tag=True）：显示填充层并从 0 填到轨道全长 -->
-            <Trigger Property="Tag" Value="True">
-                <Setter TargetName="ProgressFill" Property="Visibility" Value="Visible" />
-                <Trigger.EnterActions>
-                    <BeginStoryboard x:Name="ProgressStoryboard">
-                        <Storyboard>
-                            <DoubleAnimation Storyboard.TargetName="ProgressFill" Storyboard.TargetProperty="Width"
-                                             From="0" To="38" Duration="0:0:2.2">
-                                <DoubleAnimation.EasingFunction>
-                                    <CubicEase EasingMode="EaseOut" />
-                                </DoubleAnimation.EasingFunction>
-                            </DoubleAnimation>
-                        </Storyboard>
-                    </BeginStoryboard>
-                </Trigger.EnterActions>
-                <Trigger.ExitActions>
-                    <StopStoryboard BeginStoryboardName="ProgressStoryboard" />
-                </Trigger.ExitActions>
-            </Trigger>
+            <!--
+              加载进度由代码直接驱动（MainWindow.UpdateAiVoiceLoading 用 Template.FindName
+              取到 ProgressFill，再按真实百分比做 150ms 补间）。
+              **刻意不用 Style Trigger**：Tag 是 object，布尔与字符串比较在不同时序下不可靠，
+              最初那版 `Tag=True` 的 Trigger 就没有生效（2026-10-07 用户反馈"加载条没生效"）。
+            -->
             <Trigger Property="IsEnabled" Value="False">
                 <Setter TargetName="Track" Property="Opacity" Value="0.4" />
             </Trigger>

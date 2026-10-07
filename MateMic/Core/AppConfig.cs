@@ -207,13 +207,6 @@ public sealed class AiVoiceSettings
     /// <summary>交叉淡化长度（ms）：块与块之间的平滑过渡。SOLA 重叠会被封顶在 40ms。</summary>
     public int CrossfadeMs { get; set; } = 40;
 
-    /// <summary>
-    /// 输出噪声门阈值（dBFS）。RVC 在无人声处也会输出微弱信号
-    /// （实测原始素材 6.3% 静音帧、转换后变成 0.0%，输出仍在 −43~−47 dBFS），
-    /// 用户实测"不说话时有呲呲的底噪"，故阈值从一开始的 −45 收紧到 −35。
-    /// 0 表示关闭。
-    /// </summary>
-    public float GateDb { get; set; } = -35f;
 }
 
 

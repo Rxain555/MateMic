@@ -108,8 +108,15 @@ public sealed class AiVoiceEffect : IAudioEffect
         {
             if (!Enabled || !Ready(out _)) return;
 
-            // 变调：热更新，不重建
-            if (_engine != null) _engine.Semitones = (int)Math.Round(_config.AiVoice.Semitones);
+            // 变调与索引占比都只影响每块的计算，不动缓冲几何 ⇒ 热更新即刻生效。
+            // （索引占比漏掉热更新会让滑条完全空转——用户实测"拉到最大和最小没多大区别"。）
+            if (_engine != null)
+            {
+                _engine.Semitones = (int)Math.Round(_config.AiVoice.Semitones);
+                _engine.IndexRate = _config.AiVoice.IndexFile is { Length: > 0 }
+                    ? Math.Clamp(_config.AiVoice.IndexRate / 100f, 0f, 1f)
+                    : 0f;
+            }
 
             var signature = string.Join('|',
                 _config.AiVoice.BlockMs,
@@ -374,56 +381,13 @@ public sealed class AiVoiceEffect : IAudioEffect
                      + $"，上次推理 {LastInferMs:F0}ms");
         }
 
-        // 输出噪声门：**只作为兜底**。真正压掉静音底噪的是上面"静音不推理"那条路径，
-        // 门的作用是处理"输入有微弱电平、但合成结果仍很轻"的边缘情况。
-        ApplyOutputGate(buffer);
+        // 刻意**不做输出噪声门**（2026-10-08 用户要求去掉）：
+        // 它只在静音段关门，说话时照样开门、底噪会混进人声，治不了根本问题，
+        // 反而在阈值附近造成生硬的门感。静音段由上面的"不推理 + 淡出"处理即可。
 
         return buffer.Length;
     }
 
-    private float _gateEnv;
-    private float _gateGain = 1f;
-
-    /// <summary>
-    /// 输出端**平滑**噪声门。
-    ///
-    /// 为什么要平滑而不是"低于阈值就置 0"：后者会造成**整段被切断**——语音的字头字尾
-    /// 一旦落在判定为静音的区间里就被削掉，听感非常生硬（用户实测反馈"前面也切断后面也切断"）。
-    /// 这里改成用**短时包络**驱动一个平滑增益：起音快（立刻打开，不切字头）、
-    /// 释放慢（字尾自然衰减，不切字尾），中间是连续过渡。
-    ///
-    /// 阈值：合成器对静音本身只输出约 −61.7 dBFS（离线实测），而正常说话在 −20~−35 dBFS，
-    /// 所以默认 −35 dB 落在两者之间，既能压掉静音噪声，又不会碰到正常语音。
-    /// </summary>
-    private void ApplyOutputGate(Span<float> buffer)
-    {
-        // ⚠ 用下限夹紧：配置里可能残留早期偏松的值（曾默认 −45，压不住 −43 的残留噪声）。
-        // 只改代码默认值不够——已存在的 config.json 会一直带着旧值，必须在这里兜底。
-        var threshold = Math.Max(_config.AiVoice.GateDb, MinGateDb);
-        if (_config.AiVoice.GateDb >= 0) return;          // 0 表示用户主动关闭噪声门
-
-        var linear = (float)Math.Pow(10, threshold / 20.0);
-
-        // 每样本时间常数（48kHz）：包络 2ms 跟随；增益起音 2ms、释放 250ms
-        // （释放取长一点，让字尾自然衰减，而不是被"关门"切掉）
-        const float envCoeff = 1f / (0.002f * ChainRate);
-        var attack = 1f - MathF.Exp(-1f / (0.002f * ChainRate));
-        var release = 1f - MathF.Exp(-1f / (0.250f * ChainRate));
-
-        foreach (ref var sample in buffer)
-        {
-            _gateEnv += (Math.Abs(sample) - _gateEnv) * envCoeff;
-
-            var target = _gateEnv > linear ? 1f : 0f;
-            var coeff = target > _gateGain ? attack : release;
-            _gateGain += (target - _gateGain) * coeff;
-
-            sample *= _gateGain;
-        }
-    }
-
-    /// <summary>噪声门阈值下限（dBFS）。低于它的配置值会被夹到这里。</summary>
-    private const float MinGateDb = -30f;
 
     // ---------------------------------------------------------------- 推理线程
 
@@ -453,8 +417,16 @@ public sealed class AiVoiceEffect : IAudioEffect
     private static int Available(float[] ring, int read, int write)
         => (write - read + ring.Length) % ring.Length;
 
-    /// <summary>静音判定阈值：−55 dBFS。远低于正常说话（约 −20~−35 dBFS）。</summary>
-    private const float SilenceRms = 0.00178f;
+    /// <summary>
+    /// 静音判定阈值（带迟滞）：
+    /// 进入静音用 −55 dBFS（远低于正常说话，约 −20~−35 dBFS，不误伤气声与轻声），
+    /// 退出静音用 −48 dBFS，中间 7dB 是死区，避免说话间隙在阈值附近反复切换。
+    /// </summary>
+    private const float SilenceEnterRms = 0.00178f;    // −55 dBFS
+    private const float SilenceExitRms = 0.00398f;     // −48 dBFS
+
+    /// <summary>当前是否处于"输入静音"状态（用于迟滞判断）。</summary>
+    private bool _inputSilent = true;
 
     /// <summary>淡出长度（样本）：10ms @ 48kHz。</summary>
     private const int FadeSamples = 480;
@@ -497,24 +469,30 @@ public sealed class AiVoiceEffect : IAudioEffect
             _inRead = (_inRead + 1) % _inRing.Length;
         }
 
-        // ------------------------------------------------------------------
-        // 输入几乎无声时**不推理**，直接输出一段"上一块尾部的淡出 + 静音"。
-        //
-        // 依据（离线实测，见工作日志）：
-        //   · 合成器对静音/极低电平输入仍会输出约 −50~−61 dBFS 的内容；
-        //   · 而**把无声帧的特征置 0 反而更糟**（−61 → −41 dBFS），模型不认识零特征会乱编；
-        //   · 所以"静音处不推理"才是唯一能得到**绝对静音**的做法。
-        //
-        // 上一版之所以被用户评价"前面也切断后面也切断、很生硬"，是因为整块硬切。
-        // 这里改为：用上一块尾部做 **10ms 指数淡出**再进静音，边界就听不出来了。
-        // ------------------------------------------------------------------
-        var sum = 0f;
-        foreach (var s in _inScratch) sum += s * s;
-        if (MathF.Sqrt(sum / _inScratch.Length) < SilenceRms)
-        {
-            WriteSilenceWithFade();
-            return;
-        }
+        /// 输入几乎无声时**不推理**，直接输出"上一块尾部的淡出 + 静音"。
+    ///
+    /// 依据（离线实测，见工作日志）：
+    ///   · 合成器对静音/极低电平输入仍会输出约 −50~−61 dBFS 的内容；
+    ///   · 而**把无声帧的特征置 0 反而更糟**（−61 → −41 dBFS），模型不认识零特征会乱编；
+    ///   · 所以"静音处不推理"才是唯一能得到**绝对静音**的做法。
+    ///
+    /// ⚠ **判据必须带迟滞（hysteresis）**：说话间隙的电平常在阈值附近抖动，
+    /// 单阈值会让静音/有声反复切换，听感就是"开了一个很生硬的噪声门"
+    ///（2026-10-08 用户反馈）。进入静音用较低阈值、退出静音用较高阈值，
+    /// 中间是死区，就不会来回跳。
+    /// </summary>
+    var sum = 0f;
+    foreach (var s in _inScratch) sum += s * s;
+    var rms = MathF.Sqrt(sum / _inScratch.Length);
+    var nowSilent = _inputSilent
+        ? rms < SilenceExitRms          // 当前判为静音：要超过"退出阈值"才算有声
+        : rms < SilenceEnterRms;        // 当前判为有声：要低于"进入阈值"才算静音
+    _inputSilent = nowSilent;
+    if (nowSilent)
+    {
+        WriteSilenceWithFade();
+        return;
+    }
 
         var modelBlock = _blockSamples48 * ModelRate / ChainRate;
         var block40 = new float[modelBlock];
@@ -535,6 +513,11 @@ public sealed class AiVoiceEffect : IAudioEffect
             _outRing[_outWrite] = out48[i];
             _outWrite = (_outWrite + 1) % _outRing.Length;
         }
+
+        // 记住这一块的最后 10ms：一旦下一块判为静音，就用它做淡出，
+        // 否则淡出的永远是零，等于硬切（这正是"很生硬"的来源之一）。
+        if (n >= FadeSamples) Array.Copy(out48, n - FadeSamples, _tail, 0, FadeSamples);
+        else Array.Clear(_tail);
     }
 
     private void SkipOneBlock()
