@@ -69,7 +69,11 @@ public sealed class StreamingRvc : IDisposable
         }
     }
 
-    public int Semitones { get; }
+    /// <summary>
+    /// 变调量（半音）。**可在运行期修改**——它只影响每块的 f0 变换，不改动缓冲几何，
+    /// 所以拖动变调滑条能立刻生效，无需重建引擎（重建一次要 1.5 秒，体验很差）。
+    /// </summary>
+    public int Semitones { get; set; }
 
     /// <summary>送入一块 40 kHz 音频，返回同长度的转换结果。</summary>
     public float[] Process(ReadOnlySpan<float> block40)

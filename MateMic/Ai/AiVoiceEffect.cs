@@ -77,17 +77,40 @@ public sealed class AiVoiceEffect : IAudioEffect
 
     // ---------------------------------------------------------------- 参数
 
-    /// <summary>把界面参数写回引擎。参数变化需要重启工作线程（块长变了，缓冲尺寸也要变）。</summary>
+    /// <summary>
+    /// 把界面参数写回引擎。
+    ///
+    /// 分两类处理：
+    ///   · **变调** 只影响每块的 f0 变换，直接热更新即刻生效；
+    ///   · **块长 / 上下文 / 交叉淡化 / 音色** 会改变缓冲几何或模型，必须重建引擎（约 1.5 秒）。
+    ///
+    /// ⚠ 前一版只比较了"块长"，导致改变调、声线、上下文都被直接 return 掉——
+    /// 用户实测反馈"声调相关设置好像没功能"。
+    /// </summary>
     public void UpdateParameters()
     {
         lock (_gate)
         {
             if (!Enabled || !Ready(out _)) return;
-            // 块长/上下文/交叉淡化变化都会改变缓冲几何，最省事也最可靠的做法是重建
-            if (_engine != null && _blockSamples48 == ExpectedBlockSamples()) return;
+
+            // 变调：热更新，不重建
+            if (_engine != null) _engine.Semitones = (int)Math.Round(_config.AiVoice.Semitones);
+
+            var signature = string.Join('|',
+                _config.AiVoice.BlockMs,
+                _config.AiVoice.ContextMs,
+                _config.AiVoice.CrossfadeMs,
+                _config.AiVoice.VoiceModel ?? string.Empty);
+
+            if (_engine != null && signature == _engineSignature) return;
+
+            _engineSignature = signature;
             Restart();
         }
     }
+
+    /// <summary>重建引擎所依据的参数指纹。</summary>
+    private string _engineSignature = string.Empty;
 
     private int ExpectedBlockSamples()
         => Math.Max(1, _config.AiVoice.BlockMs * ChainRate / 1000);
@@ -344,6 +367,20 @@ public sealed class AiVoiceEffect : IAudioEffect
     private static int Available(float[] ring, int read, int write)
         => (write - read + ring.Length) % ring.Length;
 
+    /// <summary>静音判定阈值：−55 dBFS。远低于正常说话（约 −20~−35 dBFS）。</summary>
+    private const float SilenceRms = 0.00178f;
+
+    /// <summary>输出一个块的静音（时间轴要与正常路径一致，否则会越走越偏）。</summary>
+    private void WriteSilence()
+    {
+        for (var i = 0; i < _blockSamples48; i++)
+        {
+            _outRing[_outWrite] = 0f;
+            _outWrite = (_outWrite + 1) % _outRing.Length;
+        }
+        Interlocked.Increment(ref _blocks);
+    }
+
     private void ProcessOneBlock()
     {
         // 取一个块（40k 域）
@@ -351,6 +388,25 @@ public sealed class AiVoiceEffect : IAudioEffect
         {
             _inScratch[i] = _inRing[_inRead];
             _inRead = (_inRead + 1) % _inRing.Length;
+        }
+
+        // ------------------------------------------------------------------
+        // 输入几乎无声时**直接输出静音**，不做推理。
+        //
+        // 依据：用户实测"把输入换成不会出声的麦克风、只开 AI 变声，仍有呲呲底噪"，
+        // 说明底噪是 RVC 自己产生的——它对静音输入也会输出 −43~−47 dBFS 的信号。
+        // 这段推理本来就没有意义（没有语音内容可转换），所以：
+        //   · 彻底消除静音段的底噪（比事后用噪声门压更干净）；
+        //   · 顺带省下算力与显存带宽。
+        // 阈值取 −55 dBFS：远低于正常说话（约 −20~−35 dBFS），不会误伤气声与轻声。
+        // ------------------------------------------------------------------
+        var sum = 0f;
+        foreach (var s in _inScratch) sum += s * s;
+        var rms = MathF.Sqrt(sum / _inScratch.Length);
+        if (rms < SilenceRms)
+        {
+            WriteSilence();
+            return;
         }
 
         var modelBlock = _blockSamples48 * ModelRate / ChainRate;
