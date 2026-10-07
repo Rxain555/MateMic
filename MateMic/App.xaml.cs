@@ -212,6 +212,46 @@ public partial class App : Application
             preview.Start();
         }
 
+        // AI 变声组件对话框自检：MateMic.exe --aicomponentcheck <输出图片路径> [--dark]
+        // 复用 DialogHost.ShowCustom + AiComponentPanel。对话框是分层窗口，
+        // 靠这段自检确认它能正常打开、配色正确，且组件状态检测在两种情况下都不崩。
+        var aiCheck = ValueOf(args, "--aicomponentcheck");
+        if (aiCheck != null)
+        {
+            if (HasFlag(args, "--dark"))
+            {
+                ThemeManager.Apply(Application.Current.Resources, dark: true,
+                    WindowEffects.IsAcrylicActive);
+            }
+
+            var preview = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(200),
+            };
+            var tick = 0;
+            Window? dialog = null;
+            preview.Tick += (_, _) =>
+            {
+                if (tick == 1)
+                {
+                    dialog = Ui.DialogHost.CreateCustom("添加 AI 变声", new AiComponentPanel());
+                    dialog.Show();
+                    dialog.UpdateLayout();
+                }
+                if (++tick > 6)
+                {
+                    preview.Stop();
+                    if (dialog != null) ScreenCapture.CaptureWindow(dialog, aiCheck, "desktop");
+                    Log.Info($"[AI 变声] 组件对话框自检状态：{Ai.AiComponent.Inspect().Message}");
+                    try { dialog?.Close(); } catch { /* 忽略 */ }
+                    Shutdown();
+                }
+            };
+            preview.Start();
+            base.OnStartup(e);
+            return;
+        }
+
         // 托盘菜单自检：MateMic.exe --traymenucheck <输出图片路径> [--dark]
         // 打开自绘的托盘菜单（Ui\TrayMenuWindow）抓一张窗口图再退出。
         // 用途：核对菜单的圆角、配色与勾选态在浅色/深色下是否都正常（--dark 强制深色主题）。

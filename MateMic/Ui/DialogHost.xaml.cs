@@ -47,7 +47,8 @@ public sealed class DialogHost : Window
     private int _pageIndex;
 
     private DialogHost(string title, string message, string? secondaryText, string primaryText,
-                       IReadOnlyList<GuideCatalog.Page>? pages = null)
+                       IReadOnlyList<GuideCatalog.Page>? pages = null,
+                       FrameworkElement? customContent = null)
     {
         WindowStyle = WindowStyle.None;
         ResizeMode = ResizeMode.NoResize;
@@ -69,33 +70,46 @@ public sealed class DialogHost : Window
 
         // 正文用可更新的 TextBlock（分页时要换内容），并套一层滚动：
         // 单页可能写得比较长，没有滚动条窗口会一路撑高、甚至超出屏幕。
-        _bodyBlock = new TextBlock
+        // 正文：默认是可更新的 TextBlock（分页时要换内容）。
+        // 传入 customContent 时改用它——"添加 AI 变声"这类需要放下拉框、按钮的对话框
+        // 就复用本类的标题栏、描边与按钮样式，不必再手写一个窗口。
+        FrameworkElement body;
+        if (customContent != null)
         {
-            Text = paged ? _pages[0].Body : message,
-            TextWrapping = TextWrapping.Wrap,
-            Foreground = Brush(TextColor),
-            FontSize = 12,
-            LineHeight = 19,
-            // 长文案限制最大宽度，避免窗口拉成一整条
-            MaxWidth = 520,
-        };
+            body = customContent;
+        }
+        else
+        {
+            _bodyBlock = new TextBlock
+            {
+                Text = paged ? _pages[0].Body : message,
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = Brush(TextColor),
+                FontSize = 12,
+                LineHeight = 19,
+                // 长文案限制最大宽度，避免窗口拉成一整条
+                MaxWidth = 520,
+            };
 
-        var body = new ScrollViewer
-        {
-            Content = _bodyBlock,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            MaxHeight = 380,
-        };
+            var scroll = new ScrollViewer
+            {
+                Content = _bodyBlock,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                MaxHeight = 380,
+            };
 
-        // 分页（使用指南）时把正文区**钉死成固定尺寸**：
-        // 每页长短不一，若让它随内容变化，翻页时整个对话框会重新居中、
-        // 底部按钮也跟着在屏幕上跳来跳去，点「下一页」时按钮会从鼠标底下跑掉
-        //（用户 2026-10-06 反馈"变来变去、很难受"）。
-        if (paged)
-        {
-            body.Width = 520;
-            body.Height = 360;
+            // 分页（使用指南）时把正文区**钉死成固定尺寸**：
+            // 每页长短不一，若让它随内容变化，翻页时整个对话框会重新居中、
+            // 底部按钮也跟着在屏幕上跳来跳去，点「下一页」时按钮会从鼠标底下跑掉
+            //（用户 2026-10-06 反馈"变来变去、很难受"）。
+            if (paged)
+            {
+                scroll.Width = 520;
+                scroll.Height = 360;
+            }
+
+            body = scroll;
         }
 
         var messagePanel = new StackPanel
@@ -247,8 +261,7 @@ public sealed class DialogHost : Window
 
 
     /// <summary>单按钮提示：确定。</summary>
-    public static void Info(Window? owner, string title, string message)
-        => Show(owner, title, message, null, "确定");
+    public static void Info(Window? owner, string title, string message)        => Show(owner, title, message, null, "确定");
 
     /// <summary>风险提示：和 Info 行为一致，单独留一个入口让调用点读起来更明白。</summary>
     public static void Warn(Window? owner, string title, string message)
@@ -274,6 +287,28 @@ public sealed class DialogHost : Window
     /// <summary>是否框：主按钮是「是」。</summary>
     public static bool YesNo(Window? owner, string title, string message)
         => Show(owner, title, message, "否", "是");
+
+    /// <summary>
+    /// 显示一个**自定义内容**的对话框（下拉框、按钮、拖放区都能放），
+    /// 复用本类的标题栏、1px 描边、圆角与底部按钮样式 —— 不要另写窗口。
+    /// 主按钮返回 true。
+    /// </summary>
+    public static bool ShowCustom(Window? owner, string title, FrameworkElement content,
+                                  string primaryText = "关闭")
+    {
+        var dialog = CreateCustom(title, content, primaryText);
+        if (owner != null) dialog.Owner = owner;
+        dialog.ShowDialog();
+        return dialog._accepted;
+    }
+
+    /// <summary>
+    /// 构造一个自定义内容对话框但**不以模态显示**。
+    /// 供自检使用：ShowDialog 会阻塞调用线程，截图流程需要自己 Show() 再抓图。
+    /// </summary>
+    internal static DialogHost CreateCustom(string title, FrameworkElement content,
+                                            string primaryText = "关闭")
+        => new(title, string.Empty, null, primaryText, pages: null, customContent: content);
 
     /// <summary>
     /// 分页显示使用指南。页数与每页内容都是**内置**的（仓库 Assets\使用指南.txt，随程序集编译进来）。

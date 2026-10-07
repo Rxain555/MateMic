@@ -129,6 +129,14 @@
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
                                 Margin="10,0,0,0">
                         <!--
+                          添加 AI 变声：AI 变声的组件（数千 MB）不随程序分发，
+                          点这里打开组件对话框——显示各组件就绪状态、打开组件文件夹、
+                          也支持把文件直接拖进去。组件齐全后处理链里才会出现 AI 变声卡片。
+                        -->
+                        <Button x:Name="AddAiVoiceButton" Style="{StaticResource ToolbarButton}"
+                                Content="添加 AI 变声" Padding="8,3,8,3" Margin="0,0,6,0"
+                                Click="OnAddAiVoiceClick" />
+                        <!--
                           使用指南：设备下拉框到底该选什么、软件怎么用，是新人最容易懵的地方。
                           做成和「风险说明」同一种按钮，点开一个自绘对话框，不占主界面空间。
                         -->
@@ -346,6 +354,155 @@
                                                 <TextBlock Grid.Column="1" Style="{StaticResource SliderValueText}"
                                                            Text="{Binding Value, ElementName=DenoiseWetSlider, StringFormat='{}{0:0}%'}" />
                                             </Grid>
+                                        </Grid>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- AI 变声（RVC）：位于 AI 降噪之后、DSP 变声之前。
+                                 顺序有硬约束——RVC 对噪声极敏感（必须后于降噪），
+                                 且会重新分析输入基频（必须先于 DSP 变调，否则变调被抵消）。
+                                 组件（数千 MB）按需安装，放在 data\components\ai\。 -->
+                            <Border x:Name="AiVoiceCard" Style="{StaticResource Card}">
+                                <StackPanel>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource SectionTitle}" Text="AI 变声" />
+                                        <CheckBox x:Name="ToggleAiVoice" Grid.Column="1"
+                                                  Style="{StaticResource Switch}" Margin="0,0,8,0"
+                                                  Checked="OnEffectToggled" Unchecked="OnEffectToggled"/>
+                                        <Button x:Name="ExpandAiVoice" Grid.Column="2"
+                                                Style="{StaticResource ExpanderButton}"
+                                                Click="OnExpandClick" Tag="{Binding AiVoiceExpanded, RelativeSource={RelativeSource AncestorType=Window}}" />
+                                    </Grid>
+                                    <StackPanel x:Name="PanelAiVoice" Visibility="Collapsed" Margin="0,6,0,0">
+                                        <Grid Margin="0,2,0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="62" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="音色" />
+                                            <ComboBox x:Name="AiVoiceModelCombo" Grid.Column="1"
+                                                      Style="{StaticResource FlatCombo}"
+                                                      ItemContainerStyle="{StaticResource FlatComboItem}"
+                                                      DropDownOpened="OnAiVoiceModelDropDownOpened"
+                                                      SelectionChanged="OnAiVoiceModelSelectionChanged"/>
+                                            <Button x:Name="OpenAiVoicesFolderButton" Grid.Column="2"
+                                                    Style="{StaticResource IconButton}" Margin="6,0,0,0"
+                                                    Click="OnOpenAiVoicesFolderClick"
+                                                    ToolTip="打开音色模型文件夹">
+                                                <Path Data="M 1 3 L 5 3 L 6.5 5 L 13 5 L 13 12 L 1 12 Z"
+                                                      Stroke="{DynamicResource IconGlyphBrush}" StrokeThickness="1.3"
+                                                      StrokeLineJoin="Round" Fill="Transparent" />
+                                            </Button>
+                                        </Grid>
+                                        <Grid Margin="0,2,0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="62" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="索引" />
+                                            <ComboBox x:Name="AiVoiceIndexCombo" Grid.Column="1"
+                                                      Style="{StaticResource FlatCombo}"
+                                                      ItemContainerStyle="{StaticResource FlatComboItem}"
+                                                      DropDownOpened="OnAiVoiceIndexDropDownOpened"
+                                                      SelectionChanged="OnAiVoiceIndexSelectionChanged"/>
+                                            <Button x:Name="OpenAiIndexFolderButton" Grid.Column="2"
+                                                    Style="{StaticResource IconButton}" Margin="6,0,0,0"
+                                                    Click="OnOpenAiIndexFolderClick"
+                                                    ToolTip="打开索引文件夹">
+                                                <Path Data="M 1 3 L 5 3 L 6.5 5 L 13 5 L 13 12 L 1 12 Z"
+                                                      Stroke="{DynamicResource IconGlyphBrush}" StrokeThickness="1.3"
+                                                      StrokeLineJoin="Round" Fill="Transparent" />
+                                            </Button>
+                                        </Grid>
+                                        <Grid Margin="0,2,0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="62" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="62" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="变调" />
+                                            <Slider x:Name="AiVoicePitchSlider" Grid.Column="1" VerticalAlignment="Center"
+                                                    Style="{StaticResource FlatSlider}" Minimum="-24" Maximum="24"
+                                                    Value="0" Tag="AiVoiceSemitones" ValueChanged="OnSliderChanged"/>
+                                            <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
+                                                       Text="{Binding Value, ElementName=AiVoicePitchSlider, StringFormat='{}{0:+0;-0;0} 半音'}" />
+                                        </Grid>
+                                        <Grid Margin="0,2,0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="62" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="62" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="声线" />
+                                            <Slider x:Name="AiVoiceFormantSlider" Grid.Column="1" VerticalAlignment="Center"
+                                                    Style="{StaticResource FlatSlider}" Minimum="-12" Maximum="12"
+                                                    Value="0" Tag="AiVoiceFormantSemitones" ValueChanged="OnSliderChanged"/>
+                                            <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
+                                                       Text="{Binding Value, ElementName=AiVoiceFormantSlider, StringFormat='{}{0:+0;-0;0} 半音'}" />
+                                        </Grid>
+                                        <Grid Margin="0,2,0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="62" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="62" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="索引占比" />
+                                            <Slider x:Name="AiVoiceIndexRateSlider" Grid.Column="1" VerticalAlignment="Center"
+                                                    Style="{StaticResource FlatSlider}" Minimum="0" Maximum="100"
+                                                    Value="75" Tag="AiVoiceIndexRate" ValueChanged="OnSliderChanged"/>
+                                            <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
+                                                       Text="{Binding Value, ElementName=AiVoiceIndexRateSlider, StringFormat='{}{0:0}%'}" />
+                                        </Grid>
+                                        <Grid Margin="0,2,0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="62" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="62" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="音频块" />
+                                            <Slider x:Name="AiVoiceBlockSlider" Grid.Column="1" VerticalAlignment="Center"
+                                                    Style="{StaticResource FlatSlider}" Minimum="80" Maximum="1000"
+                                                    Value="160" Tag="AiVoiceBlockMs" ValueChanged="OnAiVoicePerfChanged"/>
+                                            <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
+                                                       Text="{Binding Value, ElementName=AiVoiceBlockSlider, StringFormat='{}{0:0} ms'}" />
+                                        </Grid>
+                                        <Grid Margin="62,0,0,2">
+                                            <TextBlock x:Name="AiVoiceLatencyText" Style="{StaticResource SliderValueText}"
+                                                       Text="≈ 320 ms 延迟" />
+                                        </Grid>
+                                        <Grid Margin="0,2,0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="62" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="62" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="上下文" />
+                                            <Slider x:Name="AiVoiceContextSlider" Grid.Column="1" VerticalAlignment="Center"
+                                                    Style="{StaticResource FlatSlider}" Minimum="160" Maximum="3000"
+                                                    Value="320" Tag="AiVoiceContextMs" ValueChanged="OnSliderChanged"/>
+                                            <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
+                                                       Text="{Binding Value, ElementName=AiVoiceContextSlider, StringFormat='{}{0:0} ms'}" />
+                                        </Grid>
+                                        <Grid Margin="0,2,0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="62" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="62" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="交叉淡化" />
+                                            <Slider x:Name="AiVoiceCrossfadeSlider" Grid.Column="1" VerticalAlignment="Center"
+                                                    Style="{StaticResource FlatSlider}" Minimum="10" Maximum="100"
+                                                    Value="40" Tag="AiVoiceCrossfadeMs" ValueChanged="OnSliderChanged"/>
+                                            <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
+                                                       Text="{Binding Value, ElementName=AiVoiceCrossfadeSlider, StringFormat='{}{0:0} ms'}" />
                                         </Grid>
                                     </StackPanel>
                                 </StackPanel>

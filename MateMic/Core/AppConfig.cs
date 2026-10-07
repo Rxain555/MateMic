@@ -169,10 +169,43 @@ public sealed class AiVoiceSettings
     public float Semitones { get; set; }
 
     /// <summary>
-    /// 音色模型（合成器 .onnx）的**文件名**（位于 data\ai\voices\）。
+    /// 音色模型（合成器 .onnx）的**文件名**（位于 data\components\ai\voices\）。
     /// 存文件名而非绝对路径，换机/换目录后仍能对上；null 表示尚未选择。
     /// </summary>
     public string? VoiceModel { get; set; }
+
+    /// <summary>
+    /// 音色索引（FAISS .index）的**文件名**（位于 data\components\ai\index\）。
+    /// 可选：没有索引时"索引占比"不可调。
+    /// </summary>
+    public string? IndexFile { get; set; }
+
+    /// <summary>
+    /// 索引特征占比 0~100：检索结果替换内容特征的比例（RVC 的 index_rate）。
+    /// 越高越贴近目标音色，但过高会损失咬字。
+    /// </summary>
+    public float IndexRate { get; set; } = 75f;
+
+    /// <summary>
+    /// 声线（共振峰搬移，半音）。RVC 自身不做共振峰调整，这里是**在 AI 输出之后**
+    /// 用 Signalsmith Stretch 补的——正好补偿变调后"像同一个人捏着嗓子"的假声感。
+    /// </summary>
+    public float FormantSemitones { get; set; }
+
+    /// <summary>
+    /// 音频块长度（ms）。**决定算法延迟：延迟 = 2 × block**（官方口径）。
+    /// 越小延迟越低、但每次推理要算的窗口相对越大，负载越高。
+    /// </summary>
+    public int BlockMs { get; set; } = 160;
+
+    /// <summary>
+    /// 上下文长度（ms）：每次推理额外多喂给模型的历史，用于保证音质连续性。
+    /// 越大越稳，但耗时随 (block + context) 线性增长。
+    /// </summary>
+    public int ContextMs { get; set; } = 320;
+
+    /// <summary>交叉淡化长度（ms）：块与块之间的平滑过渡。SOLA 重叠会被封顶在 40ms。</summary>
+    public int CrossfadeMs { get; set; } = 40;
 
     /// <summary>
     /// 输出噪声门阈值（dBFS）。RVC 在无人声处也会输出微弱信号

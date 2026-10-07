@@ -885,6 +885,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             ("效果器", ExpandEffect, PanelCreative),
             ("增益", ExpandGain, PanelGain),
             ("DSP 变声", ExpandVoiceChanger, PanelVoiceChanger),
+            ("AI 变声", ExpandAiVoice, PanelAiVoice),
         };
 
         // 两轮：第 1 轮按各自**初始状态取反**（本来就是展开的先收起），第 2 轮再全部取反回来。
@@ -1425,6 +1426,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             (ExpandEffect, PanelCreative),
             (ExpandGain, PanelGain),
             (ExpandVoiceChanger, PanelVoiceChanger),
+            (ExpandAiVoice, PanelAiVoice),
         };
 
         foreach (var (button, panel) in panels)
@@ -1448,6 +1450,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             ("噪声门", ExpandGate), ("AI 降噪", ExpandDenoise), ("响度平衡", ExpandLoudness),
             ("EQ 均衡器", ExpandTone), ("效果器", ExpandEffect), ("增益", ExpandGain),
             ("DSP 变声", ExpandVoiceChanger),
+            ("AI 变声", ExpandAiVoice),
         };
 
         foreach (var (name, button) in buttons)
@@ -2142,8 +2145,12 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     public bool GainExpanded { get => _gainExpanded; private set => SetExpanded(ref _gainExpanded, value, nameof(GainExpanded)); }
 
     private bool _voiceChangerExpanded;
+
+    private bool _aiVoiceExpanded;
     /// <summary>变声模块是否展开。</summary>
     public bool VoiceChangerExpanded { get => _voiceChangerExpanded; private set => SetExpanded(ref _voiceChangerExpanded, value, nameof(VoiceChangerExpanded)); }
+
+    public bool AiVoiceExpanded { get => _aiVoiceExpanded; private set => SetExpanded(ref _aiVoiceExpanded, value, nameof(AiVoiceExpanded)); }
 
     private void SetExpanded(ref bool field, bool value, string propertyName)
     {
@@ -2167,6 +2174,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             "ExpandEffect" => PanelCreative,
             "ExpandGain" => PanelGain,
             "ExpandVoiceChanger" => PanelVoiceChanger,
+            "ExpandAiVoice" => PanelAiVoice,
             _ => null,
         };
 
@@ -2204,6 +2212,10 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             case "ExpandVoiceChanger":
                 VoiceChangerExpanded = expanded;
                 _config.Panels.VoiceChanger = expanded;
+                break;
+            case "ExpandAiVoice":
+                AiVoiceExpanded = expanded;
+                _config.Panels.AiVoice = expanded;
                 break;
         }
 
@@ -2348,6 +2360,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         Apply(PanelCreative, _config.Panels.Effect);
         Apply(PanelGain, _config.Panels.Gain);
         Apply(PanelVoiceChanger, _config.Panels.VoiceChanger);
+        Apply(PanelAiVoice, _config.Panels.AiVoice);
 
         // 箭头朝向完全由 XAML 里的 Tag 绑定驱动（见 Ui/Theme.xaml 的 ExpanderButton）。
         // 这里**不能**再写 arrow.Tag = true：给已有 OneWay 绑定的依赖属性赋局部值会
@@ -2359,6 +2372,39 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         EffectExpanded = _config.Panels.Effect;
         GainExpanded = _config.Panels.Gain;
         VoiceChangerExpanded = _config.Panels.VoiceChanger;
+        AiVoiceExpanded = _config.Panels.AiVoice;
+
+        // AI 变声界面初值。功能尚未接线（本轮只做界面），但控件状态先与配置一致，
+        // 免得将来接线时两边对不上。
+        AiVoicePitchSlider.Value = _config.AiVoice.Semitones;
+        AiVoiceIndexRateSlider.Value = _config.AiVoice.IndexRate;
+        AiVoiceBlockSlider.Value = _config.AiVoice.BlockMs;
+        AiVoiceContextSlider.Value = _config.AiVoice.ContextMs;
+        AiVoiceCrossfadeSlider.Value = _config.AiVoice.CrossfadeMs;
+        UpdateAiVoiceLatencyText();
+        UpdateAiVoiceIndexAvailability();
+    }
+
+    /// <summary>
+    /// 刷新"音频块 → 算法延迟"读数。
+    /// 官方口径的算法延迟 = 2 × block（见 RVCRealtimeVST 的参数说明）。
+    /// </summary>
+    private void UpdateAiVoiceLatencyText()
+    {
+        if (AiVoiceLatencyText == null) return;
+        var block = (int)Math.Round(AiVoiceBlockSlider.Value);
+        AiVoiceLatencyText.Text = $"算法延迟 ≈ {2 * block} ms";
+    }
+
+    /// <summary>
+    /// 没有加载索引时，"索引占比"置灰不可调（用户明确要求）。
+    /// </summary>
+    private void UpdateAiVoiceIndexAvailability()
+    {
+        if (AiVoiceIndexRateSlider == null) return;
+        var hasIndex = AiVoiceIndexCombo?.SelectedItem is AiVoiceIndexItem;
+        AiVoiceIndexRateSlider.IsEnabled = hasIndex;
+        AiVoiceIndexRateSlider.Opacity = hasIndex ? 1.0 : 0.45;
     }
 
     private void OnEffectToggled(object sender, RoutedEventArgs e)
@@ -2419,6 +2465,21 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                 break;
             case "VoiceMix":
                 _config.VoiceChanger.Mix = value;
+                break;
+            case "AiVoiceSemitones":
+                _config.AiVoice.Semitones = value;
+                break;
+            case "AiVoiceFormantSemitones":
+                _config.AiVoice.FormantSemitones = value;
+                break;
+            case "AiVoiceIndexRate":
+                _config.AiVoice.IndexRate = value;
+                break;
+            case "AiVoiceContextMs":
+                _config.AiVoice.ContextMs = (int)Math.Round(value);
+                break;
+            case "AiVoiceCrossfadeMs":
+                _config.AiVoice.CrossfadeMs = (int)Math.Round(value);
                 break;
             default:
                 return;
@@ -2891,8 +2952,126 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     /// <summary>
     /// 使用指南：分页显示**内置**的说明（正文在仓库的 Assets\使用指南.txt，随程序集编译进来）。
     /// </summary>
-    private void OnUsageGuideClick(object sender, RoutedEventArgs e)
-        => DialogHost.ShowGuide(this, "MateMic 使用指南", GuideCatalog.Pages);
+    // ================= AI 变声界面（本轮先做界面，推理功能随后接线） =================
+
+    /// <summary>AI 变声音色模型下拉项。</summary>
+    private sealed record AiVoiceItem(string FileName)
+    {
+        public override string ToString() => FileName;
+    }
+
+    /// <summary>AI 变声索引下拉项。</summary>
+    private sealed record AiVoiceIndexItem(string FileName)
+    {
+        public override string ToString() => FileName;
+    }
+
+    private void OnAiVoiceModelDropDownOpened(object sender, EventArgs e)
+    {
+        if (_loading) return;
+        var keep = (AiVoiceModelCombo.SelectedItem as AiVoiceItem)?.FileName;
+        AiVoiceModelCombo.Items.Clear();
+        foreach (var f in ListFiles(ConfigStore.AiVoicesDirectory, "*.onnx"))
+            AiVoiceModelCombo.Items.Add(new AiVoiceItem(Path.GetFileName(f)));
+        if (keep != null)
+            AiVoiceModelCombo.SelectedItem = AiVoiceModelCombo.Items.Cast<AiVoiceItem>()
+                .FirstOrDefault(i => i.FileName == keep);
+    }
+
+    private void OnAiVoiceModelSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading) return;
+        _config.AiVoice.VoiceModel = (AiVoiceModelCombo.SelectedItem as AiVoiceItem)?.FileName;
+        SaveConfig();
+    }
+
+    private void OnAiVoiceIndexDropDownOpened(object sender, EventArgs e)
+    {
+        if (_loading) return;
+        var keep = (AiVoiceIndexCombo.SelectedItem as AiVoiceIndexItem)?.FileName;
+        AiVoiceIndexCombo.Items.Clear();
+        foreach (var f in ListFiles(ConfigStore.AiIndexDirectory, "*.index"))
+            AiVoiceIndexCombo.Items.Add(new AiVoiceIndexItem(Path.GetFileName(f)));
+        if (keep != null)
+            AiVoiceIndexCombo.SelectedItem = AiVoiceIndexCombo.Items.Cast<AiVoiceIndexItem>()
+                .FirstOrDefault(i => i.FileName == keep);
+        UpdateAiVoiceIndexAvailability();
+    }
+
+    private void OnAiVoiceIndexSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        // 没有索引时"索引占比"置灰不可调（用户要求）
+        UpdateAiVoiceIndexAvailability();
+        if (_loading) return;
+        _config.AiVoice.IndexFile = (AiVoiceIndexCombo.SelectedItem as AiVoiceIndexItem)?.FileName;
+        SaveConfig();
+    }
+
+    private void OnOpenAiVoicesFolderClick(object sender, RoutedEventArgs e)
+        => OpenFolder(ConfigStore.AiVoicesDirectory, "音色模型");
+
+    private void OnOpenAiIndexFolderClick(object sender, RoutedEventArgs e)
+        => OpenFolder(ConfigStore.AiIndexDirectory, "索引");
+
+    /// <summary>音频块长度变动：记配置 + 刷新延迟读数（延迟 = 2 × block）。</summary>
+    private void OnAiVoicePerfChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_loading) return;
+        _config.AiVoice.BlockMs = (int)Math.Round(e.NewValue);
+        UpdateAiVoiceLatencyText();
+        SaveConfig();
+    }
+
+    private void OnAddAiVoiceClick(object sender, RoutedEventArgs e)
+    {
+        // 复用 DialogHost 的现成样式（标题栏/描边/按钮），内容用 AiComponentPanel
+        DialogHost.ShowCustom(this, "添加 AI 变声", new AiComponentPanel());
+        // 对话框里可能刚放进组件或音色，回来刷新一下下拉与索引可用性
+        RefreshAiVoiceLists();
+    }
+
+    /// <summary>重新扫描音色与索引目录，把已保存的选择对上号。</summary>
+    private void RefreshAiVoiceLists()
+    {
+        var wasLoading = _loading;
+        _loading = true;
+        try
+        {
+            AiVoiceModelCombo.Items.Clear();
+            foreach (var f in ListFiles(ConfigStore.AiVoicesDirectory, "*.onnx"))
+                AiVoiceModelCombo.Items.Add(new AiVoiceItem(Path.GetFileName(f)));
+            AiVoiceModelCombo.SelectedItem = AiVoiceModelCombo.Items.Cast<AiVoiceItem>()
+                .FirstOrDefault(i => i.FileName == _config.AiVoice.VoiceModel);
+
+            AiVoiceIndexCombo.Items.Clear();
+            foreach (var f in ListFiles(ConfigStore.AiIndexDirectory, "*.index"))
+                AiVoiceIndexCombo.Items.Add(new AiVoiceIndexItem(Path.GetFileName(f)));
+            AiVoiceIndexCombo.SelectedItem = AiVoiceIndexCombo.Items.Cast<AiVoiceIndexItem>()
+                .FirstOrDefault(i => i.FileName == _config.AiVoice.IndexFile);
+        }
+        finally { _loading = wasLoading; }
+        UpdateAiVoiceIndexAvailability();
+    }
+
+    private static IEnumerable<string> ListFiles(string directory, string pattern)
+        => Directory.Exists(directory)
+            ? Directory.GetFiles(directory, pattern).OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+            : Enumerable.Empty<string>();
+
+    private void OpenFolder(string directory, string what)
+    {
+        try
+        {
+            Directory.CreateDirectory(directory);
+            Process.Start(new ProcessStartInfo { FileName = directory, UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"打开{what}文件夹失败：" + ex.Message, false);
+        }
+    }
+
+    private void OnUsageGuideClick(object sender, RoutedEventArgs e)        => DialogHost.ShowGuide(this, "MateMic 使用指南", GuideCatalog.Pages);
 
     /// <summary>
     /// 关于：把"必须声明的东西"集中在一处 —— 界面字体（MiSans 的授权要求）、
