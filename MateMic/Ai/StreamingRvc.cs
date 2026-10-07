@@ -192,6 +192,22 @@ public sealed class StreamingRvc : IDisposable
         var avail = Math.Min(need, Math.Max(0, infer.Length - skip));
         if (avail > 0) Array.Copy(infer, skip, seg, 0, avail);
 
+        // ------------------------------------------------------------------
+        // ★ 响度包络混合（官方的 rms_mix，默认 0.0）。
+        //
+        // 这是**解决"静音处仍有底噪"的关键机制**，此前完全被我漏掉了：
+        //   rms1 = 输入音频的音量包络
+        //   rms2 = 合成输出的音量包络
+        //   infer *= (rms1 / rms2) ** (1 - rms_mix)
+        //
+        // 输入静音时 rms1 ≈ 0 ⇒ 输出被自动压到接近 0；输入有声时输出被归一到输入的响度。
+        // **它是连续的包络而不是开关**，所以既消除了静音底噪，又不会切字头字尾、不生硬
+        //（对比我之前自己拍的"静音不推理 + 淡出"，那个是块级硬切，用户评价"很生硬"）。
+        //
+        // 参数含义：1.0 = 不处理（保持模型原样输出）；0.0 = 完全用输入包络（官方默认，效果最强）。
+        // ------------------------------------------------------------------
+        ApplyRmsEnvelopeMix(seg, _in40, skip);
+
         // 4) SOLA：在 solaSearch 范围内搜最佳偏移
         if (_solaBuffer > 0)
         {
@@ -239,6 +255,77 @@ public sealed class StreamingRvc : IDisposable
 
         var result = new float[_block];
         Array.Copy(seg, result, _block);
+        return result;
+    }
+
+    /// <summary>
+    /// 响度包络混合比例：**0 = 完全用输入包络（官方默认，静音处彻底安静）**，
+    /// 1 = 不做处理。刻意不加界面滑条，先用官方默认值。
+    /// </summary>
+    public float RmsMix { get; set; } = 0.0f;
+
+    /// <summary>
+    /// 响度包络混合（官方 `rms_mix`）。就地修改 <paramref name="seg"/>。
+    ///
+    /// 官方实现（`rvc_worker.py` 230~243 行）：
+    /// <code>
+    /// rms1 = librosa.feature.rms(input_tail[:len], frame_length=4*zc, hop_length=zc)
+    /// rms2 = librosa.feature.rms(infer_wav,        frame_length=4*zc, hop_length=zc)
+    /// rms2 = maximum(rms2, 1e-3)
+    /// infer_wav *= (rms1 / rms2) ** (1.0 - rms_mix)
+    /// </code>
+    /// 逐样本复刻：先做 40ms 窗 / 10ms 跳的短时 RMS，再线性插值到样本级。
+    /// </summary>
+    private void ApplyRmsEnvelopeMix(float[] seg, float[] inputWav, int inputOffset)
+    {
+        if (RmsMix >= 1.0f) return;
+
+        var len = seg.Length;
+        var env1 = ShortTimeRms(inputWav, inputOffset, len);
+        var env2 = ShortTimeRms(seg, 0, len);
+        var power = 1.0 - RmsMix;
+
+        for (var i = 0; i < len; i++)
+        {
+            var denom = MathF.Max(env2[i], 1e-3f);
+            seg[i] *= MathF.Pow(env1[i] / denom, (float)power);
+        }
+    }
+
+    /// <summary>短时 RMS 包络（窗 4×zc=40ms、跳 zc=10ms），线性插值到逐样本长度。</summary>
+    private static float[] ShortTimeRms(float[] source, int offset, int length)
+    {
+        const int win = 4 * Zc;
+        const int hop = Zc;
+        var frames = Math.Max(1, length / hop);
+        var env = new float[frames + 1];
+
+        for (var f = 0; f <= frames; f++)
+        {
+            var start = offset + f * hop;
+            double sum = 0;
+            var count = 0;
+            for (var i = 0; i < win; i++)
+            {
+                var idx = start + i;
+                if (idx < 0 || idx >= source.Length) continue;
+                var v = source[idx];
+                sum += (double)v * v;
+                count++;
+            }
+            env[f] = count > 0 ? (float)Math.Sqrt(sum / count) : 0f;
+        }
+
+        // 线性插值到逐样本（对应官方的 F.interpolate(..., mode="linear")）
+        var result = new float[length];
+        for (var i = 0; i < length; i++)
+        {
+            var pos = (double)i * frames / Math.Max(1, length - 1);
+            var i0 = (int)pos;
+            var frac = (float)(pos - i0);
+            var i1 = Math.Min(i0 + 1, frames);
+            result[i] = env[i0] * (1 - frac) + env[i1] * frac;
+        }
         return result;
     }
 
