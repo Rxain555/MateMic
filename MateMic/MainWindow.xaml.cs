@@ -2409,19 +2409,34 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         _config.VoiceChanger.Enabled = ToggleVoiceChanger.IsChecked == true;
         _config.AiVoice.Enabled = ToggleAiVoice.IsChecked == true;
 
-        // AI 变声要先确认组件与音色齐备，否则开着也出不了声，反而让人以为坏了
-        if (_config.AiVoice.Enabled && !_engine.AiVoice.Ready(out var aiReason))
+        // AI 变声：组件或音色不齐备时**在开关被拨动之前**就拦住。
+        //
+        // 为什么不放在 OnEffectToggled 里"事后弹回"：开关的视觉状态由 Storyboard 动画驱动，
+        // 事后改 IsChecked 会让动画反向播一遍——用户看到的是"有动画、没变色、功能也没开"，
+        // 正是 2026-10-07 用户报的现象（与「同步按住键」当初的问题同源）。
+        // 在 PreviewMouseLeftButtonDown 里 e.Handled = true 则根本不进入切换流程。
+        if (sender is CheckBox { IsChecked: not true } toggle && !_engine.AiVoice.Ready(out var aiReason))
         {
-            _config.AiVoice.Enabled = false;
-            _loading = true;                       // 回写开关状态时不要再触发一轮保存/建链
-            try { ToggleAiVoice.IsChecked = false; }
-            finally { _loading = false; }
+            e.Handled = true;
             ShowStatus("AI 变声暂不可用：" + aiReason, false);
             return;
         }
 
         _engine.UpdateAllParameters();
         SaveConfig();
+    }
+
+    /// <summary>「AI 变声」开关的前置拦截：组件或音色不齐备就不让开关真的拨过去。</summary>
+    private void OnAiVoiceTogglePreview(object sender, MouseButtonEventArgs e)
+    {
+        if (_loading) return;
+        if (ToggleAiVoice.IsChecked == true) return;      // 关闭时永远允许
+
+        if (!_engine.AiVoice.Ready(out var reason))
+        {
+            e.Handled = true;
+            ShowStatus("AI 变声暂不可用：" + reason, false);
+        }
     }
 
     private void OnSliderChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -2469,9 +2484,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                 break;
             case "AiVoiceSemitones":
                 _config.AiVoice.Semitones = value;
-                break;
-            case "AiVoiceFormantSemitones":
-                _config.AiVoice.FormantSemitones = value;
                 break;
             case "AiVoiceIndexRate":
                 _config.AiVoice.IndexRate = value;

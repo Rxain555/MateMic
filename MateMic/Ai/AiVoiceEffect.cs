@@ -322,20 +322,40 @@ public sealed class AiVoiceEffect : IAudioEffect
     }
 
     private float _gateEnv;
+    private float _gateGain = 1f;
 
+    /// <summary>
+    /// 输出端**平滑**噪声门。
+    ///
+    /// 为什么要平滑而不是"低于阈值就置 0"：后者会造成**整段被切断**——语音的字头字尾
+    /// 一旦落在判定为静音的区间里就被削掉，听感非常生硬（用户实测反馈"前面也切断后面也切断"）。
+    /// 这里改成用**短时包络**驱动一个平滑增益：起音快（立刻打开，不切字头）、
+    /// 释放慢（字尾自然衰减，不切字尾），中间是连续过渡。
+    ///
+    /// 阈值：合成器对静音本身只输出约 −61.7 dBFS（离线实测），而正常说话在 −20~−35 dBFS，
+    /// 所以默认 −35 dB 落在两者之间，既能压掉静音噪声，又不会碰到正常语音。
+    /// </summary>
     private void ApplyOutputGate(Span<float> buffer)
     {
         var threshold = _config.AiVoice.GateDb;
         if (threshold >= 0) return;
 
         var linear = (float)Math.Pow(10, threshold / 20.0);
+
+        // 每样本时间常数（48kHz）：包络用 2ms 跟随，增益起音 2ms、释放 120ms
+        const float envCoeff = 1f / (0.002f * ChainRate);
+        var attack = 1f - MathF.Exp(-1f / (0.002f * ChainRate));
+        var release = 1f - MathF.Exp(-1f / (0.120f * ChainRate));
+
         foreach (ref var sample in buffer)
         {
-            var level = Math.Abs(sample);
-            // 一阶包络：起音快、释放慢，避免削掉字头也避免咔哒
-            var coeff = level > _gateEnv ? 0.35f : 0.002f;
-            _gateEnv += (level - _gateEnv) * coeff;
-            if (_gateEnv < linear && level < linear) sample = 0;
+            _gateEnv += (Math.Abs(sample) - _gateEnv) * envCoeff;
+
+            var target = _gateEnv > linear ? 1f : 0f;
+            var coeff = target > _gateGain ? attack : release;
+            _gateGain += (target - _gateGain) * coeff;
+
+            sample *= _gateGain;
         }
     }
 
@@ -367,20 +387,6 @@ public sealed class AiVoiceEffect : IAudioEffect
     private static int Available(float[] ring, int read, int write)
         => (write - read + ring.Length) % ring.Length;
 
-    /// <summary>静音判定阈值：−55 dBFS。远低于正常说话（约 −20~−35 dBFS）。</summary>
-    private const float SilenceRms = 0.00178f;
-
-    /// <summary>输出一个块的静音（时间轴要与正常路径一致，否则会越走越偏）。</summary>
-    private void WriteSilence()
-    {
-        for (var i = 0; i < _blockSamples48; i++)
-        {
-            _outRing[_outWrite] = 0f;
-            _outWrite = (_outWrite + 1) % _outRing.Length;
-        }
-        Interlocked.Increment(ref _blocks);
-    }
-
     private void ProcessOneBlock()
     {
         // 取一个块（40k 域）
@@ -391,23 +397,16 @@ public sealed class AiVoiceEffect : IAudioEffect
         }
 
         // ------------------------------------------------------------------
-        // 输入几乎无声时**直接输出静音**，不做推理。
+        // 这里**刻意不做**"输入静音就整块输出静音"的抑制。
         //
-        // 依据：用户实测"把输入换成不会出声的麦克风、只开 AI 变声，仍有呲呲底噪"，
-        // 说明底噪是 RVC 自己产生的——它对静音输入也会输出 −43~−47 dBFS 的信号。
-        // 这段推理本来就没有意义（没有语音内容可转换），所以：
-        //   · 彻底消除静音段的底噪（比事后用噪声门压更干净）；
-        //   · 顺带省下算力与显存带宽。
-        // 阈值取 −55 dBFS：远低于正常说话（约 −20~−35 dBFS），不会误伤气声与轻声。
+        // 曾经这么做过，理由是"静音时推理没意义、还能省算力"。但它会造成**整段被切断**：
+        // 语音的字头字尾一旦落在被判为静音的块里就被削掉，听感生硬
+        //（用户实测："我说的话的声音前面也切断后面也切断"）。
+        //
+        // 正确做法是让信号**始终连续**，由输出端的平滑噪声门
+        //（见 ApplyOutputGate）在幅度域把静音处压下去——那里是逐样本的连续增益，
+        // 不会产生块边界上的突变。
         // ------------------------------------------------------------------
-        var sum = 0f;
-        foreach (var s in _inScratch) sum += s * s;
-        var rms = MathF.Sqrt(sum / _inScratch.Length);
-        if (rms < SilenceRms)
-        {
-            WriteSilence();
-            return;
-        }
 
         var modelBlock = _blockSamples48 * ModelRate / ChainRate;
         var block40 = new float[modelBlock];

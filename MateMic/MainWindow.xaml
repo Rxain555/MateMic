@@ -374,6 +374,7 @@
                                         <TextBlock Grid.Column="0" Style="{StaticResource SectionTitle}" Text="AI 变声" />
                                         <CheckBox x:Name="ToggleAiVoice" Grid.Column="1"
                                                   Style="{StaticResource Switch}" Margin="0,0,8,0"
+                                                  PreviewMouseLeftButtonDown="OnAiVoiceTogglePreview"
                                                   Checked="OnEffectToggled" Unchecked="OnEffectToggled"/>
                                         <Button x:Name="ExpandAiVoice" Grid.Column="2"
                                                 Style="{StaticResource ExpanderButton}"
@@ -432,19 +433,6 @@
                                                     Value="0" Tag="AiVoiceSemitones" ValueChanged="OnSliderChanged"/>
                                             <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
                                                        Text="{Binding Value, ElementName=AiVoicePitchSlider, StringFormat='{}{0:+0;-0;0} 半音'}" />
-                                        </Grid>
-                                        <Grid Margin="0,2,0,2">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="62" />
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="62" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="声线" />
-                                            <Slider x:Name="AiVoiceFormantSlider" Grid.Column="1" VerticalAlignment="Center"
-                                                    Style="{StaticResource FlatSlider}" Minimum="-12" Maximum="12"
-                                                    Value="0" Tag="AiVoiceFormantSemitones" ValueChanged="OnSliderChanged"/>
-                                            <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
-                                                       Text="{Binding Value, ElementName=AiVoiceFormantSlider, StringFormat='{}{0:+0;-0;0} 半音'}" />
                                         </Grid>
                                         <Grid x:Name="AiVoiceIndexRateRow" Margin="0,2,0,2">
                                             <Grid.ColumnDefinitions>
