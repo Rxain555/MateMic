@@ -126,10 +126,16 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         InitializeComponent();
 
         // AI 变声引擎在后台加载（约 2 秒），期间在开关上显示**真实进度**：
-        // 三个模型逐个加载，ProgressChanged 报的是实际阶段；宽度用 150ms 补间平滑过渡，
-        // 看起来是连续的推进而不是几个跳变。加载期间界面与音频都不受影响。
+        // 三个模型逐个加载，ProgressChanged 报的是实际阶段；宽度用 300ms 补间平滑过渡。
+        //
+        // 加载期间**开关本身不切换**（旋钮不动），等加载完成后再让它滑过去 ——
+        // 否则"向右填充的进度"和"旋钮滑动"会同时播放（2026-10-08 用户反馈"两个并列播放"）。
+        // 这正是设计稿方案 02 的意图：蓝色从左填满轨道，填满后旋钮再滑过去。
         _engine.AiVoice.LoadingChanged += (_, loading) => Dispatcher.BeginInvoke(() =>
-            UpdateAiVoiceLoading(loading, _engine.AiVoice.LoadProgress));
+        {
+            UpdateAiVoiceLoading(loading, _engine.AiVoice.LoadProgress);
+            if (!loading) SetAiVoiceSwitchWithoutReentry(true);
+        });
         _engine.AiVoice.ProgressChanged += (_, percent) => Dispatcher.BeginInvoke(() =>
             UpdateAiVoiceLoading(true, percent));
 
@@ -2442,6 +2448,10 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     /// <summary>
     /// 更新「AI 变声」开关上的加载进度填充条。
     /// 模板元素要用 Template.FindName 取（ToggleAiVoice 是 CheckBox，ProgressFill 在其模板里）。
+    ///
+    /// ⚠ 宽度**不能小于圆角直径**（轨道 38×20、圆角 10）：进度很小时若宽度只有两三像素，
+    /// 圆角画不出来就成了一条蓝色竖线，用户看到的是"开关左边露出一道缝"
+    ///（2026-10-08 反馈）。所以下限取 20。
     /// </summary>
     private void UpdateAiVoiceLoading(bool loading, int percent)
     {
@@ -2449,25 +2459,52 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         if (ToggleAiVoice.Template?.FindName("ProgressFill", ToggleAiVoice) is not Border fill) return;
 
         fill.Visibility = loading ? Visibility.Visible : Visibility.Collapsed;
-        var target = loading ? 38.0 * Math.Clamp(percent, 0, 100) / 100.0 : 0.0;
+        var target = loading ? Math.Max(20.0, 38.0 * Math.Clamp(percent, 0, 100) / 100.0) : 0.0;
         fill.BeginAnimation(FrameworkElement.WidthProperty,
-            new DoubleAnimation(target, TimeSpan.FromMilliseconds(150))
+            new DoubleAnimation(target, TimeSpan.FromMilliseconds(300))
             {
                 EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
             });
         if (!loading) fill.BeginAnimation(FrameworkElement.WidthProperty, null);   // 结束后清掉动画时钟
     }
 
-    /// <summary>「AI 变声」开关的前置拦截：组件或音色不齐备就不让开关真的拨过去。</summary>
-    private void OnAiVoiceTogglePreview(object sender, MouseButtonEventArgs e)    {
+    /// <summary>
+    /// 「AI 变声」开关的前置拦截。
+    ///
+    /// 三个作用：
+    ///   ① 组件/音色不齐备时直接拦住（不留动画残影）；
+    ///   ② 开启时**先不切换开关**，只启动后台加载——加载进度显示在开关上；
+    ///   ③ 加载完成后由 LoadingChanged 把它真正打开（旋钮再滑过去）。
+    /// 这样"填充"与"滑动"两段动画是**串行**的，不会并列播放（2026-10-08 用户反馈）。
+    /// </summary>
+    private void OnAiVoiceTogglePreview(object sender, MouseButtonEventArgs e)
+    {
         if (_loading) return;
-        if (ToggleAiVoice.IsChecked == true) return;      // 关闭时永远允许
+
+        // 关闭：永远允许
+        if (ToggleAiVoice.IsChecked == true) return;
 
         if (!_engine.AiVoice.Ready(out var reason))
         {
             e.Handled = true;
             ShowStatus("AI 变声暂不可用：" + reason, false);
+            return;
         }
+
+        // 开启：拦住默认切换，改为"先加载、完成后再打开"
+        e.Handled = true;
+        _config.AiVoice.Enabled = true;
+        _engine.UpdateAllParameters();          // 触发后台加载，进度显示在开关上
+        SaveConfig();
+    }
+
+    /// <summary>在不再触发一轮保存/建链的前提下把开关置位（加载完成后真正打开）。</summary>
+    private void SetAiVoiceSwitchWithoutReentry(bool value)
+    {
+        if (ToggleAiVoice.IsChecked == value) return;
+        _loading = true;
+        try { ToggleAiVoice.IsChecked = value; }
+        finally { _loading = false; }
     }
 
     private void OnSliderChanged(object sender, RoutedPropertyChangedEventArgs<double> e)

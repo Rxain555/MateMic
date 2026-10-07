@@ -421,45 +421,6 @@ public sealed class AiVoiceEffect : IAudioEffect
     /// 静音判定阈值（带迟滞）：
     /// 进入静音用 −55 dBFS（远低于正常说话，约 −20~−35 dBFS，不误伤气声与轻声），
     /// 退出静音用 −48 dBFS，中间 7dB 是死区，避免说话间隙在阈值附近反复切换。
-    /// </summary>
-    private const float SilenceEnterRms = 0.00178f;    // −55 dBFS
-    private const float SilenceExitRms = 0.00398f;     // −48 dBFS
-
-    /// <summary>当前是否处于"输入静音"状态（用于迟滞判断）。</summary>
-    private bool _inputSilent = true;
-
-    /// <summary>淡出长度（样本）：10ms @ 48kHz。</summary>
-    private const int FadeSamples = 480;
-
-    /// <summary>上一块输出的尾部，用于静音段的淡出。</summary>
-    private readonly float[] _tail = new float[FadeSamples];
-
-    /// <summary>
-    /// 输出"淡出 + 静音"。
-    /// 先让上一块的最后 10ms 平滑衰减到 0，再补静音——这样块边界处没有硬切，
-    /// 听感是"话音自然收尾"而不是"被剪断"。
-    /// </summary>
-    private void WriteSilenceWithFade()
-    {
-        for (var i = 0; i < _blockSamples48; i++)
-        {
-            float v;
-            if (i < FadeSamples)
-            {
-                var k = 1f - (float)i / FadeSamples;      // 线性淡出，块内 10ms，足够听不出台阶
-                v = _tail[i] * k * k;                     // 平方让尾部更快收敛
-            }
-            else
-            {
-                v = 0f;
-            }
-            _outRing[_outWrite] = v;
-            _outWrite = (_outWrite + 1) % _outRing.Length;
-        }
-        Array.Clear(_tail);
-        Interlocked.Increment(ref _blocks);
-    }
-
     private void ProcessOneBlock()
     {
         // 取一个块（40k 域）
@@ -468,31 +429,6 @@ public sealed class AiVoiceEffect : IAudioEffect
             _inScratch[i] = _inRing[_inRead];
             _inRead = (_inRead + 1) % _inRing.Length;
         }
-
-        /// 输入几乎无声时**不推理**，直接输出"上一块尾部的淡出 + 静音"。
-    ///
-    /// 依据（离线实测，见工作日志）：
-    ///   · 合成器对静音/极低电平输入仍会输出约 −50~−61 dBFS 的内容；
-    ///   · 而**把无声帧的特征置 0 反而更糟**（−61 → −41 dBFS），模型不认识零特征会乱编；
-    ///   · 所以"静音处不推理"才是唯一能得到**绝对静音**的做法。
-    ///
-    /// ⚠ **判据必须带迟滞（hysteresis）**：说话间隙的电平常在阈值附近抖动，
-    /// 单阈值会让静音/有声反复切换，听感就是"开了一个很生硬的噪声门"
-    ///（2026-10-08 用户反馈）。进入静音用较低阈值、退出静音用较高阈值，
-    /// 中间是死区，就不会来回跳。
-    /// </summary>
-    var sum = 0f;
-    foreach (var s in _inScratch) sum += s * s;
-    var rms = MathF.Sqrt(sum / _inScratch.Length);
-    var nowSilent = _inputSilent
-        ? rms < SilenceExitRms          // 当前判为静音：要超过"退出阈值"才算有声
-        : rms < SilenceEnterRms;        // 当前判为有声：要低于"进入阈值"才算静音
-    _inputSilent = nowSilent;
-    if (nowSilent)
-    {
-        WriteSilenceWithFade();
-        return;
-    }
 
         var modelBlock = _blockSamples48 * ModelRate / ChainRate;
         var block40 = new float[modelBlock];
@@ -514,10 +450,6 @@ public sealed class AiVoiceEffect : IAudioEffect
             _outWrite = (_outWrite + 1) % _outRing.Length;
         }
 
-        // 记住这一块的最后 10ms：一旦下一块判为静音，就用它做淡出，
-        // 否则淡出的永远是零，等于硬切（这正是"很生硬"的来源之一）。
-        if (n >= FadeSamples) Array.Copy(out48, n - FadeSamples, _tail, 0, FadeSamples);
-        else Array.Clear(_tail);
     }
 
     private void SkipOneBlock()
