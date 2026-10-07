@@ -159,14 +159,23 @@ public static class ModelCatalog
     /// 官方参考实现就是单线程；不限制的话 ONNX Runtime 默认会把所有核心拉满
     /// （实测等效单核占用 949%，全机 CPU 59%——远超同一功能的 PureVox 的约 2%）。
     /// 所有建会话的地方（校验、频谱域后端、波形域后端）都必须走这里。
+    ///
+    /// ⚠ **显式钉死 CPU**：不显式指定时 ONNX Runtime 会挑"第一个可用的执行提供程序"。
+    /// AI 变声装上后会带来 GPU 版 onnxruntime.dll，那样降噪会被**悄悄挪到 GPU 上跑**
+    /// —— 而用户在打游戏语音时，GPU 被占会直接造成游戏卡顿。
+    /// 降噪是常用功能、模型很小，留在 CPU 上是正确的取舍（实测 CPU 开销可忽略）。
     /// </summary>
     internal static InferenceSession CreateSession(string path)
-        => new(path, new SessionOptions
+    {
+        var options = new SessionOptions
         {
             IntraOpNumThreads = 1,
             InterOpNumThreads = 1,
             GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL,
-        });
+        };
+        options.AppendExecutionProvider_CPU(1);
+        return new InferenceSession(path, options);
+    }
 
     /// <summary>验证模型并返回识别出的形态。</summary>
     public static string? Validate(string path, out string tensorInfo, out DenoiseModelKind kind)

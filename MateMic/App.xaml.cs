@@ -32,6 +32,11 @@ public partial class App : Application
             if (args[i] is "--appdata" or "-a") ConfigStore.UseRoot(args[i + 1]);
         }
 
+        // AI 变声的原生运行时装配：**必须早于任何 ONNX 会话创建**
+        // （降噪的模型扫描就会建会话）。组件装了就把 onnxruntime 解析到组件里的
+        // GPU 版，没装就交回默认的 CPU 版；降噪本身始终显式走 CPU，不占显卡。
+        Ai.AiComponent.InstallNativeResolver();
+
         // 单实例：重复启动时把已有窗口激活
         _singleInstance = new Mutex(true, @"Local\MateMic.SingleInstance", out _ownsMutex);
         if (!_ownsMutex)

@@ -111,8 +111,13 @@ public enum VoiceChangerMode
 
 public sealed class VoiceChangerSettings
 {
-    /// <summary>变调量（半音）。男→女约 +5~7，女→男约 −5~7。</summary>
-    public float Semitones { get; set; } = 6f;
+    /// <summary>
+    /// 变调量（半音）。男→女约 +5~7，女→男约 −5~7。
+    ///
+    /// **默认 0**（2026-10-07 用户要求）：变声属于高阶功能，两个变声模块（AI / DSP）
+    /// 的默认值都归零，由用户按需调；说明写在使用指南与讲解视频里，界面上不写。
+    /// </summary>
+    public float Semitones { get; set; }
 
     /// <summary>共振峰偏移（半音）：正值更"细/年轻"，负值更"厚/低沉"。这是真正的共振峰搬移。</summary>
     public float FormantSemitones { get; set; }
@@ -141,6 +146,43 @@ public sealed class CreativeEffectSettings
 
     public float Amount { get; set; } = 55f;
 }
+
+/// <summary>
+/// AI 变声（RVC）。处理链位置：**AI 降噪之后、DSP 变声之前**。
+///
+/// 为什么必须在这个位置：
+///   · 在降噪之后——RVC 对噪声极敏感，会把噪声当内容一起转换；
+///   · 在 DSP 变声之前——RVC 会重新分析输入基频，若先做 DSP 变调，
+///     RVC 会把变调后的音高当成"原始音高"再转一遍，等于抵消掉 DSP 的变调。
+///
+/// 与 DSP 变声的分工：AI 决定"是谁的声音"（音色 + 基础音高），
+/// DSP 在其之上做微调（额外变调 + **共振峰搬移**，后者 AI 做不到）。
+/// </summary>
+public sealed class AiVoiceSettings
+{
+    public bool Enabled { get; set; }
+
+    /// <summary>
+    /// 变调量（半音，RVC 的 f0_up_key）。**默认 0**：变声属高阶功能，
+    /// 两个变声模块的默认值都归零，避免用户不明就里地听到变调后的声音。
+    /// </summary>
+    public float Semitones { get; set; }
+
+    /// <summary>
+    /// 音色模型（合成器 .onnx）的**文件名**（位于 data\ai\voices\）。
+    /// 存文件名而非绝对路径，换机/换目录后仍能对上；null 表示尚未选择。
+    /// </summary>
+    public string? VoiceModel { get; set; }
+
+    /// <summary>
+    /// 输出噪声门阈值（dBFS）。RVC 在无人声处也会输出微弱信号
+    /// （实测原始素材 6.3% 静音帧、转换后变成 0.0%），用它把静音段压干净。
+    /// 0 表示关闭。
+    /// </summary>
+    public float GateDb { get; set; } = -45f;
+}
+
+
 
 public sealed class GainSettings
 {
@@ -206,6 +248,9 @@ public sealed class PanelExpandState
 
     /// <summary>变声模块的展开状态。</summary>
     public bool VoiceChanger { get; set; }
+
+    /// <summary>AI 变声模块的展开状态。</summary>
+    public bool AiVoice { get; set; }
 }
 
 public sealed class AppConfig
@@ -263,6 +308,10 @@ public sealed class AppConfig
 
     /// <summary>变声（DSP 层）。</summary>
     public VoiceChangerSettings VoiceChanger { get; set; } = new();
+
+    /// <summary>AI 变声（RVC）。位于降噪之后、DSP 变声之前。</summary>
+    public AiVoiceSettings AiVoice { get; set; } = new();
+
     public GainSettings Gain { get; set; } = new();
     public PlayerSettings Player { get; set; } = new();
 

@@ -32,6 +32,26 @@ public sealed class ConfigStore
     /// 分开后卸载/清理只需删一个子树，也不会让降噪模型的扫描去碰变声的大文件。
     /// </summary>
     public static string ComponentsDirectory => Path.Combine(Root, "components");
+
+    /// <summary>
+    /// AI 变声组件的根目录（<c>data\components\ai</c>）。
+    ///
+    /// 目录结构（由组件包原样展开即可，程序不自行下载）：
+    /// <code>
+    ///   runtime\   GPU 版 onnxruntime.dll + onnxruntime_providers_cuda.dll + CUDA/cuDNN 运行时
+    ///   engine\    contentvec.onnx（内容编码器）、rmvpe.onnx（音高提取）
+    ///   voices\    音色模型（合成器 .onnx）
+    ///   index\     音色索引（FAISS .index，可选）
+    /// </code>
+    /// 放在 <see cref="ComponentsDirectory"/> 之下而不是单独开一棵树，
+    /// 是为了"卸载 AI 变声"只需删这一个子树，且降噪的模型扫描不会碰到这些大文件。
+    /// </summary>
+    public static string AiComponentDirectory => Path.Combine(ComponentsDirectory, "ai");
+    public static string AiRuntimeDirectory => Path.Combine(AiComponentDirectory, "runtime");
+    public static string AiEngineDirectory => Path.Combine(AiComponentDirectory, "engine");
+    public static string AiVoicesDirectory => Path.Combine(AiComponentDirectory, "voices");
+    public static string AiIndexDirectory => Path.Combine(AiComponentDirectory, "index");
+
     public static string LogsDirectory => Path.Combine(Root, "logs");
     public static string ConfigPath => Path.Combine(Root, "config.json");
 
