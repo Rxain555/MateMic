@@ -59,6 +59,10 @@ public static class AiComponent
         "onnxruntime_providers_cuda.dll",
         "cublasLt64_12.dll",
         "cublas64_12.dll",
+        // ⚠ cudart64_12.dll 极易被漏掉：它是 CUDA Runtime，providers_cuda 的必需依赖。
+        // 少了它时错误是 "Error 1114：DLL 初始化例程失败"（找到了但初始化失败），
+        // 而不是"找不到"，很容易误判成版本不兼容。
+        "cudart64_12.dll",
         "cudnn64_9.dll",
         "cudnn_ops64_9.dll",
         "cudnn_adv64_9.dll",
@@ -169,9 +173,17 @@ public static class AiComponent
 
         try
         {
-            // CUDA 运行时（cublas/cudnn/nvrtc…）就在同一个目录里，
-            // 让 Windows 的 DLL 搜索也把这里算进去，providers_cuda 才找得到它们。
-            SetDllDirectory(runtimeDir);
+            // 让 CUDA 运行时（cublas/cudnn/nvrtc…）与 providers_cuda 能被找到。
+            //
+            // ⚠ 必须用 AddDllDirectory + SetDefaultDllDirectories，**不能用 SetDllDirectory**：
+            // ONNX Runtime 加载 onnxruntime_providers_cuda.dll 时走的是带
+            // LOAD_LIBRARY_SEARCH_* 标志的 LoadLibraryEx，那条路径**不接受 SetDllDirectory**
+            // 设置的目录，只认 AddDllDirectory 注册的 USER_DIRS。
+            // （实测：用 SetDllDirectory 时 onnxruntime.dll 本身加载成功，但创建 CUDA 会话报
+            //   "OrtSessionOptionsAppendExecutionProvider_Cuda: Failed to load shared library"。）
+            SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+            AddDllDirectory(runtimeDir);
+
             var handle = NativeLibrary.Load(candidate);
             _nativeLoaded = true;
             Log.Info($"[AI 变声] 已加载组件内的 GPU 版运行时：{candidate}");
@@ -188,6 +200,11 @@ public static class AiComponent
     /// <summary>组件里的 GPU 版原生库是否真的被加载了。</summary>
     public static bool NativeLoaded => _nativeLoaded;
 
+    private const uint LOAD_LIBRARY_SEARCH_DEFAULT_DIRS = 0x00001000;
+
     [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern bool SetDllDirectory(string lpPathName);
+    private static extern bool SetDefaultDllDirectories(uint directoryFlags);
+
+    [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr AddDllDirectory(string newDirectory);
 }

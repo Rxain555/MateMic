@@ -2407,6 +2407,18 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         _config.Effect.Enabled = ToggleEffect.IsChecked == true;
         _config.Gain.Enabled = ToggleGain.IsChecked == true;
         _config.VoiceChanger.Enabled = ToggleVoiceChanger.IsChecked == true;
+        _config.AiVoice.Enabled = ToggleAiVoice.IsChecked == true;
+
+        // AI 变声要先确认组件与音色齐备，否则开着也出不了声，反而让人以为坏了
+        if (_config.AiVoice.Enabled && !_engine.AiVoice.Ready(out var aiReason))
+        {
+            _config.AiVoice.Enabled = false;
+            _loading = true;                       // 回写开关状态时不要再触发一轮保存/建链
+            try { ToggleAiVoice.IsChecked = false; }
+            finally { _loading = false; }
+            ShowStatus("AI 变声暂不可用：" + aiReason, false);
+            return;
+        }
 
         _engine.UpdateAllParameters();
         SaveConfig();

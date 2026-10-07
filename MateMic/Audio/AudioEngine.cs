@@ -1,3 +1,4 @@
+using MateMic.Ai;
 using MateMic.Core;
 using MateMic.Dsp;
 using NAudio.CoreAudioApi;
@@ -82,7 +83,10 @@ public sealed class AudioEngine : IDisposable
 
         NoiseGate = new NoiseGateEffect(Format, config.NoiseGate);
         Denoise = new DenoiseEffect(Format, config.Denoise, new SpectralDenoiseModel());
-        // 变声紧跟在降噪之后：先拿到干净语音，再做音色变换
+        // AI 变声紧跟降噪之后：RVC 会把噪声当内容一起转换，先降噪能显著改善它的输出。
+        // 它又必须在 DSP 变声之前：RVC 会重新分析输入基频，先做 DSP 变调等于白做。
+        AiVoice = new AiVoiceEffect(config, Format);
+        // 变声紧跟在 AI 变声之后：先定"是谁的声音"，再在其上做微调（含共振峰搬移）
         VoiceChanger = new VoiceChangerEffect(Format, config.VoiceChanger);
         Loudness = new LoudnessBalanceEffect(Format, config.Loudness);
         Tone = new ToneStyleEffect(Format, config.Tone);
@@ -119,7 +123,14 @@ public sealed class AudioEngine : IDisposable
     public NoiseGateEffect NoiseGate { get; }
     public DenoiseEffect Denoise { get; }
 
-    /// <summary>变声（DSP 层，位于 AI 降噪之后）。</summary>
+    /// <summary>
+    /// AI 变声（RVC）。位于**AI 降噪之后、DSP 变声之前**。
+    /// 顺序有硬约束：RVC 对噪声极敏感（必须后于降噪），且会重新分析输入基频
+    /// （必须先于 DSP 变调，否则 DSP 的变调会被 RVC 当成"原始音高"再转一遍而抵消）。
+    /// </summary>
+    public AiVoiceEffect AiVoice { get; }
+
+    /// <summary>变声（DSP 层，位于 AI 变声之后）。</summary>
     public VoiceChangerEffect VoiceChanger { get; }
 
     public LoudnessBalanceEffect Loudness { get; }
@@ -812,8 +823,11 @@ public sealed class AudioEngine : IDisposable
     {
         var desired = new List<IAudioEffect>
         {
-            NoiseGate, Denoise, VoiceChanger, Loudness, Tone, Creative, Gain,
+            NoiseGate, Denoise, AiVoice, VoiceChanger, Loudness, Tone, Creative, Gain,
         }.Where(e => e.Enabled).ToList();
+
+        // AI 变声需要独立工作线程与缓冲，随启用状态起停
+        AiVoice.Sync();
 
         var current = Chain.Effects;
         var chainChanged = current.Count != desired.Count
@@ -843,6 +857,7 @@ public sealed class AudioEngine : IDisposable
     {
         NoiseGate.Enabled = _config.NoiseGate.Enabled;
         Denoise.Enabled = _config.Denoise.Enabled;
+        AiVoice.Enabled = _config.AiVoice.Enabled;
         VoiceChanger.Enabled = _config.VoiceChanger.Enabled;
         Loudness.Enabled = _config.Loudness.Enabled;
         // EQ 均衡器 / 效果器：开关打开但"没有任何实际作用"时不进入处理链，等价于关闭。
@@ -853,6 +868,7 @@ public sealed class AudioEngine : IDisposable
 
         NoiseGate.UpdateParameters();
         Denoise.UpdateParameters();
+        AiVoice.UpdateParameters();
         VoiceChanger.UpdateParameters();
         Loudness.UpdateParameters();
         Tone.UpdateParameters();
@@ -980,6 +996,7 @@ public sealed class AudioEngine : IDisposable
         if (_disposed) return;
         _disposed = true;
         Stop();
+        AiVoice.Dispose();      // 停掉推理线程并释放 ONNX 会话
         Denoise.Model.Dispose();
         Chain.Reset();
     }
