@@ -455,8 +455,8 @@
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="音频块" />
                                             <Slider x:Name="AiVoiceBlockSlider" Grid.Column="1" VerticalAlignment="Center"
-                                                    Style="{StaticResource FlatSlider}" Minimum="100" Maximum="500"
-                                                    IsSnapToTickEnabled="True" TickFrequency="50"
+                                                    Style="{StaticResource FlatSlider}" Minimum="80" Maximum="500"
+                                                    IsSnapToTickEnabled="True" TickFrequency="10"
                                                     Value="250" Tag="AiVoiceBlockMs" ValueChanged="OnAiVoicePerfChanged"/>
                                             <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
                                                        Text="{Binding Value, ElementName=AiVoiceBlockSlider, StringFormat='{}{0:0} ms'}" />
@@ -470,7 +470,7 @@
                                             <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="上下文" />
                                             <Slider x:Name="AiVoiceContextSlider" Grid.Column="1" VerticalAlignment="Center"
                                                     Style="{StaticResource FlatSlider}" Minimum="500" Maximum="3000"
-                                                    IsSnapToTickEnabled="True" TickFrequency="250"
+                                                    IsSnapToTickEnabled="True" TickFrequency="50"
                                                     Value="2500" Tag="AiVoiceContextMs" ValueChanged="OnSliderChanged"/>
                                             <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
                                                        Text="{Binding Value, ElementName=AiVoiceContextSlider, StringFormat='{}{0:0} ms'}" />
@@ -483,9 +483,9 @@
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="交叉淡化" />
                                             <Slider x:Name="AiVoiceCrossfadeSlider" Grid.Column="1" VerticalAlignment="Center"
-                                                    Style="{StaticResource FlatSlider}" Minimum="10" Maximum="100"
-                                                    IsSnapToTickEnabled="True" TickFrequency="10"
-                                                    Value="50" Tag="AiVoiceCrossfadeMs" ValueChanged="OnSliderChanged"/>
+                                                    Style="{StaticResource FlatSlider}" Minimum="10" Maximum="40"
+                                                    IsSnapToTickEnabled="True" TickFrequency="5"
+                                                    Value="40" Tag="AiVoiceCrossfadeMs" ValueChanged="OnSliderChanged"/>
                                             <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
                                                        Text="{Binding Value, ElementName=AiVoiceCrossfadeSlider, StringFormat='{}{0:0} ms'}" />
                                         </Grid>

@@ -212,10 +212,12 @@ public sealed class AiVoiceSettings
     public int ContextMs { get; set; } = 2500;
 
     /// <summary>
-    /// 交叉淡化长度（ms）。**官方默认 0.05s**
-    ///（`realtime_gui.py:135` `"crossfade_length": 0.05`）。
+    /// 交叉淡化长度（ms）。官方默认 0.05s，但官方**实际把它封顶在 40ms**
+    ///（`rvc_worker.py:120` `sola_buffer_frame = min(crossfade_frame, 4*zc)` 且注释写明
+    /// "SOLA overlap is capped at 40 ms"）。所以这里直接取**有效值 40**，
+    /// 超过 40 只是白填一个不生效的数字（官方自己也另算了 `effective_crossfade_ms`）。
     /// </summary>
-    public int CrossfadeMs { get; set; } = 50;
+    public int CrossfadeMs { get; set; } = 40;
 
 }
 
