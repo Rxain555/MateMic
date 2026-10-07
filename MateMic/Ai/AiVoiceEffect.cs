@@ -49,7 +49,7 @@ public sealed class AiVoiceEffect : IAudioEffect
     private float[] _outScratch = Array.Empty<float>();
 
     // 统计（供界面显示；全部用 Interlocked，避免音频线程与 UI 线程竞争）
-    private long _blocks, _lateBlocks;
+    private long _blocks, _lateBlocks, _droppedSamples;
     private double _lastInferMs;
 
     public AiVoiceEffect(AppConfig config, WaveFormat format)
@@ -127,6 +127,13 @@ public sealed class AiVoiceEffect : IAudioEffect
         _inRing = new float[inCap];
         _outRing = new float[outCap];
         Array.Clear(_outRing);
+
+        // ⚠ 必须把所有读写索引一起归零。
+        // 曾经只设了 _outWrite、漏了 _outRead：重建缓冲后 _outRead 还指着**旧数组**里的位置，
+        // 于是 available 算出一个虚假的巨大积压（实测报 839ms），Read 也从错乱的位置取数据。
+        // 表现就是"额外延迟一秒多"，而且每次参数变化（触发 Restart）都会再犯一次。
+        _inWrite = _inRead = 0;
+        _outWrite = _outRead = 0;
 
         _blockSamples48 = ExpectedBlockSamples();
         _inScratch = new float[_blockSamples48];
@@ -211,6 +218,17 @@ public sealed class AiVoiceEffect : IAudioEffect
     {
         if (buffer.Length == 0) return 0;
 
+        // 输入环：只有积压到接近容量上限（这种情况只可能是引擎创建期间的追赶）才丢最老的。
+        // 平时**绝不能丢**——丢输入会让音频出现断裂，听感是"呲呲/咔哒"。
+        var inAvailNow = Available(_inRing, _inRead, _inWrite);
+        var inCapSamples = ChainRate;                 // 1 秒
+        if (inAvailNow > inCapSamples)
+        {
+            var dropIn = inAvailNow - inCapSamples;
+            _inRead = (_inRead + dropIn) % _inRing.Length;
+            Interlocked.Add(ref _droppedSamples, dropIn);
+        }
+
         // 输入环可能装不下（下游阻塞太久）：放不下就丢弃最老的，保证实时性优先
         for (var i = 0; i < buffer.Length; i++)
         {
@@ -230,6 +248,25 @@ public sealed class AiVoiceEffect : IAudioEffect
 
         // 输出：有就取，没有补静音
         var available = (_outWrite - _outRead + _outRing.Length) % _outRing.Length;
+
+        // ⚠ 限流：积压超过目标就把**最老的**丢掉，把延迟拉回来。
+        //
+        // 为什么必须做：引擎创建要 1.5 秒左右，这期间 Read 一直在往输入环塞数据
+        // （环容量 2 秒），worker 一起来就连续追赶、一次性把输出环灌满；而积压**不会自然消失**
+        // （稳态下产出≈消费），于是变成永久延迟——实测曾达 839ms，用户听到的是"延迟一秒多"。
+        // 实时语音里宁可丢一点音频，也不能让延迟无界增长。
+        // 输出环稳态需要容纳"一次推理的产出"，所以上限取 2 个块：
+        // 1 个块是 worker 一次产出的量，另 1 个块是给消费端留的余量。
+        // 取更大只会徒增延迟——实测上限 3 个块时稳态积压达 380ms，用户听到的总延迟约 590ms。
+        var capSamples = _blockSamples48 * 2;
+        if (available > capSamples)
+        {
+            var drop = available - capSamples;
+            _outRead = (_outRead + drop) % _outRing.Length;
+            available = capSamples;
+            Interlocked.Add(ref _droppedSamples, drop);
+        }
+
         var take = Math.Min(buffer.Length, available);
         for (var i = 0; i < take; i++)
         {
@@ -240,6 +277,18 @@ public sealed class AiVoiceEffect : IAudioEffect
         {
             buffer[take..].Clear();
             Interlocked.Increment(ref _lateBlocks);
+        }
+
+        // 诊断：积压量就是额外延迟。每隔一段时间记一次，用于判断"延迟到底是算法本身
+        // 还是缓冲在持续增长"（缓冲只增不减 = 产出快过消费 = 延迟会一直涨）。
+        if ((Interlocked.Read(ref _blocks) & 0x3F) == 0)
+        {
+            var inAvail = Available(_inRing, _inRead, _inWrite);
+            Log.Info($"[AI 变声] 诊断：输出环积压 {available * 1000 / ChainRate}ms"
+                     + $"（额外延迟，上限 {_blockSamples48 * 2 * 1000 / ChainRate}ms）"
+                     + $"，输入环 {inAvail * 1000 / ChainRate}ms"
+                     + $"，欠载 {LateBlocks}，累计丢弃 {Interlocked.Read(ref _droppedSamples) * 1000 / ChainRate}ms"
+                     + $"，上次推理 {LastInferMs:F0}ms");
         }
 
         // AI 变声自己的输出噪声门（静音处 RVC 仍有微弱输出，实测原始素材 6.3% 静音帧、
