@@ -54,7 +54,25 @@ public static class AudioDiagnostics
         string? outputFilter = null;
         string? inputFilter = null;
 
-        var positional = args.Skip(1).Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToList();
+        // ⚠ 位置参数里必须排除"带值开关"后面那个值。
+        // 原先只按"不以 -- 开头"过滤，于是 `--appdata <目录> --audiocheck 15`
+        // 会把 <目录> 当成秒数、把 15 当成"播放设备名关键字"，
+        // 报"没有匹配「15」的播放设备"后直接退出（2026-10-08 实测）。
+        var takesValue = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "--appdata", "--selfcheck", "--aicomponentcheck",
+        };
+        var positional = new List<string>();
+        for (var i = 0; i < args.Length; i++)      // 必须从 0 开始：args[0] 可能是 --appdata 而非本开关
+        {
+            var a = args[i];
+            if (a.StartsWith("--", StringComparison.Ordinal))
+            {
+                if (takesValue.Contains(a)) i++;     // 跳过它的值
+                continue;
+            }
+            positional.Add(a);
+        }
         if (positional.Count > 0 && int.TryParse(positional[0], out var parsed)) seconds = Math.Clamp(parsed, 2, 60);
         if (positional.Count > 1) outputFilter = positional[1];
         if (positional.Count > 2) inputFilter = positional[2];

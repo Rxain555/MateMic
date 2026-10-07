@@ -35,7 +35,9 @@ public sealed class StreamingRvc : IDisposable
     private readonly ContentEncoder _encoder;
     private readonly RmvpeF0 _rmvpe;
     private readonly RvcSynthesizer _synth;
-    private RvcIndex? _index;
+
+    /// <summary>音色索引（可选，经 C++ 桥接层直接读 faiss 的 .index）。</summary>
+    public FaissIndex? Index { get; set; }
 
     /// <summary>索引特征占比（0~1）。没有索引时恒为 0。</summary>
     public float IndexRate { get; set; }
@@ -54,11 +56,17 @@ public sealed class StreamingRvc : IDisposable
     public StreamingRvc(string cvModel, string rmvpeModel, string voiceModel,
                         int blockMs = 160, int contextMs = 320, int crossfadeMs = 40,
                         int semitones = 12, bool useGpu = true, bool disableSola = false,
-                        string? indexSimpleDir = null, float indexRate = 0f,
+                        FaissIndex? index = null, float indexRate = 0f,
                         Action<int>? onProgress = null)
     {
         Semitones = semitones;
         IndexRate = indexRate;
+
+        // 音色索引（可选）：**直接读用户放的 .index 文件**，没有任何中间转换产物。
+        // 读取走 C++ 桥接层（见 FaissIndex），用户端不需要 Python。
+        Index = index;
+        if (Index == null) IndexRate = 0f;
+
         // 三个模型逐个加载，按权重报进度（contentvec 约占一半体积、合成器次之、rmvpe 最小）
         onProgress?.Invoke(2);
         _encoder = new ContentEncoder(cvModel, useGpu);
@@ -67,17 +75,6 @@ public sealed class StreamingRvc : IDisposable
         onProgress?.Invoke(65);
         _synth = new RvcSynthesizer(voiceModel, useGpu);
         onProgress?.Invoke(90);
-
-        // 音色索引（可选）：放在转换后的简单格式目录里
-        if (!string.IsNullOrWhiteSpace(indexSimpleDir) && Directory.Exists(indexSimpleDir))
-        {
-            _index = RvcIndex.Load(indexSimpleDir);
-            if (_index == null) IndexRate = 0f;
-        }
-        else
-        {
-            IndexRate = 0f;
-        }
 
         static int ToSamples(int ms) => (int)Math.Round(ms / 1000.0 * OutputRate / Zc) * Zc;
         _block = ToSamples(blockMs);
@@ -135,8 +132,8 @@ public sealed class StreamingRvc : IDisposable
         // 索引检索：**在 2 倍插值之前**做，与官方一致
         //（官方顺序是 hubert → index.search → interpolate）。
         // 放在插值前还省一半计算量。
-        if (_index != null && IndexRate > 0)
-            _index.Retrieve(features, f50, IndexRate);
+        if (Index != null && IndexRate > 0)
+            Index.Retrieve(features, f50, IndexRate);
 
         // 特征 2 倍插值（nearest，输出 2T）
         var f100 = 2 * f50;
@@ -344,6 +341,6 @@ public sealed class StreamingRvc : IDisposable
         _encoder.Dispose();
         _rmvpe.Dispose();
         _synth.Dispose();
-        _index?.Dispose();
+        Index?.Dispose();
     }
 }

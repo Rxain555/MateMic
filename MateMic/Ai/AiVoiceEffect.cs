@@ -241,16 +241,20 @@ public sealed class AiVoiceEffect : IAudioEffect
     {
         var engineDir = ConfigStore.AiEngineDirectory;
 
-        // 索引：与音色同名的转换结果，放在 cache\index\ 下（不在用户可见的 index\ 里）
-        string? indexDir = null;
+        // 索引（可选）：**直接打开用户放在 index\ 下的 .index 文件**。
+        // 读取走 C++ 桥接层调 faiss（见 FaissIndex），因此不需要任何预处理、
+        // 也不需要 cache\ 里的中间产物，用户端更不需要 Python。
+        FaissIndex? index = null;
         var rate = 0f;
         if (!string.IsNullOrWhiteSpace(_config.AiVoice.IndexFile))
         {
-            var name = Path.GetFileNameWithoutExtension(_config.AiVoice.IndexFile);
-            var dir = Path.Combine(ConfigStore.AiIndexCacheDirectory, name + ".simple");
-            if (Directory.Exists(dir)) { indexDir = dir; rate = _config.AiVoice.IndexRate / 100f; }
-            else Log.Warn($"[AI 变声] 索引 {name} 尚未转换（缺 cache\\index\\{name}.simple），"
-                          + "本次不使用索引；可用 文档\\AI变声\\转换索引.py 转换一次。");
+            var indexPath = Path.Combine(ConfigStore.AiIndexDirectory, _config.AiVoice.IndexFile);
+            index = FaissIndex.Open(indexPath);
+            if (index != null)
+            {
+                index.SetNprobe(1);          // faiss 默认值，官方也未改动
+                rate = _config.AiVoice.IndexRate / 100f;
+            }
         }
 
         _engine = new StreamingRvc(
@@ -262,7 +266,7 @@ public sealed class AiVoiceEffect : IAudioEffect
             _config.AiVoice.CrossfadeMs,
             (int)Math.Round(_config.AiVoice.Semitones),
             useGpu: true,
-            indexSimpleDir: indexDir,
+            index: index,
             indexRate: rate,
             onProgress: p =>
             {
