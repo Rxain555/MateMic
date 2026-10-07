@@ -361,6 +361,18 @@
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
+        <!--
+          禁用态：整个滑条降到 40% 不透明度。
+          ⚠ 原先没写这一条，导致控件其实已经 IsEnabled=false、但**看上去毫无变化**
+          （下拉框有系统默认的禁用外观，而滑条用的是自定义模板，禁用时什么都不变）。
+          2026-10-08 用户反馈"除了模型选择和索引选择下拉框是灰的，其他东西都没变灰"就是这个原因。
+          注意：Style.Triggers 必须放在所有 Setter 之后，否则 XAML 编译报 MC3088。
+        -->
+        <Style.Triggers>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.4" />
+            </Trigger>
+        </Style.Triggers>
     </Style>
 
     <!--
