@@ -125,6 +125,13 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
         InitializeComponent();
 
+        // AI 变声引擎在后台加载（约 2 秒），期间把开关的 Tag 置 True 显示轨道进度条，
+        // 避免用户以为没反应而反复点击。
+        _engine.AiVoice.LoadingChanged += (_, loading) => Dispatcher.BeginInvoke(() =>
+        {
+            ToggleAiVoice.Tag = loading;
+        });
+
         // 主题必须在窗口第一次渲染之前定下来，否则会先闪一下浅色。
         ApplyThemeToResources();
 

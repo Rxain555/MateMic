@@ -42,7 +42,14 @@ public sealed class AiVoiceEffect : IAudioEffect
     private RateConverter? _fromModel;     // 40k -> 48k
     private Thread? _worker;
     private volatile bool _running;
+    private volatile bool _starting;
     private readonly ManualResetEventSlim _wake = new(false);
+
+    /// <summary>引擎正在后台加载。界面据此显示加载动画。</summary>
+    public bool IsLoading => _starting;
+
+    /// <summary>加载状态变化（true=开始加载，false=结束）。在后台线程触发。</summary>
+    public event EventHandler<bool>? LoadingChanged;
 
     private int _blockSamples48;           // 一个音频块在 48k 下的样本数
     private float[] _inScratch = Array.Empty<float>();
@@ -173,37 +180,60 @@ public sealed class AiVoiceEffect : IAudioEffect
         StartWorker();
     }
 
+    /// <summary>
+    /// 启动推理线程。
+    ///
+    /// **耗时的模型加载（约 1.5 秒 + CUDA 初始化）必须放到后台线程**：
+    /// 这个方法是从界面线程（开关的 Checked 事件）调过来的，同期加载三个 ONNX 会话
+    /// 会把界面完全卡死（用户实测："打开 AI 变声按钮时，在加载时间内软件是卡死的"）。
+    /// 加载期间 <see cref="Read"/> 照常把输入排队、输出补静音，音频线程不受影响。
+    /// </summary>
     private void StartWorker()
     {
-        if (_engine != null) return;
+        if (_engine != null || _starting) return;
         if (!Ready(out var reason))
         {
             Log.Warn($"[AI 变声] 暂不可用：{reason}");
             return;
         }
 
-        try
+        _starting = true;
+        LoadingChanged?.Invoke(this, true);
+        _ = Task.Run(() =>
         {
-            var engineDir = ConfigStore.AiEngineDirectory;
-            _engine = new StreamingRvc(
-                Path.Combine(engineDir, "contentvec.onnx"),
-                Path.Combine(engineDir, "rmvpe.onnx"),
-                Path.Combine(ConfigStore.AiVoicesDirectory, _config.AiVoice.VoiceModel!),
-                _config.AiVoice.BlockMs,
-                _config.AiVoice.ContextMs,
-                _config.AiVoice.CrossfadeMs,
-                (int)Math.Round(_config.AiVoice.Semitones),
-                useGpu: true);
+            try
+            {
+                CreateEngineCore();
+            }
+            catch (Exception ex)
+            {
+                Log.Error("[AI 变声] 引擎创建失败，本模块将不参与处理", ex);
+                _engine = null;
+            }
+            finally
+            {
+                _starting = false;
+                LoadingChanged?.Invoke(this, false);
+            }
+        });
+    }
 
-            _toModel = new RateConverter(ChainRate, ModelRate, _blockSamples48 + 64);
-            _fromModel = new RateConverter(ModelRate, ChainRate, _blockSamples48 * ModelRate / ChainRate + 64);
-        }
-        catch (Exception ex)
-        {
-            Log.Error("[AI 变声] 引擎创建失败，本模块将不参与处理", ex);
-            _engine = null;
-            return;
-        }
+    /// <summary>在后台线程里真正创建引擎与工作线程。</summary>
+    private void CreateEngineCore()
+    {
+        var engineDir = ConfigStore.AiEngineDirectory;
+        _engine = new StreamingRvc(
+            Path.Combine(engineDir, "contentvec.onnx"),
+            Path.Combine(engineDir, "rmvpe.onnx"),
+            Path.Combine(ConfigStore.AiVoicesDirectory, _config.AiVoice.VoiceModel!),
+            _config.AiVoice.BlockMs,
+            _config.AiVoice.ContextMs,
+            _config.AiVoice.CrossfadeMs,
+            (int)Math.Round(_config.AiVoice.Semitones),
+            useGpu: true);
+
+        _toModel = new RateConverter(ChainRate, ModelRate, _blockSamples48 + 64);
+        _fromModel = new RateConverter(ModelRate, ChainRate, _blockSamples48 * ModelRate / ChainRate + 64);
 
         _running = true;
         _worker = new Thread(WorkerLoop)
@@ -337,15 +367,18 @@ public sealed class AiVoiceEffect : IAudioEffect
     /// </summary>
     private void ApplyOutputGate(Span<float> buffer)
     {
-        var threshold = _config.AiVoice.GateDb;
-        if (threshold >= 0) return;
+        // ⚠ 用下限夹紧：配置里可能残留早期偏松的值（曾默认 −45，压不住 −43 的残留噪声）。
+        // 只改代码默认值不够——已存在的 config.json 会一直带着旧值，必须在这里兜底。
+        var threshold = Math.Max(_config.AiVoice.GateDb, MinGateDb);
+        if (_config.AiVoice.GateDb >= 0) return;          // 0 表示用户主动关闭噪声门
 
         var linear = (float)Math.Pow(10, threshold / 20.0);
 
-        // 每样本时间常数（48kHz）：包络用 2ms 跟随，增益起音 2ms、释放 120ms
+        // 每样本时间常数（48kHz）：包络 2ms 跟随；增益起音 2ms、释放 250ms
+        // （释放取长一点，让字尾自然衰减，而不是被"关门"切掉）
         const float envCoeff = 1f / (0.002f * ChainRate);
         var attack = 1f - MathF.Exp(-1f / (0.002f * ChainRate));
-        var release = 1f - MathF.Exp(-1f / (0.120f * ChainRate));
+        var release = 1f - MathF.Exp(-1f / (0.250f * ChainRate));
 
         foreach (ref var sample in buffer)
         {
@@ -358,6 +391,9 @@ public sealed class AiVoiceEffect : IAudioEffect
             sample *= _gateGain;
         }
     }
+
+    /// <summary>噪声门阈值下限（dBFS）。低于它的配置值会被夹到这里。</summary>
+    private const float MinGateDb = -30f;
 
     // ---------------------------------------------------------------- 推理线程
 
