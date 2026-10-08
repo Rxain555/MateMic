@@ -135,7 +135,21 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         _engine.AiVoice.LoadingChanged += (_, loading) => Dispatcher.BeginInvoke(() =>
         {
             UpdateAiVoiceLoading(loading, _engine.AiVoice.LoadProgress);
-            if (!loading) SetAiVoiceSwitchWithoutReentry(true);
+            if (!loading)
+            {
+                // 引擎创建失败时把原因告诉用户。像"这是 RVC v1 模型"这种信息
+                // 只写在日志里的话，用户只会觉得"选了音色却没声音"（2026-10-08）。
+                var error = _engine.AiVoice.LastError;
+                if (error != null)
+                {
+                    SetAiVoiceSwitchWithoutReentry(false);   // 开关落回去，别停在"开着但没声"
+                    ShowStatus("AI 变声启动失败：" + error, false);
+                }
+                else
+                {
+                    SetAiVoiceSwitchWithoutReentry(true);
+                }
+            }
         });
         _engine.AiVoice.ProgressChanged += (_, percent) => Dispatcher.BeginInvoke(() =>
             UpdateAiVoiceLoading(true, percent));

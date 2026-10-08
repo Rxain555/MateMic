@@ -67,6 +67,15 @@ public sealed class AiVoiceEffect : IAudioEffect
     private long _blocks, _lateBlocks, _droppedSamples;
     private double _lastInferMs;
 
+    /// <summary>最近一次引擎创建失败的原因（成功时为 null）。供界面提示用户。</summary>
+    private volatile string? _lastError;
+
+    /// <summary>
+    /// 引擎创建失败的原因。像"这是 RVC v1 模型"这类信息只写日志用户看不到，
+    /// 结果就是"选了音色却没声音"（2026-10-08 用户实测）。
+    /// </summary>
+    public string? LastError => _lastError;
+
     public AiVoiceEffect(AppConfig config, WaveFormat format)
     {
         _config = config;
@@ -231,6 +240,7 @@ public sealed class AiVoiceEffect : IAudioEffect
             try
             {
                 CreateEngineCore();
+                _lastError = null;
                 _loadProgress = 100;
                 ProgressChanged?.Invoke(this, 100);
             }
@@ -238,6 +248,9 @@ public sealed class AiVoiceEffect : IAudioEffect
             {
                 Log.Error("[AI 变声] 引擎创建失败，本模块将不参与处理", ex);
                 _engine = null;
+                // 把原因留给界面显示：像"这是 RVC v1 模型"这类信息很有价值，
+                // 只写进日志的话用户只会觉得"选了音色却没声音"（2026-10-08）。
+                _lastError = (ex.InnerException ?? ex).Message;
             }
             finally
             {
