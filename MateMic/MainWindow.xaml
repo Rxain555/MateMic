@@ -380,7 +380,13 @@
                                                 Style="{StaticResource ExpanderButton}"
                                                 Click="OnExpandClick" Tag="{Binding AiVoiceExpanded, RelativeSource={RelativeSource AncestorType=Window}}" />
                                     </Grid>
-                                    <StackPanel x:Name="PanelAiVoice" Visibility="Collapsed" Margin="0,4,0,0">
+                                    <!--
+                                      上边距取 2 而不是 4：每一行的 Margin 都是 0,2,0,2，
+                                      若这里再给 4，则"标题→第一行"是 4+2=6，而普通行间是 2+2=4，
+                                      于是"运算方式行与音色行之间"看起来比"音色行与索引行之间"大
+                                      （2026-10-08 用户指出，实测间隙 6 vs 4）。
+                                    -->
+                                    <StackPanel x:Name="PanelAiVoice" Visibility="Collapsed" Margin="0,2,0,0">
                                         <Grid x:Name="AiVoiceProviderRow" Margin="0,2,0,2">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="62" />
