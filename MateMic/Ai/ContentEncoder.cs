@@ -22,7 +22,9 @@ public sealed class ContentEncoder : IDisposable
     public ContentEncoder(string modelPath, bool useGpu = false)
     {
         var options = new SessionOptions { LogSeverityLevel = OrtLoggingLevel.ORT_LOGGING_LEVEL_ERROR };
-        if (useGpu) options.AppendExecutionProvider_CUDA(0);
+        // 按当前生效的运算后端挂 provider（CUDA / DirectML / CPU）——
+        // 不能无条件挂 CUDA：CPU 与 DirectML 版的 onnxruntime 没有 CUDA，会抛异常导致引擎建不起来。
+        OrtProviders.Append(options);
         _session = new InferenceSession(modelPath, options);
         _inputName = _session.InputMetadata.Keys.First();
 
