@@ -56,19 +56,10 @@ public sealed record AiComponentStatus(
 public static class AiComponent
 {
     /// <summary>
-    /// 通用运行时必需的文件（所有运算后端共用，缺任一即视为组件不完整）。
-    /// 放在 <c>runtime\</c> 下。
+    /// 通用运行时必需的文件（放 <c>runtime\</c> 下）。
+    /// 这些与运算后端无关：索引桥接层 + 它的 faiss/OpenBLAS 依赖。
     /// </summary>
     private static readonly string[] RuntimeFiles =
-    {
-        "onnxruntime.dll",
-    };
-
-    /// <summary>
-    /// faiss 索引桥接层（放 <c>runtime\</c> 下）。
-    /// **缺失不影响基础变声**，只是索引功能不可用，所以单独判定、不作为组件完整性条件。
-    /// </summary>
-    private static readonly string[] FaissFiles =
     {
         "mm_faiss.dll",
         "faiss.dll",
@@ -82,8 +73,11 @@ public static class AiComponent
     /// <summary>
     /// 一个运算后端的规格：目录名（<c>providers\&lt;Name&gt;\</c>）、界面显示名、必需文件。
     ///
-    /// CUDA 那套运行时体积约 2.2GB，所以单独成组，与通用的 <c>runtime\</c> 解耦；
-    /// 以后加 DirectML（约 50MB）/ CPU（约 15MB）时只需在这个数组里添一项。
+    /// ⚠ <c>onnxruntime.dll</c> 属于后端而**不是**通用部分：
+    /// CPU / CUDA / DirectML 三个版本是**三份不同的文件**（CUDA 版还要配 provider DLL，
+    /// DirectML 版则内建）。所以它跟着后端目录走，换后端只换一份目录。
+    ///
+    /// **顺序即优先级**：数组靠前的先被选中，所以 GPU 后端排在 CPU 前面。
     /// </summary>
     private sealed record ProviderSpec(string Name, string Display, string[] Files);
 
@@ -91,6 +85,7 @@ public static class AiComponent
     {
         new("cuda", "CUDA（NVIDIA 显卡）", new[]
         {
+            "onnxruntime.dll",
             "onnxruntime_providers_cuda.dll",
             "onnxruntime_providers_shared.dll",
             "cublasLt64_12.dll",
@@ -108,6 +103,15 @@ public static class AiComponent
             "cudnn_heuristic64_9.dll",
             "nvrtc64_120_0.dll",
             "nvJitLink_120_0.dll",
+        }),
+        new("directml", "DirectML（AMD / Intel / NVIDIA 通用）", new[]
+        {
+            "onnxruntime.dll",
+            "DirectML.dll",
+        }),
+        new("cpu", "CPU（不占用显卡）", new[]
+        {
+            "onnxruntime.dll",
         }),
     };
 
@@ -232,39 +236,43 @@ public static class AiComponent
         if (libraryName is not ("onnxruntime" or "onnxruntime.dll"))
             return IntPtr.Zero;                       // 其它库交回默认解析
 
+        // 让 cuDNN / DirectML / OpenMP 这些依赖能被找到。
+        //
+        // ⚠ 必须用 AddDllDirectory + SetDefaultDllDirectories，**不能用 SetDllDirectory**：
+        // ONNX Runtime 加载 onnxruntime_providers_cuda.dll 时走的是带
+        // LOAD_LIBRARY_SEARCH_* 标志的 LoadLibraryEx，那条路径**不接受 SetDllDirectory**
+        // 设置的目录，只认 AddDllDirectory 注册的 USER_DIRS。
+        // （实测：用 SetDllDirectory 时 onnxruntime.dll 本身加载成功，但创建 CUDA 会话报
+        //   "OrtSessionOptionsAppendExecutionProvider_Cuda: Failed to load shared library"。）
+        SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+
         var runtimeDir = ConfigStore.AiRuntimeDirectory;
-        var candidate = Path.Combine(runtimeDir, "onnxruntime.dll");
+        if (Directory.Exists(runtimeDir)) AddDllDirectory(runtimeDir);   // faiss 桥接层的依赖
+
+        // onnxruntime.dll 跟随后端：CPU / CUDA / DirectML 是三份不同的文件
+        var provider = ResolveProvider();
+        if (provider == null)
+        {
+            _lastError = "没有完整可用的运算后端组件（providers\\ 下需有 cuda / directml / cpu 之一）";
+            return IntPtr.Zero;                       // 退回程序自带的 CPU 版
+        }
+
+        var providerDir = ConfigStore.AiProviderDirectory(provider.Name);
+        var candidate = Path.Combine(providerDir, "onnxruntime.dll");
         if (!File.Exists(candidate))
-            return IntPtr.Zero;                       // 没装组件 -> 用程序自带的 CPU 版
+        {
+            _lastError = $"后端 {provider.Display} 缺 onnxruntime.dll";
+            return IntPtr.Zero;
+        }
 
         try
         {
-            // 让 CUDA 运行时（cublas/cudnn/nvrtc…）与 providers_cuda 能被找到。
-            //
-            // 它们现在放在 providers\<后端>\ 下（CUDA 那套约 2.2GB，单独成组便于换后端），
-            // 所以要**同时**注册通用目录与后端目录。
-            //
-            // ⚠ 必须用 AddDllDirectory + SetDefaultDllDirectories，**不能用 SetDllDirectory**：
-            // ONNX Runtime 加载 onnxruntime_providers_cuda.dll 时走的是带
-            // LOAD_LIBRARY_SEARCH_* 标志的 LoadLibraryEx，那条路径**不接受 SetDllDirectory**
-            // 设置的目录，只认 AddDllDirectory 注册的 USER_DIRS。
-            // （实测：用 SetDllDirectory 时 onnxruntime.dll 本身加载成功，但创建 CUDA 会话报
-            //   "OrtSessionOptionsAppendExecutionProvider_Cuda: Failed to load shared library"。）
-            SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
-            AddDllDirectory(runtimeDir);
-
-            var provider = ResolveProvider();
-            if (provider != null)
-            {
-                var providerDir = ConfigStore.AiProviderDirectory(provider.Name);
-                if (Directory.Exists(providerDir)) AddDllDirectory(providerDir);
-                _activeProvider = provider.Name;
-            }
+            AddDllDirectory(providerDir);
+            _activeProvider = provider.Name;
 
             var handle = NativeLibrary.Load(candidate);
             _nativeLoaded = true;
-            Log.Info($"[AI 变声] 已加载组件内的 GPU 版运行时：{candidate}"
-                     + (provider != null ? $"（后端 {provider.Display}）" : "（但没有可用的后端组件）"));
+            Log.Info($"[AI 变声] 已加载组件内的运行时：{candidate}（后端 {provider.Display}）");
             return handle;
         }
         catch (Exception ex)
