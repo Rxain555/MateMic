@@ -2502,11 +2502,21 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     ///
     /// 理由（2026-10-08 用户指出）：卡片上全是"选了也没用"的控件
     /// （运算方式、音色、索引、各项参数），在基础版里显示出来只会让人困惑，
-    /// 还会占掉音频处理链的位置。装了组件（通用 + 至少一个后端）之后再出现。
+    /// 还会占掉音频处理链的位置。装了组件之后再出现。
+    ///
+    /// **本次运行中刚装过组件时也不显示**：装完必须重启才生效
+    ///（见 InstallAiComponentPacks 的注释），此时亮出卡片只会让用户点了开关却启动失败。
     /// </summary>
     private void UpdateAiVoiceCardVisibility()
     {
         if (AiVoiceCard == null) return;
+
+        if (_aiComponentInstalledThisSession)
+        {
+            AiVoiceCard.Visibility = Visibility.Collapsed;
+            return;
+        }
+
         var status = AiComponent.Inspect();
         var usable = status.HasRuntime && status.HasEngine && status.Provider != null;
         AiVoiceCard.Visibility = usable ? Visibility.Visible : Visibility.Collapsed;
@@ -2521,6 +2531,9 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             SaveConfig();
         }
     }
+
+    /// <summary>本次运行中是否刚安装过 AI 变声组件（装完需重启才生效，此时不亮卡片）。</summary>
+    private bool _aiComponentInstalledThisSession;
 
     /// <summary>更新「AI 变声」开关上的加载进度填充条。
     ///
@@ -3246,20 +3259,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         ScheduleAiVoiceApply();
     }
 
-    private void OnAddAiVoiceClick(object sender, RoutedEventArgs e)
-    {
-        // 复用 DialogHost 的现成样式（标题栏/描边/按钮），内容用 AiComponentPanel。
-        // "打开组件文件夹"作为次要按钮 —— 用对话框自己的按钮样式，不再自造 ToolbarButton
-        //（2026-10-08 用户要求："为什么要单独做呢？用那个不就行了，又美观"）。
-        DialogHost.ShowCustom(this, "添加 AI 变声", new AiComponentPanel(),
-            primaryText: "关闭",
-            secondaryText: "打开组件文件夹",
-            onSecondary: AiComponentPanel.OpenComponentFolder);
-        // 对话框里可能刚放进组件，回来刷新下拉、后端列表、卡片显隐与可用性
-        RefreshAiVoiceLists();
-        UpdateAiVoiceCardVisibility();
-        UpdateAiVoiceControlAvailability();
-    }
 
     /// <summary>重新扫描音色与索引目录，把已保存的选择对上号。</summary>
     private void RefreshAiVoiceLists()
@@ -3421,41 +3420,105 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         }
     }
 
-    /// <summary>把拖入的组件包解压安装，并刷新界面状态。</summary>
-    private void InstallAiComponentPacks(List<string> zips)
+    /// <summary>
+    /// 安装拖入的组件包：弹一个进度对话框，解压放后台线程（界面不卡），
+    /// 完成后询问是否立即重启 —— 装完组件必须重启才生效（见 InstallAiComponentPacksAsync 注释）。
+    /// </summary>
+    private async void InstallAiComponentPacks(List<string> zips)
     {
-        var ok = 0;
+        var panel = new AiComponentPanel();
+        var dialog = DialogHost.CreateCustom("安装 AI 变声组件", panel, "关闭");
+        dialog.Owner = this;
+        dialog.Show();
+
+        var installed = 0;
         var total = 0;
+        string? error = null;
+
         foreach (var zip in zips)
         {
             try
             {
-                total += AiComponent.InstallFromZip(zip);
-                ok++;
+                var count = await Task.Run(() => AiComponent.InstallFromZip(zip, (percent, detail) =>
+                    Dispatcher.BeginInvoke(() => panel.SetProgress(percent, detail))));
+                total += count;
+                installed++;
             }
             catch (Exception ex)
             {
+                error = ex.Message;
                 Log.Warn($"[AI 变声] 安装组件包失败：{Path.GetFileName(zip)} —— {ex.Message}");
             }
         }
 
-        if (ok == 0)
+        dialog.Close();
+
+        if (installed == 0)
         {
-            ShowStatus("组件包解压失败（可能不是 AI 变声组件包）", false);
+            ShowStatus("组件包安装失败：" + (error ?? "无法读取压缩包"), false);
             return;
         }
 
-        // 组件变了，刷新卡片可用性与下拉
-        AiComponent.InstallNativeResolver();
-        RefreshAiVoiceLists();
+        // 本次运行中刚装过组件：卡片先不亮，等重启后才出现
+        _aiComponentInstalledThisSession = true;
         UpdateAiVoiceCardVisibility();
-        UpdateAiVoiceControlAvailability();
 
-        var status = AiComponent.Inspect();
-        ShowStatus(status.State == AiComponentState.Ready
-            ? $"已安装 {ok} 个组件包（{total} 个文件）—— 重启程序后生效"
-            : $"已安装 {ok} 个组件包（{total} 个文件）；{status.Message}",
-            status.State == AiComponentState.Ready);
+        // ------------------------------------------------------------------
+        // 装完必须重启才生效。
+        //
+        // 原因：程序启动时 AI 降噪会先创建 ONNX 会话，那一刻 onnxruntime.dll 就被解析并
+        // 加载进进程（当时组件还不存在，用的是程序自带的 CPU 版）。而 Windows 对同名 DLL
+        // 按名字缓存、一个进程只能有一份，装完组件也换不上组件里的 CUDA 版 ——
+        // 直接创建引擎会报 "Attempt to use DefaultLogger but none has been registered"。
+        // 重启后解析器一上就指向组件版，因此正常。
+        //（2026-10-08 从日志确认：首次失败，重启后引擎正常启动。）
+        // ------------------------------------------------------------------
+        var detailText = $"已安装 {installed} 个组件包（{total} 个文件）。\n\n"
+                         + "需要重启程序才会生效。现在重启吗？";
+        if (DialogHost.Ask(this, "组件安装完成", detailText,
+                secondaryText: "稍后手动重启", primaryText: "立即重启"))
+        {
+            RestartApplication();
+        }
+    }
+
+    /// <summary>
+    /// 重启整个程序。
+    ///
+    /// ⚠ 不能直接 Process.Start 新进程再退出：新进程会**立刻**去抢单实例 Mutex，
+    /// 而旧进程还没释放，于是新进程弹"MateMic 已经在运行中"然后自杀。
+    /// 所以交给一个独立的 cmd：先等 2 秒（足够本进程退出并释放 Mutex）再启动程序。
+    /// </summary>
+    private void RestartApplication()
+    {
+        try
+        {
+            CancelAiVoiceApply();       // 先停掉待生效的计时器，避免它回调已释放的引擎
+            _saveTimer?.Stop();         // 停掉延迟保存，改为立刻落盘
+            SaveConfig();
+
+            var exe = Environment.ProcessPath;
+            if (string.IsNullOrEmpty(exe))
+            {
+                ShowStatus("重启失败（取不到程序路径），请手动重启", false);
+                return;
+            }
+
+            Process.Start(new ProcessStartInfo("cmd.exe")
+            {
+                Arguments = $"/c timeout /t 2 /nobreak >nul & start \"\" \"{exe}\"",
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                WorkingDirectory = AppContext.BaseDirectory,
+            });
+
+            _exiting = true;            // 让 OnClosing 走真正的退出，而不是收进托盘
+            ExitApplication();
+        }
+        catch (Exception ex)
+        {
+            ShowStatus("重启失败，请手动重启：" + ex.Message, false);
+        }
     }
 
     /// <summary>
@@ -3508,14 +3571,10 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             UpdateAiVoiceControlAvailability();
             SaveConfig();
 
-            var parts = new List<string>();
-            if (addedVoices.Count > 0) parts.Add($"音色 {addedVoices.Count} 个");
-            if (addedIndexes.Count > 0) parts.Add($"索引 {addedIndexes.Count} 个");
-            var text = "已添加：" + string.Join("、", parts);
-            if (_config.AiVoice.Enabled) text += "（AI 变声正在运行，改动需关掉再开才生效）";
-            if (failed > 0) text += $"；{failed} 个失败（可能被占用）";
-            ShowStatus(text, failed == 0);
-            Log.Info($"[AI 变声] 拖入音色 {addedVoices.Count} 个、索引 {addedIndexes.Count} 个");
+            // **刻意不弹状态条**：下拉框里立刻出现新音色/索引并自动选中，
+            // 那本身就是反馈；再弹一条黄字属重复（2026-10-08 用户要求移除）。
+            Log.Info($"[AI 变声] 拖入音色 {addedVoices.Count} 个、索引 {addedIndexes.Count} 个"
+                     + (failed > 0 ? $"，{failed} 个失败" : ""));
         }
         catch (Exception ex)
         {

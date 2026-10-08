@@ -4,54 +4,26 @@
              Width="420">
 
     <!--
-      「添加 AI 变声」的对话框内容（由 Ui\DialogHost.ShowCustom 承载）。
+      「安装 AI 变声组件」的进度对话框内容（由 Ui\DialogHost.CreateCustom 承载）。
 
-      刻意保持极简（2026-10-08 用户要求"只用显示通用组件和运算组件的就绪状态就行"）：
-        · 一个拖放区
-        · 两项状态
-      其余（音色、索引、目录路径、操作按钮）一概不放 ——
-      音色与索引由用户直接拖到主界面；"打开组件文件夹"用对话框现成的次要按钮。
+      用户把组件包（.zip）拖到主界面后弹出，显示解压进度。
+      解压本身在后台线程，界面不卡；进度完成后对话框关闭，再询问是否立即重启
+      —— 装完组件必须重启才生效：程序启动时 AI 降噪已先占用了同名 onnxruntime.dll，
+      而 Windows 对同名 DLL 按名字缓存，装完也换不上组件里的 CUDA 版。
     -->
-    <StackPanel Margin="0,0,0,2">
+    <StackPanel Margin="0,4,0,2">
 
-        <!-- 拖放区 -->
-        <Border x:Name="DropZone" Padding="14,20"
-                CornerRadius="6" BorderThickness="1.4"
-                BorderBrush="{DynamicResource CardBorderBrush}"
-                Background="{DynamicResource WindowSurfaceBrush}"
-                AllowDrop="True" DragOver="OnDropZoneDragOver" Drop="OnDropZoneDrop"
-                MouseLeftButtonUp="OnDropZoneClick">
-            <StackPanel>
-                <TextBlock x:Name="DropHintText" Text="把组件包拖到这里"
-                           HorizontalAlignment="Center" TextWrapping="Wrap"
-                           Foreground="{DynamicResource TextBrush}" />
-                <TextBlock Text="支持 .zip 组件包（自动解压安装）、解压后的文件夹，或零散文件"
-                           Margin="0,6,0,0" HorizontalAlignment="Center" TextWrapping="Wrap"
-                           FontSize="11" Foreground="{DynamicResource SubtleTextBrush}" />
-                <TextBlock Text="点这里也可以选择文件"
-                           Margin="0,3,0,0" HorizontalAlignment="Center"
-                           FontSize="11" Foreground="{DynamicResource SubtleTextBrush}" />
-            </StackPanel>
-        </Border>
+        <TextBlock x:Name="TitleText" Text="正在安装组件…"
+                   Foreground="{DynamicResource TextBrush}" />
 
-        <!-- 只两项状态 -->
-        <Grid Margin="0,16,0,3">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="78" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
-            <TextBlock Grid.Column="0" Text="通用组件" Style="{StaticResource LabelText}" />
-            <TextBlock x:Name="CoreStatusText" Grid.Column="1" TextWrapping="Wrap"
-                       Foreground="{DynamicResource TextBrush}" />
-        </Grid>
-        <Grid Margin="0,3,0,3">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="78" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
-            <TextBlock Grid.Column="0" Text="运算组件" Style="{StaticResource LabelText}" />
-            <TextBlock x:Name="ProviderStatusText" Grid.Column="1" TextWrapping="Wrap"
-                       Foreground="{DynamicResource TextBrush}" />
-        </Grid>
+        <ProgressBar x:Name="Bar" Height="6" Minimum="0" Maximum="100" Value="0"
+                     Margin="0,12,0,0"
+                     Foreground="{DynamicResource AccentBrush}"
+                     Background="{DynamicResource TrackBrush}"
+                     BorderThickness="0" />
+
+        <TextBlock x:Name="DetailText" Text="准备中…" Margin="0,8,0,0"
+                   TextWrapping="Wrap" FontSize="11"
+                   Foreground="{DynamicResource SubtleTextBrush}" />
     </StackPanel>
 </UserControl>

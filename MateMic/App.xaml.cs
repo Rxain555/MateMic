@@ -217,9 +217,8 @@ public partial class App : Application
             preview.Start();
         }
 
-        // AI 变声组件对话框自检：MateMic.exe --aicomponentcheck <输出图片路径> [--dark]
-        // 复用 DialogHost.ShowCustom + AiComponentPanel。对话框是分层窗口，
-        // 靠这段自检确认它能正常打开、配色正确，且组件状态检测在两种情况下都不崩。
+        // AI 变声组件安装进度对话框自检：MateMic.exe --aicomponentcheck <输出图片路径> [--dark]
+        // 内容是进度条面板（用户把组件包拖到主界面后弹出的那个）。
         var aiCheck = ValueOf(args, "--aicomponentcheck");
         if (aiCheck != null)
         {
@@ -239,8 +238,9 @@ public partial class App : Application
             {
                 if (tick == 1)
                 {
-                    dialog = Ui.DialogHost.CreateCustom("添加 AI 变声", new AiComponentPanel(),
-                        "关闭", "打开组件文件夹", AiComponentPanel.OpenComponentFolder);
+                    var panel = new AiComponentPanel();
+                    panel.SetProgress(45, "正在安装 CUDA 运行时…");
+                    dialog = Ui.DialogHost.CreateCustom("安装 AI 变声组件", panel, "关闭");
                     dialog.Show();
                     dialog.UpdateLayout();
                 }
@@ -248,7 +248,7 @@ public partial class App : Application
                 {
                     preview.Stop();
                     if (dialog != null) ScreenCapture.CaptureWindow(dialog, aiCheck, "desktop");
-                    Log.Info($"[AI 变声] 组件对话框自检状态：{Ai.AiComponent.Inspect().Message}");
+                    Log.Info($"[AI 变声] 组件状态：{Ai.AiComponent.Inspect().Message}");
                     try { dialog?.Close(); } catch { /* 忽略 */ }
                     Shutdown();
                 }

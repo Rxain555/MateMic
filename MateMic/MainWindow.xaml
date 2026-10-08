@@ -129,14 +129,6 @@
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
                                 Margin="10,0,0,0">
                         <!--
-                          添加 AI 变声：AI 变声的组件（数千 MB）不随程序分发，
-                          点这里打开组件对话框——显示各组件就绪状态、打开组件文件夹、
-                          也支持把文件直接拖进去。组件齐全后处理链里才会出现 AI 变声卡片。
-                        -->
-                        <Button x:Name="AddAiVoiceButton" Style="{StaticResource ToolbarButton}"
-                                Content="添加 AI 变声" Padding="8,3,8,3" Margin="0,0,6,0"
-                                Click="OnAddAiVoiceClick" />
-                        <!--
                           使用指南：设备下拉框到底该选什么、软件怎么用，是新人最容易懵的地方。
                           做成和「风险说明」同一种按钮，点开一个自绘对话框，不占主界面空间。
                         -->

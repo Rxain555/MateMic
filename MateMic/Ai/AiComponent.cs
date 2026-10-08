@@ -201,17 +201,20 @@ public static class AiComponent
     /// <summary>
     /// 安装一个组件包（.zip）。组件包内部结构是
     /// <c>ai\runtime\…</c> / <c>ai\providers\cuda\…</c> / <c>ai\engine\…</c>，
-    /// 这里取 <c>ai\</c> 之后的相对路径拼到组件目录下，
-    /// 于是通用包与各后端包可以分别解压、自然叠加。
+    /// 这里取 <c>ai\</c> 之后的相对路径拼到组件目录下。
     /// 返回实际写入的文件数；抛异常表示解压失败。
+    ///
+    /// <paramref name="onProgress"/> 在解压过程中被调用（来自后台线程），
+    /// 参数是 0~100 的百分比与当前阶段说明，供界面显示进度条。
     /// </summary>
-    public static int InstallFromZip(string zipPath)
+    public static int InstallFromZip(string zipPath, Action<int, string>? onProgress = null)
     {
         using var archive = System.IO.Compression.ZipFile.OpenRead(zipPath);
         var root = ConfigStore.AiComponentDirectory;
         Directory.CreateDirectory(root);
 
-        var written = 0;
+        // 先筛出真正要写的条目，好按总数报进度
+        var entries = new List<(System.IO.Compression.ZipArchiveEntry Entry, string Relative, string Top)>();
         foreach (var entry in archive.Entries)
         {
             if (string.IsNullOrEmpty(entry.Name)) continue;          // 目录项
@@ -225,11 +228,31 @@ public static class AiComponent
             var top = relative.Split('\\')[0];
             if (top is not ("runtime" or "providers" or "engine")) continue;
 
+            entries.Add((entry, relative, top));
+        }
+
+        var written = 0;
+        var lastReported = -1;
+        foreach (var (entry, relative, top) in entries)
+        {
             var target = Path.Combine(root, relative);
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             entry.ExtractToFile(target, overwrite: true);
             written++;
+
+            var percent = entries.Count == 0 ? 100 : (int)(100L * written / entries.Count);
+            if (percent != lastReported)
+            {
+                lastReported = percent;
+                onProgress?.Invoke(percent, top switch
+                {
+                    "runtime" => "正在安装通用运行时…",
+                    "engine" => "正在安装推理引擎模型…",
+                    _ => "正在安装 CUDA 运行时…",
+                });
+            }
         }
+        onProgress?.Invoke(100, "安装完成");
         return written;
     }
 
