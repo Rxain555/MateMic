@@ -1338,6 +1338,25 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                      + $"电平条 [{trackTop:0.#} … {trackBottom:0.#}]（高 {LevelTrack.ActualHeight:0.#}）｜"
                      + $"实时数据卡片顶 {cardTop:0.#}｜重叠 {(trackBottom > cardTop + 0.5 ? "是 ✗" : "否 ✓")}｜"
                      + $"卡片与电平条净间距 {cardTop - trackBottom:0.#}px");
+
+            // 电平条**上方**与**下方**的间距必须一致（2026-10-08 用户第二次指出"上面比下面紧"）。
+            //
+            // ⚠ 这里量的是**可见间距**，不是"元素之间的裸间隙"：
+            //   上方 = 输出频谱卡片底边 → 电平条**彩色条**顶端
+            //          （中间还夹着 6px 的 dB 刻度画布，肉眼把它也算成间距的一部分）；
+            //   下方 = 彩色条底 → 实时数据卡片顶。
+            // 只量裸间隙会得到 0.8 vs 7.2 —— 看着差很多，其实观感基本齐平，反而误判。
+            var spectrumCard = Descendants(MidRegion).OfType<Border>()
+                .Where(b => ReferenceEquals(b.Style, cardStyle))
+                .OrderByDescending(TopY)
+                .FirstOrDefault();
+            if (spectrumCard != null)
+            {
+                var above = TopY(LevelTrack) - (TopY(spectrumCard) + spectrumCard.ActualHeight);
+                var below = cardTop - (TopY(LevelTrack) + LevelTrack.ActualHeight);
+                Log.Info($"[中栏核对] 电平条可见间距：上 {above:0.#}px｜下 {below:0.#}px｜"
+                         + $"两者差 {Math.Abs(above - below):0.#}px{(Math.Abs(above - below) <= 1.0 ? " ✓" : " ✗")}");
+            }
         }
     }
 
@@ -2783,6 +2802,12 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
         // 走热更新的：保持可用
         AiVoicePitchSlider.IsEnabled = true;
+
+        // 「输出缓冲」**有意不列入**上面那份"运行时禁用"的名单：它也是热更新项
+        //（只改输出环的水位，不重建引擎），开着 AI 变声时照样能拖，而且立刻生效
+        //（AiVoiceEffect.RequestBacklogRetarget 会做一次性水位校准，否则"调大"不生效）。
+        // 与"变调 / 索引占比"同类 —— 用户在 2026-10-08 问过"这个能在开启时调吗"，
+        // 答案是可以，所以它与那两项一样保持可调、不置灰。
 
         // 索引占比只在真的选了索引文件时可调（没选时整行置灰），
         // 与 AI 变声的开关状态无关——它是热更新，开着也能改。

@@ -918,11 +918,19 @@
                              **两个矩形都画满、由外层 Border 的 CornerRadius + ClipToBounds 统一裁边**，
                              右端就只剩外轮廓的圆角了。
                              读数已按反馈删除（把电平条撑长的元凶一并消失）。 -->
-                        <!-- 顶部间距为 0、并配合输出卡片的底内边距一起收：
-                             视觉上的"远"主要来自卡片投影（CardShadow 在卡片下方渲染约 10px 柔和阴影），
-                             只调 Margin 数值的收效有限。 -->
+                        <!-- ⚠ 上下间距按**可见间距**对齐（2026-10-08 用户第二次指出"上面比下面紧"）。
+                             上方可见间距 = 输出频谱卡片底边 → 电平条**彩色条**顶端
+                             （中间那 6px 的 dB 刻度画布视觉上也算间距）；
+                             下方可见间距 = 彩色条底 → 性能卡片顶。
+
+                             ⚠ 本容器**一律不留底边距**：输出频谱卡片的 Margin 被它自己显式设成 0
+                             （覆盖了 Card 样式的 7px），上方裸间隙本来就是 0；而且这个容器每加 1px
+                             底边距，`*` 行的重分配会把电平条整体上移约 0.8px
+                             （实测 Margin=0 → 上 8.0 / 下 7.2；Margin=1 → 上 7.2 / 下 8.0），
+                             等于把间距推到另一侧、白折腾。
+                             要对齐的那 1px 改用**性能卡片自己的 Margin.Top** 补（只影响下间距）。 -->
                         <Border Grid.Row="2" Background="Transparent" BorderThickness="0"
-                                Margin="0,0,0,2" Padding="0">
+                                Margin="0" Padding="0">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto" />
@@ -1002,7 +1010,7 @@
                                  与右栏"音频列表"一致；Card 会多出 7px 下间距，两栏底部留白就不齐
                                  （2026-10-08 用户反馈）。上间距由自己的 Margin 给。 -->
                             <Border x:Name="StatsCard" Grid.Row="3" Style="{StaticResource CardLast}"
-                                    Padding="8,5,8,7" Margin="0,7,0,0">
+                                    Padding="8,5,8,7" Margin="0,8,0,0">
                                 <StackPanel>
                                     <TextBlock Style="{StaticResource LabelText}" Text="延迟与性能"
                                                FontWeight="SemiBold" FontSize="11.5" Margin="0,0,0,5"
