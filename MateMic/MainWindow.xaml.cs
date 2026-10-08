@@ -2483,118 +2483,46 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                      + $" DesiredSize={panel.DesiredSize.Height:0.#}");
         }
 
-        // ⚠ 起始高度**必须按方向给**，不能一律设 0。
-        //
-        // 展开：从 0 开始 ⇒ 面板先塌成 0 是对的（此时还没画到屏幕上，看不出跳）。
-        // 收起：此刻面板**本来是可见且满高**的。若也先设成 0，动画第一帧就要把高度
-        //       从 0 猛拉回 target，结果是"先弹开一下、再收拢"——正是用户描述的
-        //       "收起动画不流畅"（2026-10-08）。
-        //       收起时应从 target 起跳，即保持当前高度不动。
-        panel.Height = expand ? 0 : target;
+        panel.Height = 0;                                    // 回到动画起点（此时还没画到屏幕上）
         panel.Visibility = wasVisible ? Visibility.Visible : Visibility.Collapsed;
         panel.UpdateLayout();
-
-        // ------------------------------------------------------------------
-        // ⚠ 这里**不再**在动画期间摘掉卡片的阴影。
-        //
-        // 曾经为了省掉"每帧重建阴影离屏表面"的开销，动画开始前把卡片的
-        // DropShadowEffect 置 null、Completed 时恢复。用户 2026-10-08 指出：
-        // **改变 Effect 会让元素的渲染内容失效、需要重新生成那张离屏表面**，
-        // 而这个动作恰好压在展开的第一帧与收起的最后一帧上 ——
-        // 于是"展开的开头一点"和"收起的末尾一点"被顶掉了，观感就是衔接处跳一下。
-        // 用户原话："我怀疑是去掉和加上阴影效果的那个效果把展开的前面一点动画
-        // 和收起的最后一点动画顶掉了。" 这与实测现象一致（卡片高度在动、
-        // 边界处却有断层），也与"每张卡片都有"一致。
-        //
-        // 结论：**动画的正确性优先于这点渲染开销**。
-        // 阴影代价已通过别的手段降过（RenderingBias 降为 Performance）。
-        // ------------------------------------------------------------------
 
         var story = new Storyboard();
 
         if (expand)
         {
             panel.Visibility = Visibility.Visible;
-
-            // 卡片展开：**340ms + cubic-bezier(0.4, 0, 0.2, 1)**（Material 标准曲线）。
-            // 用 SplineDoubleKeyFrame 是为了精确复现这条贝塞尔 ——
-            // WPF 的 CubicEase 只有固定的几个预设，与它并不等价
-            //（原来用的是 220ms + CubicEase EaseOut，明显更急）。
-            // 曲线取自用户 2026-10-08 提供的方案 01「平滑展开」
-            //（文档\设计参考\卡片展开收起动画.html）。
-            //
-            // ⚠ 必须显式写"起始关键帧"（0 时刻 = 0 高）。
-            // DoubleAnimationUsingKeyFrames 若只有**一个**关键帧，它是从"属性的当前值"
-            // 插值过去的；收起那次 Height 刚被设成 0，于是变成 0→0、等于没有动画
-            //（2026-10-08 用户报"卡片收起动画改坏了"，就是这里）。
-            var height = new DoubleAnimationUsingKeyFrames();
-            height.KeyFrames.Add(new LinearDoubleKeyFrame(
-                0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
-            height.KeyFrames.Add(new SplineDoubleKeyFrame(
-                target,
-                KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(CardAnimationMs)),
-                new KeySpline(0.4, 0.0, 0.2, 1.0)));
+            var height = new DoubleAnimation(0, target, TimeSpan.FromMilliseconds(220))
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            };
             Storyboard.SetTarget(height, panel);
             Storyboard.SetTargetProperty(height, new PropertyPath(nameof(FrameworkElement.Height)));
             story.Children.Add(height);
 
-            // 动画结束：交还给布局（Height 恢复自动），否则窗口变化后高度会被钉死。
-            //
-            // ⚠ 收尾动作必须**延后一帧**执行（DispatcherPriority.Render）。
-            // Completed 是在"最后一个时钟结束"那一刻触发的，而动画的最后一帧
-            // 要等到之后的 Render 阶段才呈现；在这里立刻改属性，那一帧就被跳过，
-            // 视觉上就是"最后一段没走完、直接跳到终点"
-            //（2026-10-08 用户反馈，展开与收起两侧都有）。
-            //
-            // 另外：先摘掉动画时钟再复位。Storyboard 结束后时钟仍留在属性上
-            // （FillBehavior 默认 HoldEnd），它会**覆盖** Height 赋值，
-            // 于是"交还布局"根本不会发生、高度永远钉在动画终值。
-            story.Completed += (_, _) => Dispatcher.BeginInvoke(
-                System.Windows.Threading.DispatcherPriority.Render,
-                new Action(() =>
-                {
-                    panel.BeginAnimation(FrameworkElement.HeightProperty, null);
-                    panel.ClearValue(FrameworkElement.HeightProperty);
-                    _panelAnimations.Remove(button);
-                }));
+            // 动画结束：交还给布局（Height 恢复自动），否则窗口变化后高度会被钉死
+            story.Completed += (_, _) =>
+            {
+                panel.Height = double.NaN;
+                _panelAnimations.Remove(button);
+            };
         }
         else
         {
-            // 收起用**同一个时长与曲线**：CSS 的 transition 对展开/收起是同一条，
-            // 方案 01 的观感正是"来回一致"。原先是 180ms + EaseIn，与展开不对称。
-            //
-            // ⚠ 起始关键帧必须显式写成 target（自然高度）。
-            // 若只写终帧 0，动画会从"属性当前值"起步 —— 而进入本分支前
-            // panel.Height 刚被设成 0，结果是 0→0、卡片直接消失而不是收拢
-            //（2026-10-08 用户报"卡片收起动画改坏了"）。
-            var height = new DoubleAnimationUsingKeyFrames();
-            height.KeyFrames.Add(new LinearDoubleKeyFrame(
-                target, KeyTime.FromTimeSpan(TimeSpan.Zero)));
-            height.KeyFrames.Add(new SplineDoubleKeyFrame(
-                0,
-                KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(CardAnimationMs)),
-                new KeySpline(0.4, 0.0, 0.2, 1.0)));
+            var height = new DoubleAnimation(target, 0, TimeSpan.FromMilliseconds(180))
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn },
+            };
             Storyboard.SetTarget(height, panel);
             Storyboard.SetTargetProperty(height, new PropertyPath(nameof(FrameworkElement.Height)));
             story.Children.Add(height);
 
-            story.Completed += (_, _) => Dispatcher.BeginInvoke(
-                System.Windows.Threading.DispatcherPriority.Render,
-                new Action(() =>
-                {
-                    // ⚠ 同样要延后一帧：Completed 时动画的最后一帧还没呈现，
-                    // 此刻设 Collapsed 会让"收拢到最后"的那一帧被跳过，
-                    // 用户看到的就是"最后位置还没到、那一小段直接跳过了"
-                    //（2026-10-08 反馈）。
-                    //
-                    // 并且**不摘动画时钟、不复位 Height**：摘掉时钟会让 Height 立刻退回
-                    // "布局自动值"＝卡片的完整自然高度（不是动画终点的 0），
-                    // 收好的卡片会瞬间弹回满高。
-                    // 留着时钟把 Height 钉在 0 是安全的 —— 本方法开头就会
-                    // BeginAnimation(HeightProperty, null) + ClearValue(HeightProperty) 清掉它。
-                    panel.Visibility = Visibility.Collapsed;
-                    _panelAnimations.Remove(button);
-                }));
+            story.Completed += (_, _) =>
+            {
+                panel.Visibility = Visibility.Collapsed;
+                panel.Height = double.NaN;                   // 收起后必须复位，否则下次量测拿到 0
+                _panelAnimations.Remove(button);
+            };
         }
 
         _panelAnimations[button] = (panel, story);
