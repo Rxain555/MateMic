@@ -2492,7 +2492,12 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         if (expand)
         {
             panel.Visibility = Visibility.Visible;
-            var height = new DoubleAnimation(0, target, TimeSpan.FromMilliseconds(220))
+            // 展开时长 340ms（原为 220ms，用户 2026-10-08 觉得"动画很快"）。
+            // ⚠ 只动这一个数字：缓动、起始高度、Completed 的收尾处理全部保持原样。
+            // 之前那几轮把起始高度、收尾时机、阴影摘除一起改了，结果越改越差 ——
+            // 回退到原实现（220/180）后用户确认"没有卡一下的问题"，
+            // 说明问题就出在那些改动上。所以这次一次只改一处。
+            var height = new DoubleAnimation(0, target, TimeSpan.FromMilliseconds(340))
             {
                 EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
             };
@@ -2509,7 +2514,9 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         }
         else
         {
-            var height = new DoubleAnimation(target, 0, TimeSpan.FromMilliseconds(180))
+            // 收起时长 340ms（原为 180ms），与展开取齐 —— 用户当初选方案 01 的观感
+            // 就是"来回一致"。同样只动这一个数字。
+            var height = new DoubleAnimation(target, 0, TimeSpan.FromMilliseconds(340))
             {
                 EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn },
             };
