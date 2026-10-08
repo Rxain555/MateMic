@@ -2380,7 +2380,14 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                      + $" DesiredSize={panel.DesiredSize.Height:0.#}");
         }
 
-        panel.Height = 0;                                    // 回到动画起点（此时还没画到屏幕上）
+        // ⚠ 起始高度**必须按方向给**，不能一律设 0。
+        //
+        // 展开：从 0 开始 ⇒ 面板先塌成 0 是对的（此时还没画到屏幕上，看不出跳）。
+        // 收起：此刻面板**本来是可见且满高**的。若也先设成 0，动画第一帧就要把高度
+        //       从 0 猛拉回 target，结果是"先弹开一下、再收拢"——正是用户描述的
+        //       "收起动画不流畅"（2026-10-08）。
+        //       收起时应从 target 起跳，即保持当前高度不动。
+        panel.Height = expand ? 0 : target;
         panel.Visibility = wasVisible ? Visibility.Visible : Visibility.Collapsed;
         panel.UpdateLayout();
 
@@ -2430,18 +2437,24 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
             // 动画结束：交还给布局（Height 恢复自动），否则窗口变化后高度会被钉死。
             //
-            // ⚠ 必须先摘掉动画时钟再赋值。
-            // Storyboard 结束后时钟仍留在属性上（FillBehavior 默认 HoldEnd），
-            // 它会**覆盖**这里写的 Height —— 于是"交还布局"从未真正发生，
-            // 高度永远钉在动画终值上，且该属性一直处于"被动画驱动"的状态。
-            // 现象就是动画收尾时那一下顿挫（2026-10-08 用户报"展开和收回最后都要卡一下"）。
-            story.Completed += (_, _) =>
-            {
-                panel.BeginAnimation(FrameworkElement.HeightProperty, null);
-                panel.ClearValue(FrameworkElement.HeightProperty);
-                RestoreCardShadow(shadowHost);
-                _panelAnimations.Remove(button);
-            };
+            // ⚠ 收尾动作必须**延后一帧**执行（DispatcherPriority.Render）。
+            // Completed 是在"最后一个时钟结束"那一刻触发的，而动画的最后一帧
+            // 要等到之后的 Render 阶段才呈现；在这里立刻改属性，那一帧就被跳过，
+            // 视觉上就是"最后一段没走完、直接跳到终点"
+            //（2026-10-08 用户反馈，展开与收起两侧都有）。
+            //
+            // 另外：先摘掉动画时钟再复位。Storyboard 结束后时钟仍留在属性上
+            // （FillBehavior 默认 HoldEnd），它会**覆盖** Height 赋值，
+            // 于是"交还布局"根本不会发生、高度永远钉在动画终值。
+            story.Completed += (_, _) => Dispatcher.BeginInvoke(
+                System.Windows.Threading.DispatcherPriority.Render,
+                new Action(() =>
+                {
+                    panel.BeginAnimation(FrameworkElement.HeightProperty, null);
+                    panel.ClearValue(FrameworkElement.HeightProperty);
+                    RestoreCardShadow(shadowHost);
+                    _panelAnimations.Remove(button);
+                }));
         }
         else
         {
@@ -2463,24 +2476,25 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             Storyboard.SetTargetProperty(height, new PropertyPath(nameof(FrameworkElement.Height)));
             story.Children.Add(height);
 
-            story.Completed += (_, _) =>
-            {
-                // ⚠ 收起时**只设 Collapsed，绝不去摘动画时钟**。
-                //
-                // 摘掉时钟会让 Height 立刻变回"布局自动值"，也就是卡片的**完整自然高度**，
-                // 而不是动画终点的 0 —— 于是收好的卡片会瞬间弹回满高，下一帧才被 Collapsed 盖掉。
-                // 用户看到的正是"收起动画的最后位置还没到、那一小段直接跳过了"
-                //（2026-10-08 反馈）。展开侧没有这个问题，因为展开的自然高度恰好等于动画终点。
-                //
-                // 留着时钟把 Height 钉在 0 是安全的：本方法开头（进入本分支之前）就会
-                // BeginAnimation(HeightProperty, null) + ClearValue(HeightProperty) 把它清掉，
-                // 所以下次展开量测自然高度时不会被这个 0 污染 —— 那条路径本来就有处理。
-                panel.Visibility = Visibility.Collapsed;
-                RestoreCardShadow(shadowHost);
-                _panelAnimations.Remove(button);
-            };
+            story.Completed += (_, _) => Dispatcher.BeginInvoke(
+                System.Windows.Threading.DispatcherPriority.Render,
+                new Action(() =>
+                {
+                    // ⚠ 同样要延后一帧：Completed 时动画的最后一帧还没呈现，
+                    // 此刻设 Collapsed 会让"收拢到最后"的那一帧被跳过，
+                    // 用户看到的就是"最后位置还没到、那一小段直接跳过了"
+                    //（2026-10-08 反馈）。
+                    //
+                    // 并且**不摘动画时钟、不复位 Height**：摘掉时钟会让 Height 立刻退回
+                    // "布局自动值"＝卡片的完整自然高度（不是动画终点的 0），
+                    // 收好的卡片会瞬间弹回满高。
+                    // 留着时钟把 Height 钉在 0 是安全的 —— 本方法开头就会
+                    // BeginAnimation(HeightProperty, null) + ClearValue(HeightProperty) 清掉它。
+                    panel.Visibility = Visibility.Collapsed;
+                    RestoreCardShadow(shadowHost);
+                    _panelAnimations.Remove(button);
+                }));
         }
-
 
         _panelAnimations[button] = (panel, story);
         story.Begin();
