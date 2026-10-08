@@ -2384,6 +2384,22 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         panel.Visibility = wasVisible ? Visibility.Visible : Visibility.Collapsed;
         panel.UpdateLayout();
 
+        // ------------------------------------------------------------------
+        // 动画期间临时摘掉这张卡片的阴影。
+        //
+        // 卡片的 DropShadowEffect 会把整张卡片（含子树）渲染到一张离屏表面再整块模糊，
+        // 而且**无法局部修补** —— 展开/收起时卡片高度每帧都在变，
+        // 于是这张表面每帧都要重新栅格化 + 重新模糊，一帧一次，共约 20 帧。
+        // 阴影只在动画结束后的静止画面里才需要，所以这里先摘掉、Completed 时恢复。
+        //（下方兄弟卡片只是位置变化，不触发它们自己的阴影重建，无需处理。）
+        // ------------------------------------------------------------------
+        var shadowHost = FindCardShadowHost(panel);
+        if (shadowHost?.Effect != null)
+        {
+            _suspendedShadows[shadowHost] = shadowHost.Effect;
+            shadowHost.Effect = null;
+        }
+
         var story = new Storyboard();
 
         if (expand)
@@ -2396,7 +2412,14 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             //（原来用的是 220ms + CubicEase EaseOut，明显更急）。
             // 曲线取自用户 2026-10-08 提供的方案 01「平滑展开」
             //（文档\设计参考\卡片展开收起动画.html）。
+            //
+            // ⚠ 必须显式写"起始关键帧"（0 时刻 = 0 高）。
+            // DoubleAnimationUsingKeyFrames 若只有**一个**关键帧，它是从"属性的当前值"
+            // 插值过去的；收起那次 Height 刚被设成 0，于是变成 0→0、等于没有动画
+            //（2026-10-08 用户报"卡片收起动画改坏了"，就是这里）。
             var height = new DoubleAnimationUsingKeyFrames();
+            height.KeyFrames.Add(new LinearDoubleKeyFrame(
+                0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
             height.KeyFrames.Add(new SplineDoubleKeyFrame(
                 target,
                 KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(CardAnimationMs)),
@@ -2405,10 +2428,18 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             Storyboard.SetTargetProperty(height, new PropertyPath(nameof(FrameworkElement.Height)));
             story.Children.Add(height);
 
-            // 动画结束：交还给布局（Height 恢复自动），否则窗口变化后高度会被钉死
+            // 动画结束：交还给布局（Height 恢复自动），否则窗口变化后高度会被钉死。
+            //
+            // ⚠ 必须先摘掉动画时钟再赋值。
+            // Storyboard 结束后时钟仍留在属性上（FillBehavior 默认 HoldEnd），
+            // 它会**覆盖**这里写的 Height —— 于是"交还布局"从未真正发生，
+            // 高度永远钉在动画终值上，且该属性一直处于"被动画驱动"的状态。
+            // 现象就是动画收尾时那一下顿挫（2026-10-08 用户报"展开和收回最后都要卡一下"）。
             story.Completed += (_, _) =>
             {
-                panel.Height = double.NaN;
+                panel.BeginAnimation(FrameworkElement.HeightProperty, null);
+                panel.ClearValue(FrameworkElement.HeightProperty);
+                RestoreCardShadow(shadowHost);
                 _panelAnimations.Remove(button);
             };
         }
@@ -2416,7 +2447,14 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         {
             // 收起用**同一个时长与曲线**：CSS 的 transition 对展开/收起是同一条，
             // 方案 01 的观感正是"来回一致"。原先是 180ms + EaseIn，与展开不对称。
+            //
+            // ⚠ 起始关键帧必须显式写成 target（自然高度）。
+            // 若只写终帧 0，动画会从"属性当前值"起步 —— 而进入本分支前
+            // panel.Height 刚被设成 0，结果是 0→0、卡片直接消失而不是收拢
+            //（2026-10-08 用户报"卡片收起动画改坏了"）。
             var height = new DoubleAnimationUsingKeyFrames();
+            height.KeyFrames.Add(new LinearDoubleKeyFrame(
+                target, KeyTime.FromTimeSpan(TimeSpan.Zero)));
             height.KeyFrames.Add(new SplineDoubleKeyFrame(
                 0,
                 KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(CardAnimationMs)),
@@ -2428,13 +2466,47 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             story.Completed += (_, _) =>
             {
                 panel.Visibility = Visibility.Collapsed;
-                panel.Height = double.NaN;                   // 收起后必须复位，否则下次量测拿到 0
+                // 同上：先摘时钟，Height 复位才真的生效（否则下次量测会拿到动画终值 0）
+                panel.BeginAnimation(FrameworkElement.HeightProperty, null);
+                panel.ClearValue(FrameworkElement.HeightProperty);
+                RestoreCardShadow(shadowHost);
                 _panelAnimations.Remove(button);
             };
         }
 
+
         _panelAnimations[button] = (panel, story);
         story.Begin();
+    }
+
+    /// <summary>
+    /// 动画期间被临时摘掉的阴影：元素 → 原 Effect。动画结束时由 <see cref="RestoreCardShadow"/> 放回。
+    /// </summary>
+    private readonly Dictionary<FrameworkElement, System.Windows.Media.Effects.Effect> _suspendedShadows = new();
+
+    /// <summary>把某个元素在动画期间摘掉的阴影放回去。</summary>
+    private void RestoreCardShadow(FrameworkElement? host)
+    {
+        if (host == null) return;
+        if (_suspendedShadows.TryGetValue(host, out var effect))
+        {
+            host.Effect = effect;
+            _suspendedShadows.Remove(host);
+        }
+    }
+
+    /// <summary>
+    /// 从面板往上找"带阴影的那层卡片容器"。
+    /// 卡片模板（Theme.Modern.xaml 的 Card 样式）把 CardShadow 挂在 Border 上，
+    /// 这里按"第一个 Effect 非空的祖先"来找，不写死具体层级，模板改了也不会失效。
+    /// </summary>
+    private static FrameworkElement? FindCardShadowHost(DependencyObject panel)
+    {
+        for (var node = VisualTreeHelper.GetParent(panel); node != null; node = VisualTreeHelper.GetParent(node))
+        {
+            if (node is FrameworkElement { Effect: not null } fe) return fe;
+        }
+        return null;
     }
 
     /// <summary>

@@ -55,7 +55,7 @@
       实际观感被反馈为"深灰太多、渐变很怪"，因此全部改成纯色。
       层次现在只由"白卡片 + 浅灰底 + 柔和投影"表达，不再靠渐变。
     -->
-    <SolidColorBrush x:Key="WindowSurfaceBrush" Color="#D9F5F6F8" />
+    <SolidColorBrush x:Key="WindowSurfaceBrush" Color="#F5F6F8" />
 
     <!-- 兼容别名：卡片底色统一走 CardBrush（纯白），保留这个键名是为了不改窗口 XAML -->
     <SolidColorBrush x:Key="CardGradientBrush" Color="#FFFFFFFF" />
