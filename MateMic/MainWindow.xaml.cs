@@ -2403,6 +2403,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         RefreshAiVoiceLists();
         UpdateAiVoiceIndexAvailability();
         RefreshAiVoiceProviderCombo();           // 运算方式下拉：列出各后端与其安装状态
+        UpdateAiVoiceCardVisibility();           // 组件没装齐就整个卡片不显示
         UpdateAiVoiceControlAvailability();      // 若配置里 AI 变声是开着的，相应控件应为禁用态
     }
 
@@ -2482,6 +2483,31 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         var hasIndex = _config.AiVoice.IndexFile is { Length: > 0 };
         AiVoiceIndexRateRow.IsEnabled = hasIndex;
         AiVoiceIndexRateRow.Opacity = hasIndex ? 1.0 : 0.4;
+    }
+
+    /// <summary>
+    /// AI 变声卡片的显隐：**组件没装齐就整个不显示**。
+    ///
+    /// 理由（2026-10-08 用户指出）：卡片上全是"选了也没用"的控件
+    /// （运算方式、音色、索引、各项参数），在基础版里显示出来只会让人困惑，
+    /// 还会占掉音频处理链的位置。装了组件（通用 + 至少一个后端）之后再出现。
+    /// </summary>
+    private void UpdateAiVoiceCardVisibility()
+    {
+        if (AiVoiceCard == null) return;
+        var status = AiComponent.Inspect();
+        var usable = status.HasRuntime && status.HasEngine && status.Provider != null;
+        AiVoiceCard.Visibility = usable ? Visibility.Visible : Visibility.Collapsed;
+        if (!usable && _config.AiVoice.Enabled)
+        {
+            // 组件被移除时把开关也落下来，避免"开着但用不了"的悬空状态
+            _config.AiVoice.Enabled = false;
+            _loading = true;
+            try { ToggleAiVoice.IsChecked = false; }
+            finally { _loading = false; }
+            _engine.UpdateAllParameters();
+            SaveConfig();
+        }
     }
 
     /// <summary>更新「AI 变声」开关上的加载进度填充条。
@@ -3184,10 +3210,11 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         if (_loading) return;
         if (AiVoiceProviderCombo.SelectedItem is not AiProviderItem item) return;
 
-        // 未安装的后端选了也没用，直接退回自动
+        // 未安装的后端选了也没用，静默退回当前值。
+        // 下拉项本身就带"（未安装）"标注，再弹一条黄字状态纯属重复
+        //（2026-10-08 用户要求移除）。
         if (!item.Installed && item.Name != "auto")
         {
-            ShowStatus($"{item.Display} 的后端组件还没安装", false);
             RefreshAiVoiceProviderCombo();
             return;
         }
@@ -3195,12 +3222,49 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         _config.AiVoice.Provider = item.Name;
         AiComponent.InstallNativeResolver(item.Name);   // 重新指定后端（写入静态字段，供下次装配用）
         SaveConfig();
+        RefreshAiVoiceProviderCombo();
 
         // ⚠ 必须是"重启程序"而不是"重开 AI 变声"：
         // onnxruntime.dll 一旦被加载进进程就不会重新解析（NativeLibrary 的解析器只生效一次），
-        // 所以换后端只能靠重启进程 —— 否则用户会觉得"切了没反应"
-        //（2026-10-08 用户实测反馈）。
-        ShowStatus($"运算方式已切换为 {item.Display}，需重启程序后生效", true);
+        // 而且三个后端的文件同名，同一进程无法加载两份 —— 这是 Windows 的 DLL 加载机制决定的。
+        // 所以直接问用户要不要现在就重启（2026-10-08 用户实测"切了没用"）。
+        if (DialogHost.Ask(this, "运算方式已切换",
+                $"已切换为「{item.Display}」。\n\n"
+                + "不同运算方式用的是不同的 onnxruntime 运行时文件，"
+                + "而同一个进程无法加载两份同名 DLL，因此需要重启程序才会生效。\n\n"
+                + "现在重启吗？",
+                secondaryText: "稍后手动重启", primaryText: "立即重启"))
+        {
+            RestartApplication();
+        }
+    }
+
+    /// <summary>重启整个程序。</summary>
+    private void RestartApplication()
+    {
+        try
+        {
+            CancelAiVoiceApply();       // 先停掉待生效的计时器，避免它回调已释放的引擎
+            _saveTimer?.Stop();         // 停掉延迟保存，改为立刻落盘
+            SaveConfig();
+            var exe = Environment.ProcessPath;
+            if (string.IsNullOrEmpty(exe))
+            {
+                ShowStatus("重启失败（取不到程序路径），请手动重启", false);
+                return;
+            }
+            Process.Start(new ProcessStartInfo(exe)
+            {
+                UseShellExecute = true,
+                WorkingDirectory = AppContext.BaseDirectory,
+            });
+            _exiting = true;            // 让 OnClosing 走真正的退出，而不是收进托盘
+            ExitApplication();
+        }
+        catch (Exception ex)
+        {
+            ShowStatus("重启失败，请手动重启：" + ex.Message, false);
+        }
     }
 
     private void OnAiVoiceModelDropDownOpened(object sender, EventArgs e)
@@ -3274,9 +3338,10 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             primaryText: "关闭",
             secondaryText: "打开组件文件夹",
             onSecondary: AiComponentPanel.OpenComponentFolder);
-        // 对话框里可能刚放进组件，回来刷新一下下拉与可用性
+        // 对话框里可能刚放进组件，回来刷新下拉、后端列表、卡片显隐与可用性
         RefreshAiVoiceLists();
         RefreshAiVoiceProviderCombo();
+        UpdateAiVoiceCardVisibility();
         UpdateAiVoiceControlAvailability();
     }
 
