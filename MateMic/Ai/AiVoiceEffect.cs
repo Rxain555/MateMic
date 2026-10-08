@@ -108,6 +108,12 @@ public sealed class AiVoiceEffect : IAudioEffect
         {
             if (!Enabled || !Ready(out _)) return;
 
+            // ⚠ 后台加载期间直接返回。
+            // 引擎加载约 1.5~2 秒，这期间 _engine 还是 null；若不拦住，
+            // 全项目十几个 UpdateAllParameters 调用点会各自发起一次 Restart，
+            // 实测在自检里触发了 8 次重建、8 次重读 305MB 索引。
+            if (_starting) return;
+
             // 变调与索引占比都只影响每块的计算，不动缓冲几何 ⇒ 热更新即刻生效。
             // （索引占比漏掉热更新会让滑条完全空转——用户实测"拉到最大和最小没多大区别"。）
             if (_engine != null)
@@ -124,7 +130,9 @@ public sealed class AiVoiceEffect : IAudioEffect
                 _config.AiVoice.CrossfadeMs,
                 _config.AiVoice.VoiceModel ?? string.Empty);
 
-            if (_engine != null && signature == _engineSignature) return;
+            // ⚠ 指纹比较**不能**再加 "_engine != null" 这个前提：
+            // 否则引擎未就绪时每次调用都会重新 Restart（见上面的说明）。
+            if (signature == _engineSignature) return;
 
             _engineSignature = signature;
             Restart();
@@ -190,6 +198,9 @@ public sealed class AiVoiceEffect : IAudioEffect
 
     private void Restart()
     {
+        // 记录触发重建的参数指纹，便于定位"启动阶段被反复重建"
+        //（启动时每次重建都要重读上下文与索引，代价不小）。
+        Log.Info($"[AI 变声] 重建引擎：{_engineSignature}");
         StopWorker();
         lock (_ringGate) { Allocate(); }     // 只锁住"换缓冲"这一瞬，音频线程最多等微秒
         StartWorker();

@@ -47,7 +47,27 @@ public sealed class ConfigStore
     /// 是为了"卸载 AI 变声"只需删这一个子树，且降噪的模型扫描不会碰到这些大文件。
     /// </summary>
     public static string AiComponentDirectory => Path.Combine(ComponentsDirectory, "ai");
+
+    /// <summary>通用运行时目录：onnxruntime 核心、faiss 桥接层等各后端共用。</summary>
     public static string AiRuntimeDirectory => Path.Combine(AiComponentDirectory, "runtime");
+
+    /// <summary>
+    /// 运算后端目录：<c>data\components\ai\providers\</c>，下面按后端名分子目录
+    /// （<c>cuda</c> / <c>directml</c> / <c>cpu</c>）。
+    ///
+    /// **为什么要分开**：ONNX Runtime 的执行提供器本就是独立的 DLL，而 CUDA 那套运行时
+    /// 体积约 2.2GB（cublasLt 638MB、cudnn_engines_precompiled 562MB、cufft 274MB…）。
+    /// 单独成组之后：
+    ///   · 没有 N 卡的用户可以只装 DirectML（约 50MB）或 CPU（约 15MB）版；
+    ///   · 通用部分与后端解耦，各后端共用同一份 onnxruntime 核心与引擎模型。
+    /// 于是用户只需添加"**通用组件 + 一个后端组件**"两份。
+    /// </summary>
+    public static string AiProvidersDirectory => Path.Combine(AiComponentDirectory, "providers");
+
+    /// <summary>某个运算后端的目录，如 <c>providers\cuda</c>。</summary>
+    public static string AiProviderDirectory(string provider)
+        => Path.Combine(AiProvidersDirectory, provider);
+
     public static string AiEngineDirectory => Path.Combine(AiComponentDirectory, "engine");
     public static string AiVoicesDirectory => Path.Combine(AiComponentDirectory, "voices");
     public static string AiIndexDirectory => Path.Combine(AiComponentDirectory, "index");

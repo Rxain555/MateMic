@@ -23,7 +23,10 @@ public sealed record AiComponentStatus(
     bool HasRuntime,
     bool HasEngine,
     int VoiceCount,
-    int IndexCount);
+    int IndexCount,
+    string? Provider = null,
+    string? ProviderDisplay = null,
+    IReadOnlyList<string>? AvailableProviders = null);
 
 /// <summary>
 /// AI 变声组件的检测与原生运行时装配。
@@ -52,30 +55,61 @@ public sealed record AiComponentStatus(
 /// </summary>
 public static class AiComponent
 {
-    /// <summary>原生运行时必需的文件（缺任一即视为组件不完整）。</summary>
+    /// <summary>
+    /// 通用运行时必需的文件（所有运算后端共用，缺任一即视为组件不完整）。
+    /// 放在 <c>runtime\</c> 下。
+    /// </summary>
     private static readonly string[] RuntimeFiles =
     {
         "onnxruntime.dll",
-        "onnxruntime_providers_cuda.dll",
-        "cublasLt64_12.dll",
-        "cublas64_12.dll",
-        // ⚠ cudart64_12.dll 极易被漏掉：它是 CUDA Runtime，providers_cuda 的必需依赖。
-        // 少了它时错误是 "Error 1114：DLL 初始化例程失败"（找到了但初始化失败），
-        // 而不是"找不到"，很容易误判成版本不兼容。
-        "cudart64_12.dll",
-        "cudnn64_9.dll",
-        "cudnn_ops64_9.dll",
-        "cudnn_adv64_9.dll",
-        "cudnn_cnn64_9.dll",
-        "cudnn_engines_precompiled64_9.dll",
-        "cudnn_graph64_9.dll",
-        "cudnn_heuristic64_9.dll",
-        "nvrtc64_120_0.dll",
-        "nvJitLink_120_0.dll",
     };
 
-    /// <summary>推理引擎必需的文件。</summary>
+    /// <summary>
+    /// faiss 索引桥接层（放 <c>runtime\</c> 下）。
+    /// **缺失不影响基础变声**，只是索引功能不可用，所以单独判定、不作为组件完整性条件。
+    /// </summary>
+    private static readonly string[] FaissFiles =
+    {
+        "mm_faiss.dll",
+        "faiss.dll",
+        "libopenblas.dll",
+        "vcomp140.dll",
+    };
+
+    /// <summary>推理引擎必需的文件（放 <c>engine\</c> 下）。</summary>
     private static readonly string[] EngineFiles = { "contentvec.onnx", "rmvpe.onnx" };
+
+    /// <summary>
+    /// 一个运算后端的规格：目录名（<c>providers\&lt;Name&gt;\</c>）、界面显示名、必需文件。
+    ///
+    /// CUDA 那套运行时体积约 2.2GB，所以单独成组，与通用的 <c>runtime\</c> 解耦；
+    /// 以后加 DirectML（约 50MB）/ CPU（约 15MB）时只需在这个数组里添一项。
+    /// </summary>
+    private sealed record ProviderSpec(string Name, string Display, string[] Files);
+
+    private static readonly ProviderSpec[] Providers =
+    {
+        new("cuda", "CUDA（NVIDIA 显卡）", new[]
+        {
+            "onnxruntime_providers_cuda.dll",
+            "onnxruntime_providers_shared.dll",
+            "cublasLt64_12.dll",
+            "cublas64_12.dll",
+            // ⚠ cudart64_12.dll 极易被漏掉：它是 CUDA Runtime，providers_cuda 的必需依赖。
+            // 少了它时错误是 "Error 1114：DLL 初始化例程失败"（找到了但初始化失败），
+            // 而不是"找不到"，很容易误判成版本不兼容。
+            "cudart64_12.dll",
+            "cudnn64_9.dll",
+            "cudnn_ops64_9.dll",
+            "cudnn_adv64_9.dll",
+            "cudnn_cnn64_9.dll",
+            "cudnn_engines_precompiled64_9.dll",
+            "cudnn_graph64_9.dll",
+            "cudnn_heuristic64_9.dll",
+            "nvrtc64_120_0.dll",
+            "nvJitLink_120_0.dll",
+        }),
+    };
 
     /// <summary>程序引用的 managed onnxruntime 版本，用于校验组件里的原生库。</summary>
     public static Version? ManagedRuntimeVersion =>
@@ -84,6 +118,10 @@ public static class AiComponent
     private static bool _resolverInstalled;
     private static bool _nativeLoaded;
     private static string? _lastError;
+    private static string? _activeProvider;
+
+    /// <summary>当前生效的运算后端名（cuda / directml / cpu），未装配时为 null。</summary>
+    public static string? ActiveProvider => _activeProvider;
 
     /// <summary>上一次装配原生运行时的失败原因（null 表示没失败）。</summary>
     public static string? LastError => _lastError;
@@ -96,6 +134,8 @@ public static class AiComponent
             return new AiComponentStatus(AiComponentState.NotInstalled,
                 "未安装 AI 变声组件", false, false, 0, 0);
 
+        var materialized = Providers.Select(p => p.Name).ToList();
+
         var missingRuntime = MissingFiles(ConfigStore.AiRuntimeDirectory, RuntimeFiles);
         var missingEngine = MissingFiles(ConfigStore.AiEngineDirectory, EngineFiles);
         var voices = CountFiles(ConfigStore.AiVoicesDirectory, "*.onnx");
@@ -103,19 +143,45 @@ public static class AiComponent
 
         if (missingRuntime.Count > 0)
             return new AiComponentStatus(AiComponentState.Incomplete,
-                $"运行时缺 {missingRuntime.Count} 个文件（如 {missingRuntime[0]}）", false, missingEngine.Count == 0, voices, indexes);
+                $"通用运行时缺 {missingRuntime.Count} 个文件（如 {missingRuntime[0]}）",
+                false, missingEngine.Count == 0, voices, indexes, null, null, materialized);
 
         if (missingEngine.Count > 0)
             return new AiComponentStatus(AiComponentState.Incomplete,
-                $"推理引擎缺 {missingEngine.Count} 个文件（如 {missingEngine[0]}）", true, false, voices, indexes);
+                $"推理引擎缺 {missingEngine.Count} 个文件（如 {missingEngine[0]}）",
+                true, false, voices, indexes, null, null, materialized);
 
-        if (voices == 0)
-            return new AiComponentStatus(AiComponentState.Incomplete,
-                "还没有音色模型（请把音色 .onnx 放进 voices\\）", true, true, 0, indexes);
+        // 至少有一个运算后端完整可用
+        foreach (var spec in Providers)
+        {
+            var missing = MissingFiles(ConfigStore.AiProviderDirectory(spec.Name), spec.Files);
+            if (missing.Count > 0) continue;
 
-        return new AiComponentStatus(AiComponentState.Ready,
-            $"组件就绪：{voices} 个音色{(indexes > 0 ? $"，{indexes} 个索引" : "")}",
-            true, true, voices, indexes);
+            if (voices == 0)
+                return new AiComponentStatus(AiComponentState.Incomplete,
+                    "还没有音色模型（请把音色 .onnx 放进 voices\\）",
+                    true, true, 0, indexes, spec.Name, spec.Display, materialized);
+
+            return new AiComponentStatus(AiComponentState.Ready,
+                $"组件就绪：{voices} 个音色{(indexes > 0 ? $"，{indexes} 个索引" : "")}，后端 {spec.Display}",
+                true, true, voices, indexes, spec.Name, spec.Display, materialized);
+        }
+
+        // 通用与引擎都齐了，但没有任何后端完整
+        var detail = string.Join("、", Providers.Select(p =>
+            $"{p.Display} 缺 {MissingFiles(ConfigStore.AiProviderDirectory(p.Name), p.Files).Count} 个文件"));
+        return new AiComponentStatus(AiComponentState.Incomplete,
+            $"还缺运算后端组件（{detail}）",
+            true, true, voices, indexes, null, null, materialized);
+    }
+
+    /// <summary>返回第一个完整可用的后端规格；没有则返回 null。</summary>
+    private static ProviderSpec? ResolveProvider()
+    {
+        foreach (var spec in Providers)
+            if (MissingFiles(ConfigStore.AiProviderDirectory(spec.Name), spec.Files).Count == 0)
+                return spec;
+        return null;
     }
 
     private static List<string> MissingFiles(string directory, string[] names)
@@ -175,6 +241,9 @@ public static class AiComponent
         {
             // 让 CUDA 运行时（cublas/cudnn/nvrtc…）与 providers_cuda 能被找到。
             //
+            // 它们现在放在 providers\<后端>\ 下（CUDA 那套约 2.2GB，单独成组便于换后端），
+            // 所以要**同时**注册通用目录与后端目录。
+            //
             // ⚠ 必须用 AddDllDirectory + SetDefaultDllDirectories，**不能用 SetDllDirectory**：
             // ONNX Runtime 加载 onnxruntime_providers_cuda.dll 时走的是带
             // LOAD_LIBRARY_SEARCH_* 标志的 LoadLibraryEx，那条路径**不接受 SetDllDirectory**
@@ -184,9 +253,18 @@ public static class AiComponent
             SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
             AddDllDirectory(runtimeDir);
 
+            var provider = ResolveProvider();
+            if (provider != null)
+            {
+                var providerDir = ConfigStore.AiProviderDirectory(provider.Name);
+                if (Directory.Exists(providerDir)) AddDllDirectory(providerDir);
+                _activeProvider = provider.Name;
+            }
+
             var handle = NativeLibrary.Load(candidate);
             _nativeLoaded = true;
-            Log.Info($"[AI 变声] 已加载组件内的 GPU 版运行时：{candidate}");
+            Log.Info($"[AI 变声] 已加载组件内的 GPU 版运行时：{candidate}"
+                     + (provider != null ? $"（后端 {provider.Display}）" : "（但没有可用的后端组件）"));
             return handle;
         }
         catch (Exception ex)
