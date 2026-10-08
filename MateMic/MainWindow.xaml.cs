@@ -2239,6 +2239,109 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     }
 
     /// <summary>折叠/展开模块内容。箭头朝向由 Tag 绑定自动跟随，无需手动旋转。</summary>
+    /// <summary>
+    /// 动画诊断（自检用）：对"噪声门"卡片做一次展开、一次收起，
+    /// 用 <see cref="CompositionTarget.Rendering"/> **逐帧**记录
+    /// <c>Height</c>（动画值）/ <c>ActualHeight</c>（实际布局值）/ <c>Visibility</c>，
+    /// 写成文本文件供分析。
+    ///
+    /// 为什么要有这个：卡片动画的"收尾跳变"连续三轮靠读代码推测修改都没修好
+    ///（2026-10-08）。与其继续猜，不如把每一帧的真实数值打出来，
+    /// 直接看是哪一帧、哪个属性在跳。
+    /// </summary>
+    internal void RunAnimationDiagnostic(string outputPath)
+    {
+        var sb = new System.Text.StringBuilder();
+        var panel = PanelGate;
+        var button = ExpandGate;
+        // 卡片容器（带阴影的那层 Border）与它的父 StackPanel：
+        // 用来判断"是内层面板没变，还是外层容器没跟着变"。
+        var cardHost = FindCardShadowHost(panel);
+        var stackHost = cardHost != null ? VisualTreeHelper.GetParent(cardHost) as FrameworkElement : null;
+        if (panel == null || button == null)
+        {
+            File.WriteAllText(outputPath, "找不到用于诊断的卡片", System.Text.Encoding.UTF8);
+            return;
+        }
+
+        var phase = 0;
+        var frame = 0;
+        long lastStepMs = -1;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        EventHandler? onFrame = null;
+
+        void Rec(string tag)
+            => sb.AppendLine($"{tag}\tt={sw.ElapsedMilliseconds,5}ms\tf={frame,4}"
+                             + $"\tPanelH={(double.IsNaN(panel.Height) ? "NaN" : panel.Height.ToString("0.0"))}"
+                             + $"\tPanelAct={panel.ActualHeight:0.0}"
+                             + $"\tCardAct={(cardHost?.ActualHeight ?? -1):0.0}"
+                             + $"\tStackAct={(stackHost?.ActualHeight ?? -1):0.0}"
+                             + $"\tAnim={panel.HasAnimatedProperties}"
+                             + $"\tVis={panel.Visibility}");
+
+        void Step()
+        {
+            switch (phase)
+            {
+                case 0:
+                    sb.AppendLine("=== 卡片：噪声门 ===");
+                    Rec("初始");
+                    phase = 1;
+                    sw.Restart();
+                    // 展开
+                    button.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                    sb.AppendLine("--- 已点击：展开 ---");
+                    break;
+                case 1:
+                    // 等展开动画彻底跑完（340ms）+ 收尾那一帧也过了，再点收起
+                    if (sw.ElapsedMilliseconds > 1200)
+                    {
+                        Rec("展开后静止");
+                        phase = 2;
+                        sw.Restart();
+                        button.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                        sb.AppendLine("--- 已点击：收起 ---");
+                    }
+                    break;
+                case 2:
+                    if (sw.ElapsedMilliseconds > 1200)
+                    {
+                        Rec("收起后静止");
+                        phase = 3;
+                        if (onFrame != null) CompositionTarget.Rendering -= onFrame;
+                        File.WriteAllText(outputPath, sb.ToString(), System.Text.Encoding.UTF8);
+                        Log.Info("[动画诊断] 已写入：" + outputPath);
+                        Application.Current.Shutdown();
+                    }
+                    break;
+            }
+        }
+
+        onFrame = (_, _) =>
+        {
+            frame++;
+            Rec("帧");
+            // 约每 100ms 推进一次阶段判断（帧间隔约 16ms）
+            if (sw.ElapsedMilliseconds - lastStepMs >= 100)
+            {
+                lastStepMs = sw.ElapsedMilliseconds;
+                Step();
+            }
+        };
+
+        // 先等 0.6 秒让窗口稳定，再挂逐帧钩子
+        var starter = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(600),
+        };
+        starter.Tick += (_, _) =>
+        {
+            starter.Stop();
+            CompositionTarget.Rendering += onFrame;
+        };
+        starter.Start();
+    }
+
     private void OnExpandClick(object sender, RoutedEventArgs e)
     {
         if (sender is not Button button) return;
@@ -2392,20 +2495,20 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         panel.UpdateLayout();
 
         // ------------------------------------------------------------------
-        // 动画期间临时摘掉这张卡片的阴影。
+        // ⚠ 这里**不再**在动画期间摘掉卡片的阴影。
         //
-        // 卡片的 DropShadowEffect 会把整张卡片（含子树）渲染到一张离屏表面再整块模糊，
-        // 而且**无法局部修补** —— 展开/收起时卡片高度每帧都在变，
-        // 于是这张表面每帧都要重新栅格化 + 重新模糊，一帧一次，共约 20 帧。
-        // 阴影只在动画结束后的静止画面里才需要，所以这里先摘掉、Completed 时恢复。
-        //（下方兄弟卡片只是位置变化，不触发它们自己的阴影重建，无需处理。）
+        // 曾经为了省掉"每帧重建阴影离屏表面"的开销，动画开始前把卡片的
+        // DropShadowEffect 置 null、Completed 时恢复。用户 2026-10-08 指出：
+        // **改变 Effect 会让元素的渲染内容失效、需要重新生成那张离屏表面**，
+        // 而这个动作恰好压在展开的第一帧与收起的最后一帧上 ——
+        // 于是"展开的开头一点"和"收起的末尾一点"被顶掉了，观感就是衔接处跳一下。
+        // 用户原话："我怀疑是去掉和加上阴影效果的那个效果把展开的前面一点动画
+        // 和收起的最后一点动画顶掉了。" 这与实测现象一致（卡片高度在动、
+        // 边界处却有断层），也与"每张卡片都有"一致。
+        //
+        // 结论：**动画的正确性优先于这点渲染开销**。
+        // 阴影代价已通过别的手段降过（RenderingBias 降为 Performance）。
         // ------------------------------------------------------------------
-        var shadowHost = FindCardShadowHost(panel);
-        if (shadowHost?.Effect != null)
-        {
-            _suspendedShadows[shadowHost] = shadowHost.Effect;
-            shadowHost.Effect = null;
-        }
 
         var story = new Storyboard();
 
@@ -2452,7 +2555,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                 {
                     panel.BeginAnimation(FrameworkElement.HeightProperty, null);
                     panel.ClearValue(FrameworkElement.HeightProperty);
-                    RestoreCardShadow(shadowHost);
                     _panelAnimations.Remove(button);
                 }));
         }
@@ -2491,7 +2593,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                     // 留着时钟把 Height 钉在 0 是安全的 —— 本方法开头就会
                     // BeginAnimation(HeightProperty, null) + ClearValue(HeightProperty) 清掉它。
                     panel.Visibility = Visibility.Collapsed;
-                    RestoreCardShadow(shadowHost);
                     _panelAnimations.Remove(button);
                 }));
         }
@@ -2501,25 +2602,10 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     }
 
     /// <summary>
-    /// 动画期间被临时摘掉的阴影：元素 → 原 Effect。动画结束时由 <see cref="RestoreCardShadow"/> 放回。
-    /// </summary>
-    private readonly Dictionary<FrameworkElement, System.Windows.Media.Effects.Effect> _suspendedShadows = new();
-
-    /// <summary>把某个元素在动画期间摘掉的阴影放回去。</summary>
-    private void RestoreCardShadow(FrameworkElement? host)
-    {
-        if (host == null) return;
-        if (_suspendedShadows.TryGetValue(host, out var effect))
-        {
-            host.Effect = effect;
-            _suspendedShadows.Remove(host);
-        }
-    }
-
-    /// <summary>
     /// 从面板往上找"带阴影的那层卡片容器"。
     /// 卡片模板（Theme.Modern.xaml 的 Card 样式）把 CardShadow 挂在 Border 上，
     /// 这里按"第一个 Effect 非空的祖先"来找，不写死具体层级，模板改了也不会失效。
+    /// 目前只有动画诊断在用它。
     /// </summary>
     private static FrameworkElement? FindCardShadowHost(DependencyObject panel)
     {

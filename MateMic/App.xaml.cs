@@ -184,6 +184,27 @@ public partial class App : Application
             return;
         }
 
+        // 动画诊断：MateMic.exe --animatecheck <输出txt路径>
+        // 对一张卡片做展开/收起各一次，逐帧记录 Height / ActualHeight / Visibility。
+        // 用途：卡片动画"收尾跳变"连续三轮靠推测修改都无效，改为直接测量每一帧。
+        var animCheck = ValueOf(args, "--animatecheck");
+        if (animCheck != null)
+        {
+            var animStarter = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(900),
+            };
+            animStarter.Tick += (_, _) =>
+            {
+                animStarter.Stop();
+                if (MainWindow is MainWindow animWin) animWin.RunAnimationDiagnostic(animCheck);
+                else Shutdown();
+            };
+            animStarter.Start();
+            base.OnStartup(e);
+            return;
+        }
+
         // 渲染自检：MateMic.exe --selfcheck <输出图片路径> [--expanded] [--screen[=frame]]
         // --expanded 会先展开全部模块，便于核对箭头朝向与面板内容。
         // --screen      抓"屏幕上的真实窗口"（含 DWM 合成的亚克力材质）
