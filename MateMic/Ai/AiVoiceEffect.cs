@@ -234,11 +234,18 @@ public sealed class AiVoiceEffect : IAudioEffect
 
         // 预填充 = 一个块 + 余量（见 StartupPadMs）。
         //
-        // ⚠ 只垫"一个块"是不够的：worker 首次产出之前，输出环已经被消费掉
-        // 「块长 + 一次推理耗时」，于是稳态水位被压到 0 附近、每批产出之间欠载
-        // （补静音 ⇒ 咔哒）。2026-10-08 之前之所以没暴露这个问题，是因为
-        // 引擎加载期间输入环攒了 1 秒历史、worker 起来追赶把水位顶到了上限，
+        // ⚠ 只垫"一个块"是不够的：worker 首次产出之前，输出环要撑过
+        // 「等输入攒够一块 + 一次推理耗时」，于是稳态水位被压到 0 附近、
+        // 每批产出之间欠载（补静音 ⇒ 咔哒）。2026-10-08 之前之所以没暴露这个问题，
+        // 是因为引擎加载期间输入环攒了 1 秒历史、worker 起来追赶把水位顶到了上限，
         // 那个"上限水位"顺带掩盖了预填充的不足 —— 代价是几百毫秒的永久延迟。
+        //
+        // 就绪后的稳态水位 = [P − 推理耗时 − 块长, P − 推理耗时]，
+        // 即**最低点 ≈ 余量 − 推理耗时**（块长 160ms、推理 60ms、余量 120ms ⇒ 约 [60 … 220]ms）。
+        //
+        // ⚠ 这个式子成立的前提，是 ReadCore 里"引擎未就绪时不消费输出环"：
+        // 否则预填充会在加载的 1.5 秒里被吃光，就绪时水位从 0 起步，稳态水位掉到
+        // [0 … 块长]，每批产出的末尾恰好触底 —— 任何抖动都欠载（比高延迟更糟）。
         //
         // 夹到环容量的一半：块长来自配置（可能被手改成超出界面滑条范围的值），
         // 必须保证读写指针不会碰头。
@@ -422,25 +429,25 @@ public sealed class AiVoiceEffect : IAudioEffect
             Interlocked.Add(ref _droppedSamples, dropIn);
         }
 
-        // 引擎尚未就绪（首次加载 / 重建中，实测约 1.5~2 秒）：输入环**只保留最近一个块**。
+        // 引擎尚未就绪（首次加载 / 重建中，实测约 1.5~2 秒）：输入环**整体丢掉**。
         //
         // 原先这里照常攒到 1 秒上限，worker 一起来就连续追赶（产出速率是实时的好几倍），
         // 一路把输出环灌到上限、并丢掉那段历史音频。实测（2026-10-08 用户日志）
         // 启动一次**丢弃 1679ms、欠载 186 次**（约 0.9 秒静音）；更糟的是被灌上去的
         // 水位**不会自然回落**（稳态下产出≈消费），于是变成永久延迟。
         //
-        // 那段历史要等 1.5 秒后才被处理，实时通话里早已过期：
-        // 宁可丢掉它，也不要"处理旧音频 + 制造永久延迟"。
+        // 那段历史要等 1.5 秒后才被处理，实时通话里早就过期（听到的是 1.5 秒前的话），
+        // 宁可丢掉。
+        //
+        // ⚠ 为什么是"全丢"而不是"留最近一块"：留下的那一块会让 worker 一就绪就**立刻**
+        // 产出，那一次产出把水位顶到上限，而水位一旦被顶上去就**不会自然回落**，
+        // 于是又回到"上限 − 块长"的老位置（实测就是这么来的）。全丢掉之后，worker 要等
+        // 实时输入重新攒够一块才首次产出，水位正好落在设计值上。
         if (_engine == null)
         {
-            var keep = _blockSamples48;
-            var avail = Available(_inRing, _inRead, _inWrite);
-            if (avail > keep)
-            {
-                var drop = avail - keep;
-                _inRead = (_inRead + drop) % _inRing.Length;
-                Interlocked.Add(ref _droppedSamples, drop);
-            }
+            var dropped = Available(_inRing, _inRead, _inWrite);
+            if (dropped > 0) Interlocked.Add(ref _droppedSamples, dropped);
+            _inRead = _inWrite;
         }
 
         // 输入环可能装不下（下游阻塞太久）：放不下就丢弃最老的，保证实时性优先
@@ -459,6 +466,21 @@ public sealed class AiVoiceEffect : IAudioEffect
         // 通知 worker 有新数据
         if ((_inWrite - _inRead + _inRing.Length) % _inRing.Length >= _blockSamples48)
             _wake.Set();
+
+        // 引擎尚未就绪（加载 / 重建中）：输出直接给静音，**不消费输出环** ——
+        // 让 Allocate 预填充的那段静音完整留到"就绪那一刻"。
+        //
+        // ⚠ 这一条不是可有可无的优化，而是**预填充能否生效的前提**：
+        // 加载要 1.5 秒，若这期间照常消费，预填充会被耗尽、就绪时水位从 0 起步，
+        // 稳态水位就落到 [0 … 块长] —— 每批产出的末尾恰好触底，任何抖动都会欠载
+        //（补静音 ⇒ 咔哒）。等于把"永久高延迟"换成了"周期性咔哒"，更糟。
+        // 加载期间消费与不消费，输出都是静音，听感没有区别。
+        if (_engine == null)
+        {
+            buffer.Clear();
+            Volatile.Write(ref _lastBacklogMs, 0);
+            return buffer.Length;
+        }
 
         // 输出：有就取，没有补静音
         var available = (_outWrite - _outRead + _outRing.Length) % _outRing.Length;
