@@ -2487,6 +2487,31 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         panel.Visibility = wasVisible ? Visibility.Visible : Visibility.Collapsed;
         panel.UpdateLayout();
 
+        // ------------------------------------------------------------------
+        // 动画期间临时摘掉这张卡片的阴影。
+        //
+        // 卡片的 DropShadowEffect 会把整张卡片（含子树）渲染到一张离屏表面再整块模糊，
+        // 且**无法局部修补** —— 展开/收起时高度每帧都在变，那张表面每帧都要重建，
+        // 一帧一次、共约 20 帧。阴影只在静止画面里才需要，所以动画期间先摘掉。
+        //
+        // ⚠ 摘与恢复的**时机必须与动画首尾帧错开**。
+        // 改变 Effect 会让渲染内容失效、需要重新生成离屏表面；这个动作若正好压在
+        // 动画第一帧（或最后一帧）上，那一帧就被顶掉，观感是衔接处跳一下 ——
+        // 上一版就是这么坏的（2026-10-08 用户指出"去掉和加上阴影效果的那个效果
+        // 把展开的前面一点动画和收起的最后一点动画顶掉了"）。
+        //
+        // 所以：摘掉后**先让出一帧**（等表面重建完）再开始动画；
+        //       恢复则延后到 ContextIdle（比 Render 更晚），确保最后一帧已呈现。
+        // ------------------------------------------------------------------
+        var shadowHost = FindCardShadowHost(panel);
+        var shadowSuspended = false;
+        if (shadowHost?.Effect != null)
+        {
+            _suspendedShadows[shadowHost] = shadowHost.Effect;
+            shadowHost.Effect = null;
+            shadowSuspended = true;
+        }
+
         var story = new Storyboard();
 
         if (expand)
@@ -2509,14 +2534,14 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             story.Completed += (_, _) =>
             {
                 panel.Height = double.NaN;
+                RestoreCardShadowDeferred(shadowHost);
                 _panelAnimations.Remove(button);
             };
         }
         else
         {
-            // 收起时长 340ms（原为 180ms），与展开取齐 —— 用户当初选方案 01 的观感
-            // 就是"来回一致"。同样只动这一个数字。
-            var height = new DoubleAnimation(target, 0, TimeSpan.FromMilliseconds(340))
+            // 收起比展开略快（240ms vs 340ms）：收起是"收掉不看了"，快了更利落。
+            var height = new DoubleAnimation(target, 0, TimeSpan.FromMilliseconds(240))
             {
                 EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn },
             };
@@ -2528,13 +2553,50 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             {
                 panel.Visibility = Visibility.Collapsed;
                 panel.Height = double.NaN;                   // 收起后必须复位，否则下次量测拿到 0
+                RestoreCardShadowDeferred(shadowHost);
                 _panelAnimations.Remove(button);
             };
         }
 
         _panelAnimations[button] = (panel, story);
-        story.Begin();
+
+        // ⚠ 摘过阴影时，要**先让出一帧**再开始动画：
+        // 表面重建的动作不能压在动画第一帧上，否则开头一点会被顶掉。
+        if (shadowSuspended)
+        {
+            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Render,
+                new Action(story.Begin));
+        }
+        else
+        {
+            story.Begin();
+        }
     }
+
+    /// <summary>
+    /// 延后把某个元素在动画期间摘掉的阴影放回去。
+    /// 用 ContextIdle（比 Render 更晚）：确保动画的最后一帧已经呈现，
+    /// 否则"恢复 Effect"会把收尾那一帧顶掉。
+    /// </summary>
+    private void RestoreCardShadowDeferred(FrameworkElement? host)
+    {
+        if (host == null || !_suspendedShadows.ContainsKey(host)) return;
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ContextIdle,
+            new Action(() => RestoreCardShadow(host)));
+    }
+
+    /// <summary>把某个元素在动画期间摘掉的阴影放回去。</summary>
+    private void RestoreCardShadow(FrameworkElement host)
+    {
+        if (_suspendedShadows.TryGetValue(host, out var effect))
+        {
+            host.Effect = effect;
+            _suspendedShadows.Remove(host);
+        }
+    }
+
+    /// <summary>动画期间被临时摘掉的阴影：元素 → 原 Effect。</summary>
+    private readonly Dictionary<FrameworkElement, System.Windows.Media.Effects.Effect> _suspendedShadows = new();
 
     /// <summary>
     /// 从面板往上找"带阴影的那层卡片容器"。
