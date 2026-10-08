@@ -35,6 +35,26 @@ public sealed class RvcSynthesizer : IDisposable
         _pitchfName = Pick(names, "nsff0", "pitchf") ?? names[3];
         _sidName = Pick(names, "sid", "ds") ?? names[4];
 
+        // ------------------------------------------------------------------
+        // 检查内容特征的维度，尽早识别"这是 RVC v1 模型"。
+        //
+        // 本管线的内容编码器（ContentVec）固定输出 **768 维**，对应 RVC **v2**；
+        // 而 **v1** 的合成器要 **256 维**。拿 768 去喂它，每块都会报
+        // "Got invalid dimensions for input: phone" 然后被跳过 ——
+        // 表现是"选了音色却完全没有声音"，用户很难猜到原因
+        //（2026-10-08 用户实测：新加的 kikiv2.onnx 正是 v1 模型，配套索引也是 256 维）。
+        // 提前量出来并说清楚，比让它默默失败好得多。
+        // ------------------------------------------------------------------
+        var featDim = _session.InputMetadata[_featName].Dimensions.LastOrDefault();
+        if (featDim > 0 && featDim != 768)
+        {
+            throw new NotSupportedException(
+                $"音色模型「{System.IO.Path.GetFileName(modelPath)}」的内容特征维度是 {featDim}，"
+                + "而本程序只支持 768 维（RVC v2）。"
+                + (featDim == 256 ? "这看起来是 RVC v1 模型，暂不支持。" : "")
+                + "请换用 v2 音色模型，索引也要用与之配套的那一份。");
+        }
+
         var outputs = _session.OutputMetadata;
         _audioName = outputs.Keys.First();
         _srName = outputs.Keys.Skip(1).FirstOrDefault();
