@@ -143,13 +143,24 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                 if (error != null)
                 {
                     // ⚠ 必须把配置里的 Enabled 也落回 false，再刷新控件可用性。
-                    // 只弹开关不落配置的话，RefreshAiVoiceControlAvailability 会按
-                    // "已启用" 去置灰下面的选项，于是出现"开关没开成功、下面却变灰了"
+                    // 只弹开关不落配置的话，UpdateAiVoiceControlAvailability 会按
+                    // "已启用"去置灰下面的选项，于是出现"开关没开成功、下面却变灰了"
                     //（2026-10-08 用户实测：拖入 v1 模型后打开开关就是这个现象）。
                     _config.AiVoice.Enabled = false;
                     SaveConfig();
                     SetAiVoiceSwitchWithoutReentry(false);
                     ShowStatus("AI 变声启动失败：" + error, false);
+
+                    // 再补一次延迟刷新：加载失败这条事件之后可能还有别的路径
+                    // （参数同步、配置保存回调等）又按旧值刷了一遍可用性。
+                    // 放到 Idle 优先级执行，确保是这一轮消息处理完之后的最终状态。
+                    Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background,
+                        new Action(() =>
+                        {
+                            UpdateAiVoiceCardVisibility();
+                            UpdateAiVoiceIndexAvailability();
+                            UpdateAiVoiceControlAvailability();
+                        }));
                 }
                 else
                 {
@@ -3419,7 +3430,9 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     private async void InstallAiComponentPacks(List<string> zips)
     {
         var panel = new AiComponentPanel();
-        var dialog = DialogHost.CreateCustom("安装 AI 变声组件", panel, "关闭");
+        // primaryText: null → 这条对话框**不显示任何按钮**，纯展示进度。
+        // 装完由代码关闭它，再弹一个确认框告诉用户要重启。
+        var dialog = DialogHost.CreateCustom("安装 AI 变声组件", panel, primaryText: null);
         dialog.Owner = this;
         dialog.Show();
 

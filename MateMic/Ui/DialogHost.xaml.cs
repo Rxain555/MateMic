@@ -34,7 +34,7 @@ public sealed class DialogHost : Window
     private static uint ButtonPressedColor => Pick("ControlPressedBrush", 0xFFD4DAE3);
     private static uint SubtleColor => Pick("SubtleTextBrush", 0xFF636A76);
 
-    private readonly Button _primary;
+    private readonly Button? _primary;   // primaryText 传 null 时为 null（无按钮对话框）
     private bool _accepted;
 
     // ---- 分页（使用指南）----
@@ -149,9 +149,18 @@ public sealed class DialogHost : Window
             buttons.Children.Add(secondary);
         }
 
-        _primary = MakeButton(paged ? "关闭" : primaryText, primary: true);
-        _primary.Click += (_, _) => { _accepted = true; Close(); };
-        buttons.Children.Add(_primary);
+        // primaryText 传 null 表示**整条对话框不要任何按钮**（进度提示那种纯展示的场合）。
+        // 分页模式必须有关闭按钮，所以那时仍然给一个。
+        if (paged || primaryText != null)
+        {
+            _primary = MakeButton(paged ? "关闭" : primaryText!, primary: true);
+            _primary.Click += (_, _) => { _accepted = true; Close(); };
+            buttons.Children.Add(_primary);
+        }
+        else
+        {
+            buttons.Visibility = Visibility.Collapsed;
+        }
 
         _pageLabel = new TextBlock
         {
@@ -301,7 +310,7 @@ public sealed class DialogHost : Window
     /// 主按钮返回 true。
     /// </summary>
     public static bool ShowCustom(Window? owner, string title, FrameworkElement content,
-                                  string primaryText = "关闭",
+                                  string? primaryText = "关闭",
                                   string? secondaryText = null, Action? onSecondary = null)
     {
         var dialog = CreateCustom(title, content, primaryText, secondaryText, onSecondary);
@@ -315,7 +324,7 @@ public sealed class DialogHost : Window
     /// 供自检使用：ShowDialog 会阻塞调用线程，截图流程需要自己 Show() 再抓图。
     /// </summary>
     internal static DialogHost CreateCustom(string title, FrameworkElement content,
-                                            string primaryText = "关闭",
+                                            string? primaryText = "关闭",
                                             string? secondaryText = null, Action? onSecondary = null)
         => new(title, string.Empty, secondaryText, primaryText,
                pages: null, customContent: content, onSecondary: onSecondary);
@@ -403,6 +412,17 @@ public sealed class DialogHost : Window
         if (target == null) dialog.WindowStartupLocation = WindowStartupLocation.CenterScreen;
 
         dialog.ShowDialog();
+
+        // 关掉模态对话框后，把属主窗口从"最小化"恢复过来并拿回焦点。
+        // 现象：点对话框的确认按钮后整个程序像是被最小化了
+        //（2026-10-08 用户报："在提示重启对话框点确认会最小化程序"）。
+        // 成因在 WPF 模态窗口与属主窗口的状态联动上；与其去猜内部时序，
+        // 不如关掉之后无条件纠正一次 —— 用户点的是"确认"，本意绝不是"最小化"。
+        if (target is { WindowState: WindowState.Minimized })
+            target.WindowState = WindowState.Normal;
+        if (target is { IsVisible: true })
+            target.Activate();
+
         return dialog._accepted;
     }
 
@@ -429,7 +449,7 @@ public sealed class DialogHost : Window
         else if (e.Key == Key.Enter)
         {
             e.Handled = true;
-            _primary.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        _primary?.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         }
         else if (_pages.Count > 0 && e.Key == Key.Left)
         {
