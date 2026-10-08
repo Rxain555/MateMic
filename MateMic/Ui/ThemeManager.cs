@@ -78,7 +78,7 @@ public static class ThemeManager
         ["AcrylicCardBrush"] = "#FFFFFFFF",
         ["CardBrush"] = "#FFFFFFFF",
         ["CardGradientBrush"] = "#FFFFFFFF",
-        ["WindowSurfaceBrush"] = "#F5F6F8",
+        ["WindowSurfaceBrush"] = "#D9F5F6F8",
         ["HeaderSurfaceBrush"] = "#FAFBFC",
         ["GroupHighlightBrush"] = acrylic ? "#59FFFFFF" : "#00FFFFFF",
         ["RowAltBrush"] = "#0FFFFFFF",
@@ -167,7 +167,7 @@ public static class ThemeManager
         ["AcrylicCardBrush"] = "#FF24272D",
         ["CardBrush"] = "#FF24272D",
         ["CardGradientBrush"] = "#FF24272D",
-        ["WindowSurfaceBrush"] = "#FF1A1C21",
+        ["WindowSurfaceBrush"] = "#D91A1C21",
         ["HeaderSurfaceBrush"] = "#FF1F2228",
         ["GroupHighlightBrush"] = acrylic ? "#14FFFFFF" : "#00FFFFFF",
         ["RowAltBrush"] = "#0AFFFFFF",
@@ -259,7 +259,7 @@ public static class ThemeManager
             Direction = 270,
             Color = Rgb(color),
             Opacity = opacity,
-            RenderingBias = RenderingBias.Quality,
+            RenderingBias = RenderingBias.Performance,
         };
         effect.Freeze();
         return effect;

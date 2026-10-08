@@ -929,12 +929,31 @@
                                                 </LinearGradientBrush>
                                             </Rectangle.Fill>
                                         </Rectangle>
+                                        <!--
+                                          LevelMaskRect：从右往左盖住"高于当前电平"的部分。
+                                          Width 由代码设成轨道全宽（只在尺寸变化时才变），遮罩比例靠
+                                          ScaleTransform.ScaleX + 原点靠右实现 —— 用变换而不是每帧改 Width，
+                                          是为了不触发布局（见 UpdateLevelMeter 的注释）。
+                                        -->
                                         <Rectangle x:Name="LevelMaskRect" HorizontalAlignment="Right"
                                                    Width="0" Fill="{DynamicResource LevelMaskBrush}"
-                                                   Opacity="0.82" IsHitTestVisible="False" />
+                                                   Opacity="0.82" IsHitTestVisible="False"
+                                                   RenderTransformOrigin="1,0">
+                                            <Rectangle.RenderTransform>
+                                                <ScaleTransform ScaleX="0" ScaleY="1" />
+                                            </Rectangle.RenderTransform>
+                                        </Rectangle>
+                                        <!--
+                                          LevelPeak：峰值保持指针。位置靠 TranslateTransform.X（不再用 Margin）。
+                                          原本是 HorizontalAlignment=Left + Margin.Left，两者视觉等价。
+                                        -->
                                         <Rectangle x:Name="LevelPeak" Width="2" Height="16"
                                                    Fill="{DynamicResource TextBrush}" Opacity="0.7"
-                                                   HorizontalAlignment="Left" IsHitTestVisible="False" />
+                                                   HorizontalAlignment="Left" IsHitTestVisible="False">
+                                            <Rectangle.RenderTransform>
+                                                <TranslateTransform X="0" />
+                                            </Rectangle.RenderTransform>
+                                        </Rectangle>
                                     </Grid>
                                 </Border>
                             </Grid>

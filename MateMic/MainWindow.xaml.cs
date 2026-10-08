@@ -839,6 +839,23 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             bars[i].Width = barWidth;
             bars[i].SnapsToDevicePixels = true;
             Canvas.SetLeft(bars[i], left);
+
+            // ------------------------------------------------------------------
+            // 高度也在这里**一次性**定死为画布满高，之后每帧只改 ScaleTransform.ScaleY。
+            //
+            // 为什么：原先 UpdateSpectrumBars 每帧改 bars[i].Height 与 Canvas.SetTop，
+            // 这两个都是**布局属性** —— 每帧 48 根 × 2 个画布 = 96 次布局失效，
+            // 30 Hz 下每秒近 3000 次，且会连带让带阴影的卡片重建离屏表面。
+            // 改成缩放后，每帧只写一个变换矩阵，**完全不触动布局**（纯合成层）。
+            //
+            // 缩放原点放在**左下角**：ScaleY 从 0 增长时就等于柱子从底部往上长，
+            // 与原来"改高度 + 贴底"的观感一致。
+            // ------------------------------------------------------------------
+            bars[i].Height = height;
+            Canvas.SetTop(bars[i], 0);
+            bars[i].RenderTransformOrigin = new Point(0, 1);
+            if (bars[i].RenderTransform is not ScaleTransform)
+                bars[i].RenderTransform = new ScaleTransform(1, 0);
         }
     }
 
@@ -1296,6 +1313,17 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     }
 
     /// <summary>把频带值画成柱高（频带值已是 0…1）。</summary>
+    /// <summary>
+    /// 每帧刷新频谱柱高度。
+    ///
+    /// ⚠ 只改 <see cref="ScaleTransform.ScaleY"/>，**绝不改 Width/Height/Margin/Canvas.Top**。
+    /// 那些是布局属性，每帧改会触发 measure/arrange；本方法每 33 ms 跑一次、
+    /// 每次涉及 48 根 × 2 个画布 = 96 个元素，是此前界面整体不流畅的主要来源
+    ///（2026-10-08 排查，详见 文档\工作日志\2026-10-08-卡片动画与卡顿排查.md）。
+    ///
+    /// 柱子的几何在 LayoutSpectrumBars 里一次定死为"满高、贴顶、以左下角为缩放原点"，
+    /// 于是这里把 ScaleY 设成 v 就等于"从底部向上长到 v 的高度"。
+    /// </summary>
     private static void UpdateSpectrumBars(Canvas canvas, Rectangle[] bars, SpectrumAnalyzer analyzer, float[] scratch)
     {
         var height = canvas.ActualHeight;
@@ -1304,13 +1332,17 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         var count = Math.Min(analyzer.BandCount, scratch.Length);
         analyzer.CopyBands(scratch, count);
 
+        // 完全安静时也保留 1px，否则看不出"这里有一根柱子"（与原先 Math.Max(1.0, v*height) 等价）
+        var floor = 1.0 / height;
+
         for (var i = 0; i < bars.Length && i < count; i++)
         {
             var v = Math.Clamp(scratch[i], 0f, 1f);
-            // 最低保留 1px，否则完全安静时看不出"这里有一根柱子"
-            var h = Math.Max(1.0, v * height);
-            bars[i].Height = h;
-            Canvas.SetTop(bars[i], height - h);
+            var scale = Math.Max(floor, v);
+            if (bars[i].RenderTransform is ScaleTransform st)
+                st.ScaleY = scale;
+            else
+                bars[i].RenderTransform = new ScaleTransform(1, scale);
         }
     }
 
@@ -1378,9 +1410,17 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
         var rmsDb = LinearToDb(_engine.OutputSpectrum.Rms);
 
-        // 遮罩从右往左盖住"高于当前电平"的部分；露出来的就是当前电平所占的比例
+        // 遮罩从右往左盖住"高于当前电平"的部分；露出来的就是当前电平所占的比例。
+        //
+        // ⚠ 这里**不能**改 LevelMaskRect.Width：那是布局属性，每帧改会触发布局。
+        // 改用 ScaleTransform.ScaleX + 原点靠右 —— 遮罩宽度恒为轨道全宽，
+        // 缩放 0.6 就等价于"原来把 Width 设成 0.6×轨道"（纯合成，不碰布局）。
         var levelFraction = DbToFraction(rmsDb);
-        LevelMaskRect.Width = Math.Max(0, width * (1 - levelFraction));
+        LevelMaskRect.Width = width;
+        if (LevelMaskRect.RenderTransform is ScaleTransform maskScale)
+        {
+            maskScale.ScaleX = Math.Clamp(1 - levelFraction, 0, 1);
+        }
 
         // 峰值保持：**先原地停留 2 秒，再按 6 dB/s 往回缩**（用户要的语义）。
         // 显示位置取 max(峰值保持, 当前电平)，这样这条线不会落在进度条右端的左边
@@ -1408,7 +1448,14 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
         var shown = Math.Max(_levelPeakDb, rmsDb);               // 不低于当前电平
         var peakAt = Math.Clamp(width * DbToFraction(shown), 0, Math.Max(0, width - 2));
-        LevelPeak.Margin = new Thickness(peakAt, 0, 0, 0);
+
+        // 同上：原来改 LevelPeak.Margin（布局属性），现在改成 TranslateTransform.X。
+        // 元素的 HorizontalAlignment 保持 XAML 里的原样（Stretch + 显式 Width ⇒ 居中），
+        // 所以"居中位置 + 平移量"与原来"居中位置 + Margin.Left"完全一致。
+        if (LevelPeak.RenderTransform is TranslateTransform peakShift)
+        {
+            peakShift.X = peakAt;
+        }
     }
 
     /// <summary>峰值保持的停留时长（秒）与回落速率（dB/s）。</summary>

@@ -188,11 +188,11 @@ public sealed class AiVoiceSettings
     /// </summary>
     public float IndexRate { get; set; }
 
-    /// <summary>
-    /// 声线（共振峰搬移，半音）。RVC 自身不做共振峰调整，这里是**在 AI 输出之后**
-    /// 用 Signalsmith Stretch 补的——正好补偿变调后"像同一个人捏着嗓子"的假声感。
-    /// </summary>
-    public float FormantSemitones { get; set; }
+    // 这里原先还有一个 FormantSemitones（"AI 输出之后用 Signalsmith 补共振峰"）。
+    // 它从未被任何代码读取，界面上也没有对应滑条 —— 是个死配置。
+    // 用户 2026-10-08 确认：**共振峰不需要在 AI 侧做**，直接用 DSP 变声那一套即可 ——
+    // DSP 变声本来就在 AI 变声之后，效果一样，AI 侧再加就是重复。
+    // 因此属性与那段注释一并删除，避免"配置存在但不生效"的误导。
 
     /// <summary>
     /// 音频块长度（ms）。**官方默认 0.25s**（`realtime_gui.py:134` `"block_time": 0.25`）。
