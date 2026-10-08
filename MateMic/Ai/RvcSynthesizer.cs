@@ -51,8 +51,7 @@ public sealed class RvcSynthesizer : IDisposable
             throw new NotSupportedException(
                 $"音色模型「{System.IO.Path.GetFileName(modelPath)}」的内容特征维度是 {featDim}，"
                 + "而本程序只支持 768 维（RVC v2）。"
-                + (featDim == 256 ? "这看起来是 RVC v1 模型，暂不支持。" : "")
-                + "请换用 v2 音色模型，索引也要用与之配套的那一份。");
+                + (featDim == 256 ? "这看起来是 RVC v1 模型，暂不支持。" : ""));
         }
 
         var outputs = _session.OutputMetadata;

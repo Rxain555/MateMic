@@ -42,13 +42,31 @@ public partial class App : Application
         //（2026-10-08 用户实测："我之前说的切换运算方式没用，就是重启后也没用"）。
         Ai.AiComponent.InstallNativeResolver();
 
-        // 单实例：重复启动时把已有窗口激活
-        _singleInstance = new Mutex(true, @"Local\MateMic.SingleInstance", out _ownsMutex);
-        if (!_ownsMutex)
+        // 单实例：重复启动时把已有窗口激活。
+        //
+        // ⚠ 用了 --appdata 就**跳过**这个检查：那是"隔离测试"的明确信号
+        //（换数据目录正是为了不干扰正在使用的实例），若仍然共用同一个 Mutex，
+        // 自动化测试会在用户开着程序时被静默拦住 —— 表现为"测试进程什么都没做就退出、
+        // 日志和输出都是空的"，极难排查（2026-10-08 实测踩到）。
+        var isolated = false;
+        for (var i = 0; i < args.Length - 1; i++)
         {
-            DialogHost.Info(MainWindow as Window, "MateMic", "MateMic 已经在运行中，请在系统托盘中查看。");
-            Shutdown();
-            return;
+            if (args[i] is "--appdata" or "-a") { isolated = true; break; }
+        }
+
+        if (!isolated)
+        {
+            _singleInstance = new Mutex(true, @"Local\MateMic.SingleInstance", out _ownsMutex);
+            if (!_ownsMutex)
+            {
+                DialogHost.Info(MainWindow as Window, "MateMic", "MateMic 已经在运行中，请在系统托盘中查看。");
+                Shutdown();
+                return;
+            }
+        }
+        else
+        {
+            Log.Info("[启动] 使用独立数据目录，已跳过单实例检查（隔离测试模式）");
         }
 
         try

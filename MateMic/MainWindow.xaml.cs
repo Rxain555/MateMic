@@ -142,7 +142,13 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                 var error = _engine.AiVoice.LastError;
                 if (error != null)
                 {
-                    SetAiVoiceSwitchWithoutReentry(false);   // 开关落回去，别停在"开着但没声"
+                    // ⚠ 必须把配置里的 Enabled 也落回 false，再刷新控件可用性。
+                    // 只弹开关不落配置的话，RefreshAiVoiceControlAvailability 会按
+                    // "已启用" 去置灰下面的选项，于是出现"开关没开成功、下面却变灰了"
+                    //（2026-10-08 用户实测：拖入 v1 模型后打开开关就是这个现象）。
+                    _config.AiVoice.Enabled = false;
+                    SaveConfig();
+                    SetAiVoiceSwitchWithoutReentry(false);
                     ShowStatus("AI 变声启动失败：" + error, false);
                 }
                 else
@@ -3464,7 +3470,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         UpdateAiVoiceCardVisibility();
 
         // ------------------------------------------------------------------
-        // 装完必须重启才生效。
+        // 装完必须重启才生效，提示用户自己重启。
         //
         // 原因：程序启动时 AI 降噪会先创建 ONNX 会话，那一刻 onnxruntime.dll 就被解析并
         // 加载进进程（当时组件还不存在，用的是程序自带的 CPU 版）。而 Windows 对同名 DLL
@@ -3472,53 +3478,14 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         // 直接创建引擎会报 "Attempt to use DefaultLogger but none has been registered"。
         // 重启后解析器一上就指向组件版，因此正常。
         //（2026-10-08 从日志确认：首次失败，重启后引擎正常启动。）
+        //
+        // **刻意只给一个确认按钮**，不做"立即重启"：之前那版用 cmd 延迟 2 秒拉起新进程，
+        // 实际仍会撞上单实例 Mutex（新进程起得比旧进程退得快），得不偿失
+        //（2026-10-08 用户实测）。让用户自己重启最省事也最可靠。
         // ------------------------------------------------------------------
-        var detailText = $"已安装 {installed} 个组件包（{total} 个文件）。\n\n"
-                         + "需要重启程序才会生效。现在重启吗？";
-        if (DialogHost.Ask(this, "组件安装完成", detailText,
-                secondaryText: "稍后手动重启", primaryText: "立即重启"))
-        {
-            RestartApplication();
-        }
-    }
-
-    /// <summary>
-    /// 重启整个程序。
-    ///
-    /// ⚠ 不能直接 Process.Start 新进程再退出：新进程会**立刻**去抢单实例 Mutex，
-    /// 而旧进程还没释放，于是新进程弹"MateMic 已经在运行中"然后自杀。
-    /// 所以交给一个独立的 cmd：先等 2 秒（足够本进程退出并释放 Mutex）再启动程序。
-    /// </summary>
-    private void RestartApplication()
-    {
-        try
-        {
-            CancelAiVoiceApply();       // 先停掉待生效的计时器，避免它回调已释放的引擎
-            _saveTimer?.Stop();         // 停掉延迟保存，改为立刻落盘
-            SaveConfig();
-
-            var exe = Environment.ProcessPath;
-            if (string.IsNullOrEmpty(exe))
-            {
-                ShowStatus("重启失败（取不到程序路径），请手动重启", false);
-                return;
-            }
-
-            Process.Start(new ProcessStartInfo("cmd.exe")
-            {
-                Arguments = $"/c timeout /t 2 /nobreak >nul & start \"\" \"{exe}\"",
-                CreateNoWindow = true,
-                UseShellExecute = false,
-                WorkingDirectory = AppContext.BaseDirectory,
-            });
-
-            _exiting = true;            // 让 OnClosing 走真正的退出，而不是收进托盘
-            ExitApplication();
-        }
-        catch (Exception ex)
-        {
-            ShowStatus("重启失败，请手动重启：" + ex.Message, false);
-        }
+        DialogHost.Info(this, "组件安装完成",
+            $"已安装 {installed} 个组件包（{total} 个文件）。\n\n"
+            + "需要重启程序后才会生效，请手动重启 MateMic。");
     }
 
     /// <summary>
