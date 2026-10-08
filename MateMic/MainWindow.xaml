@@ -961,6 +961,8 @@
                                         </Rectangle>
                                     </Grid>
                                 </Border>
+                            </Grid>
+                        </Border>
 
                             <!--
                               ============ 实时数据卡片（2026-10-08 用户要求）============
@@ -968,12 +970,21 @@
                               MinHeight 由 90 压到 55。
                               数据由 MainWindow.UpdateRealtimeStats() 按固定频率刷新 —— 这些都是
                               低频变化的量，跟着 30Hz 的频谱刷新只会白耗 CPU。
+
+                              ⚠ 2026-10-08（第二次修）：这张卡片的 `<Border Grid.Row="3">` 原先
+                              **写在电平条那个 Border 的内层 Grid 里**，而那个内层 Grid 只定义了 2 行
+                              （Row0 刻度 / Row1 电平条）。WPF 对超出范围的行索引会**夹到最后一行**，
+                              于是这张卡片与电平条挤在同一格；它声明在后、又是不透明卡片面，
+                              就把电平条整条盖住了 —— 用户看到的"电平条被性能卡片挡住"就是这个。
+                              （上一轮只给电平条那行加了 MinHeight，治的是"行被压成 0"，
+                              没发现真正的重叠。）现在把它放到主体 Grid 的 Row3，
+                              那 4 行 RowDefinition 本来就有它的位置。
                             -->
                             <!-- 用 CardLast 而不是 Card：CardLast 的 Margin 是 0,0,0,0（贴底），
                                  与右栏"音频列表"一致；Card 会多出 7px 下间距，两栏底部留白就不齐
                                  （2026-10-08 用户反馈）。上间距由自己的 Margin 给。 -->
-                            <Border Grid.Row="3" Style="{StaticResource CardLast}" Padding="8,5,8,7"
-                                    Margin="0,7,0,0">
+                            <Border x:Name="StatsCard" Grid.Row="3" Style="{StaticResource CardLast}"
+                                    Padding="8,5,8,7" Margin="0,7,0,0">
                                 <StackPanel>
                                     <TextBlock Style="{StaticResource LabelText}" Text="延迟与性能"
                                                FontWeight="SemiBold" FontSize="11.5" Margin="0,0,0,5"
@@ -1032,8 +1043,7 @@
                                     </Grid>
                                 </StackPanel>
                             </Border>
-                            </Grid>
-                        </Border></Grid>
+                        </Grid>
                 </DockPanel>
             </Border>
 

@@ -1268,10 +1268,18 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             ("右栏", RightRegion),
         };
 
+        // ⚠ 必须同时接受 CardLast：`Style` 属性存的是**最后一个样式对象**，
+        // 用了 `CardLast`（BasedOn `Card`）的卡片并不等于 `Card`，只按 `Card` 筛选会把它们漏掉。
+        // 2026-10-08 就因此漏掉了中栏那张"延迟与性能"（CardLast）：日志里中栏"最下一张卡片"
+        // 报的是它上面的"输出"频谱（底距 117px），真正的底部留白从未被量到，
+        // 于是"与右栏对齐"这件事上一轮是在**没量准**的情况下收的尾。
+        var cardStyle = (Style)FindResource("Card");
+        var cardLastStyle = (Style)FindResource("CardLast");
+
         foreach (var (name, root) in columns)
         {
             var cards = Descendants(root).OfType<Border>()
-                .Where(b => b.Style == (Style)FindResource("Card"))
+                .Where(b => ReferenceEquals(b.Style, cardStyle) || ReferenceEquals(b.Style, cardLastStyle))
                 .ToList();
             if (cards.Count == 0) continue;
 
@@ -1309,6 +1317,27 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             Log.Info($"[底部测量] 右栏最下 Border：底缘距窗口底边 {Bottom(rightLowest):0}px"
                      + $"｜高 {rightLowest.ActualHeight:0.#}"
                      + $"｜是否 Card 样式={rightLowest.Style == (Style)FindResource("Card")}");
+        }
+
+        // 中栏纵向叠放核对：电平条与它下面的"延迟与性能"卡片**不能重叠**。
+        // 2026-10-08 用户报"电平条被性能卡片挡住"，根因是卡片的 Grid.Row="3" 写在一个
+        // 只有 2 行的内层 Grid 里（超出范围的行索引会被夹到最后一行，于是与电平条同格）。
+        // 这类"看起来在下面、其实挤在一起"的问题肉眼很难判断，所以直接量两条边。
+        double TopY(FrameworkElement e)
+        {
+            try { return e.TransformToAncestor(this).Transform(new Point(0, 0)).Y; }
+            catch { return double.NaN; }
+        }
+
+        if (LevelTrack != null && StatsCard != null)
+        {
+            var trackTop = TopY(LevelTrack);
+            var trackBottom = trackTop + LevelTrack.ActualHeight;
+            var cardTop = TopY(StatsCard);
+            Log.Info($"[中栏核对] dB 刻度顶 {TopY(LevelScaleCanvas):0.#}｜"
+                     + $"电平条 [{trackTop:0.#} … {trackBottom:0.#}]（高 {LevelTrack.ActualHeight:0.#}）｜"
+                     + $"实时数据卡片顶 {cardTop:0.#}｜重叠 {(trackBottom > cardTop + 0.5 ? "是 ✗" : "否 ✓")}｜"
+                     + $"卡片与电平条净间距 {cardTop - trackBottom:0.#}px");
         }
     }
 
