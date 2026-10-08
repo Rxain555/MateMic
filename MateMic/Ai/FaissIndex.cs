@@ -110,10 +110,20 @@ public sealed class FaissIndex : IDisposable
 
     private static IntPtr Resolve(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
     {
+        var dir = ConfigStore.AiRuntimeDirectory;
+
+        if (libraryName.StartsWith("libopenblas", StringComparison.OrdinalIgnoreCase))
+        {
+            var blas = Path.Combine(dir, "libopenblas.dll");
+            if (!File.Exists(blas)) return IntPtr.Zero;
+            PinBlasThreads();
+            AddDllDirectory(dir);
+            return NativeLibrary.Load(blas);
+        }
+
         if (!libraryName.StartsWith("mm_faiss", StringComparison.OrdinalIgnoreCase))
             return IntPtr.Zero;
 
-        var dir = ConfigStore.AiRuntimeDirectory;
         var candidate = Path.Combine(dir, "mm_faiss.dll");
         if (!File.Exists(candidate))
         {
@@ -123,6 +133,7 @@ public sealed class FaissIndex : IDisposable
 
         try
         {
+            PinBlasThreads();              // ⚠ 必须在 libopenblas 被加载**之前**
             AddDllDirectory(dir);          // 让 faiss.dll / libopenblas.dll / vcomp140.dll 也能被找到
             return NativeLibrary.Load(candidate);
         }
@@ -131,6 +142,62 @@ public sealed class FaissIndex : IDisposable
             Log.Error($"[AI 变声] 加载索引桥接层失败：{ex.Message}", ex);
             return IntPtr.Zero;
         }
+    }
+
+    private static bool _blasThreadsPinned;
+
+    /// <summary>
+    /// 把 BLAS / OpenMP 的线程数钉成 1。
+    ///
+    /// **必须在 libopenblas 被加载之前执行** —— 它只在初始化时读这两个环境变量，
+    /// 之后再用环境变量改是无效的（所以 Open() 里还会用 API 兜底一次）。
+    ///
+    /// 官方实时实现同样这么做：`realtime_gui.py` 与 `rvc_worker.py` 里都是
+    /// `OPENBLAS_NUM_THREADS=1` + `OMP_NUM_THREADS=4`，而我们此前**两项都没设**。
+    ///
+    /// 实测（`--indexcheck`，2180 簇 / 85021 向量 / 768 维 / 275 帧 / 30 次调用）：
+    /// <code>
+    ///   默认（两项都放开）  ：P50 14.1ms，平均占用 11.0 个核心
+    ///   只限 OPENBLAS=1     ：P50 19.5ms，平均占用 10.6 个核心   ← 没用，反而更慢
+    ///   OPENBLAS=1 + OMP=1  ：P50 16.8ms，平均占用  0.9 个核心   ← 采用
+    /// </code>
+    /// 多花 2.7ms 换回 10 个核心是必须的：音频回调是硬实时，被抢走就表现为
+    /// **"一开索引就一卡一卡的、像音频块接不上"**（2026-10-08 用户报的现象）。
+    ///
+    /// ⚠ 只设 `OPENBLAS_NUM_THREADS` 没有用（实测占用仍 10.6 核、且更慢）——
+    /// 这个规模的并行来自 **faiss 自己的 OpenMP**（对多查询并行），不是 BLAS。
+    /// </summary>
+    private static void PinBlasThreads()
+    {
+        if (_blasThreadsPinned) return;
+        _blasThreadsPinned = true;
+        try
+        {
+            Environment.SetEnvironmentVariable("OPENBLAS_NUM_THREADS", "1");
+            Environment.SetEnvironmentVariable("OMP_NUM_THREADS", "1");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"[AI 变声] 设置 BLAS/OpenMP 线程数失败：{ex.Message}");
+        }
+    }
+
+    [DllImport("libopenblas", CallingConvention = CallingConvention.Cdecl,
+        EntryPoint = "openblas_set_num_threads")]
+    private static extern void OpenBlasSetNumThreads(int threads);
+
+    private static bool _blasApiPinned;
+
+    /// <summary>
+    /// 用 API 把 OpenBLAS 线程数再钉一次（环境变量那条路的兜底）：
+    /// 万一 libopenblas 已经被别的路径加载过，环境变量就读不到了。
+    /// </summary>
+    private static void PinBlasThreadsViaApi()
+    {
+        if (_blasApiPinned) return;
+        _blasApiPinned = true;
+        try { OpenBlasSetNumThreads(1); }
+        catch (Exception ex) { Log.Warn($"[AI 变声] 调用 openblas_set_num_threads 失败：{ex.Message}"); }
     }
 
     [DllImport("kernel32", SetLastError = true, CharSet = CharSet.Unicode)]
@@ -156,6 +223,10 @@ public sealed class FaissIndex : IDisposable
             }
 
             var index = new FaissIndex(handle, mm_index_dim(handle), mm_index_ntotal(handle), mm_index_nlist(handle));
+
+            // 此时 libopenblas 已随依赖链加载进进程，用 API 再钉一次线程数（环境变量的兜底）
+            PinBlasThreadsViaApi();
+
             Log.Info($"[AI 变声] 索引已加载（faiss）：{Path.GetFileName(path)}"
                      + $" —— {index.Nlist} 个簇 / {index.Ntotal} 个向量 / {index.Dim} 维");
             return index;
@@ -205,14 +276,23 @@ public sealed class FaissIndex : IDisposable
             return;
         }
 
+        // ⚠ 这两个栈缓冲必须在循环**外**分配。
+        // 原实现写在循环体内，编译器一直报 CA2014（"潜在的堆栈溢出，将 stackalloc 移出循环"）：
+        //   · `stackalloc` 在循环里**不随迭代回收**，275 帧 × (768×4B + 8×8B) ≈ 860KB
+        //     全部堆在同一个栈帧上，逼近线程默认 1MB 栈上限；
+        //   · 每次迭代还要重新清零这几 KB，纯属白干。
+        Span<double> weights = stackalloc double[k];
+        Span<float> retrieved = stackalloc float[Dim];
+
         for (var f = 0; f < frames; f++)
         {
             var baseOff = f * Dim;
             var labelOff = f * k;
 
+            retrieved.Clear();                 // 复用：每帧从零开始累加
+
             // 权重：square(1/score)，与官方 pip 版一致
             var wsum = 0.0;
-            Span<double> weights = stackalloc double[k];
             for (var i = 0; i < k; i++)
             {
                 if (labels[labelOff + i] < 0) { weights[i] = 0; continue; }
@@ -223,7 +303,6 @@ public sealed class FaissIndex : IDisposable
             }
             if (wsum <= 0) continue;
 
-            Span<float> retrieved = stackalloc float[Dim];
             for (var i = 0; i < k; i++)
             {
                 if (weights[i] <= 0) continue;

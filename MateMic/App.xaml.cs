@@ -131,6 +131,16 @@ public partial class App : Application
             return;
         }
 
+        // 索引检索耗时自检：MateMic.exe --indexcheck [--index 名称] [--frames N] [--iters M]
+        // 只跑 CPU 侧的 faiss 检索，不建 ONNX 会话、不碰 GPU、不开音频设备。
+        // 用途：把"索引耗时"从"上次推理"里拆出来单独看分布（尤其是长尾）。
+        if (HasFlag(args, "--indexcheck"))
+        {
+            var code = IndexDiagnostics.Run(args);
+            Shutdown(code);
+            return;
+        }
+
         // 设备热插拔自检：MateMic.exe --devicecheck [秒数]
         // 不开音频流，只订阅设备变更通知并打印前后设备清单。
         // 运行期间手动拔插麦克风即可验证"能否立刻发现、能否识别插回"。
