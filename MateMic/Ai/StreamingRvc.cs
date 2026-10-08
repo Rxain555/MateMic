@@ -90,9 +90,15 @@ public sealed class StreamingRvc : IDisposable
         _fadeOut = new float[_solaBuffer];
         for (var i = 0; i < _solaBuffer; i++)
         {
-            // 半余弦窗，与官方 fade_in_window / fade_out_window 一致
+            // ⚠ 官方是 `sin(0.5π·linspace(0,1,N)) ** 2` —— **要平方**。
+            // 我们原先漏了平方（只取 sin），交叉淡化曲线因此比官方更"线性"，
+            // 块与块衔接处容易出现能量凹陷/凸起
+            //（2026-10-08 对照 rvc_worker.py:144-147 与 realtime_gui.py:650-664 发现）。
+            // 取 (i+1)/(N+1) 而不用 linspace 的 0..1：避开端点 0/1，
+            // 免得第一个样本的窗值恰好为 0 而丢掉一个样本。
             var x = (i + 1.0) / (_solaBuffer + 1.0);
-            _fadeIn[i] = (float)Math.Sin(0.5 * Math.PI * x);
+            var s = Math.Sin(0.5 * Math.PI * x);
+            _fadeIn[i] = (float)(s * s);
             _fadeOut[_solaBuffer - 1 - i] = _fadeIn[i];
         }
     }
