@@ -1383,8 +1383,9 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     ///   · AI 变声 —— AiVoiceEffect.LastInferMs（单块推理耗时）/ BlockMs（块长，作为分母）
     ///   · 延迟构成 —— 采集 + 降噪一帧 + 变声 2×块长 + 输出
     ///
-    /// "占用率"是**该模块耗时占它自己处理周期的比例**：降噪按 10ms 一帧跑、
-    /// 变声按 250ms 一块跑，所以分母各不相同，不能混用。
+    /// 界面上那个百分比叫**负载**：该模块耗时占**它自己处理周期**的比例
+    /// （降噪按 10ms 一帧、变声按 250ms 一块，分母各不相同，不能混用）。
+    /// 曾用"占用率"一词，用户 2026-10-08 反馈"不明不白"，改为"负载"。
     /// </summary>
     private void UpdateRealtimeStats()
     {
@@ -1396,7 +1397,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         {
             StatsDenoiseText.Text = $"{denoiseInfer:0.0} ms / 帧 {denoiseFrame:0.#} ms";
             StatsDenoiseLoad.Text = denoiseFrame > 0
-                ? $"占 {denoiseInfer / denoiseFrame * 100:0}%"
+                ? $"负载 {denoiseInfer / denoiseFrame * 100:0}%"
                 : "";
         }
         else
@@ -1412,7 +1413,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         {
             var infer = ai.LastInferMs;
             StatsAiVoiceText.Text = $"{infer:0} ms / 块 {blockMs} ms";
-            StatsAiVoiceLoad.Text = $"占 {infer / blockMs * 100:0}%";
+            StatsAiVoiceLoad.Text = $"负载 {infer / blockMs * 100:0}%";
         }
         else
         {
@@ -1447,7 +1448,8 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             if (backlog > 5) total += backlog;
         }
 
-        StatsLatencyText.Text = string.Join(" + ", parts) + $"  ≈ {total} ms";
+        StatsLatencyText.Text = string.Join(" + ", parts);
+        StatsLatencyTotal.Text = $"≈ {total} ms";
     }
 
     /// <summary>

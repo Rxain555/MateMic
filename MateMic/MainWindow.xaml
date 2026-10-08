@@ -837,8 +837,10 @@
                             <RowDefinition Height="*" MinHeight="55" />
                             <!-- 输出频谱：占下半剩余空间 -->
                             <RowDefinition Height="*" MinHeight="55" />
-                            <!-- RMS 电平条 -->
-                            <RowDefinition Height="Auto" />
+                            <!-- RMS 电平条。必须给 MinHeight，否则可用高度不足时
+                                 这一行（Auto）会被两张频谱的 * + MinHeight 挤成 0 高而消失
+                                 （2026-10-08 用户报"电平调被挡住了"）。刻度 6 + 条 16 + 下边距 2 = 24。 -->
+                            <RowDefinition Height="Auto" MinHeight="24" />
                             <!-- 实时数据卡片：延迟与性能消耗 -->
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
@@ -967,7 +969,10 @@
                               数据由 MainWindow.UpdateRealtimeStats() 按固定频率刷新 —— 这些都是
                               低频变化的量，跟着 30Hz 的频谱刷新只会白耗 CPU。
                             -->
-                            <Border Grid.Row="3" Style="{StaticResource Card}" Padding="8,5,8,7"
+                            <!-- 用 CardLast 而不是 Card：CardLast 的 Margin 是 0,0,0,0（贴底），
+                                 与右栏"音频列表"一致；Card 会多出 7px 下间距，两栏底部留白就不齐
+                                 （2026-10-08 用户反馈）。上间距由自己的 Margin 给。 -->
+                            <Border Grid.Row="3" Style="{StaticResource CardLast}" Padding="8,5,8,7"
                                     Margin="0,7,0,0">
                                 <StackPanel>
                                     <TextBlock Style="{StaticResource LabelText}" Text="延迟与性能"
@@ -1008,16 +1013,22 @@
                                     <Border Height="1" Margin="0,5,0,5"
                                             Background="{DynamicResource HairlineBrush}" />
 
+                                    <!-- 三列，与上面两行对齐：名称 | 构成明细 | 总计（右对齐）。
+                                         总计单独列出来右对齐，纵向扫一眼就能比对（2026-10-08 用户要求）。 -->
                                     <Grid Margin="0,1,0,1">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="72" />
                                             <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
                                         <TextBlock Grid.Column="0" Style="{StaticResource LabelText}"
                                                    Text="延迟构成" FontSize="11" />
                                         <TextBlock Grid.Column="1" x:Name="StatsLatencyText"
                                                    Style="{StaticResource LabelText}" FontSize="11"
                                                    Text="—" TextWrapping="Wrap" />
+                                        <TextBlock Grid.Column="2" x:Name="StatsLatencyTotal"
+                                                   Style="{StaticResource LabelText}" FontSize="11"
+                                                   Text="—" />
                                     </Grid>
                                 </StackPanel>
                             </Border>
