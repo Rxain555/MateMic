@@ -259,7 +259,12 @@ public sealed class FaissIndex : IDisposable
     /// 就地对 <paramref name="feats"/>（行优先 [frames × 768]）做检索替换。
     /// indexRate 为 0 时直接返回。权重用官方的 <c>square(1/score)</c>。
     /// </summary>
-    public void Retrieve(float[] feats, int frames, float indexRate, int k = 8)
+    /// <param name="quiet">
+    /// true = 不打那条例诊断日志。给 `--indexcheck` 的**随机特征**模式用：
+    /// 随机特征与训练集毫不相关（实测"替换前后余弦 0.03"），把它打出来会误导人；
+    /// 只有真实语音特征（`--indexcheck --wav`，或真实变声链路）的那个数字才有意义。
+    /// </param>
+    public void Retrieve(float[] feats, int frames, float indexRate, int k = 8, bool quiet = false)
     {
         if (_disposed || _handle == IntPtr.Zero) return;
         if (indexRate <= 0 || frames <= 0) return;
@@ -283,6 +288,13 @@ public sealed class FaissIndex : IDisposable
         //   · 每次迭代还要重新清零这几 KB，纯属白干。
         Span<double> weights = stackalloc double[k];
         Span<float> retrieved = stackalloc float[Dim];
+
+        // 诊断累加：替换前后特征的余弦相似度。
+        // 用户 2026-10-08 问"索引真的有用吗？我没听出来区别" —— 这个数字就是答案的客观依据：
+        //   ≈1.000 ⇒ 检索到的近邻与原始特征几乎一样（索引**本来**就改不动什么，听不出是必然的）；
+        //   明显小于 1（如 0.8）⇒ 特征被显著改写，那"听不出"就另有原因（合成器/音色模型把差异抹平了）。
+        double cosineSum = 0;
+        var cosineCount = 0;
 
         for (var f = 0; f < frames; f++)
         {
@@ -310,10 +322,44 @@ public sealed class FaissIndex : IDisposable
                 var w = (float)(weights[i] / wsum);
                 for (var d = 0; d < Dim; d++) retrieved[d] += vectors[vectorOff + d] * w;
             }
+
+            // 先量"改写幅度"，再真的改写（顺序不能反：替换后就拿不到原值了）
+            double dot = 0, normA = 0, normB = 0;
+            for (var d = 0; d < Dim; d++)
+            {
+                var a = feats[baseOff + d];
+                var b = retrieved[d];
+                dot += a * b;
+                normA += a * a;
+                normB += b * b;
+            }
+            if (normA > 1e-12 && normB > 1e-12)
+            {
+                cosineSum += dot / Math.Sqrt(normA * normB);
+                cosineCount++;
+            }
+
             for (var d = 0; d < Dim; d++)
                 feats[baseOff + d] = retrieved[d] * rate + feats[baseOff + d] * (1f - rate);
         }
+
+        // 每 2 秒一条（与 AI 变声的其它诊断同节奏；这里是纯 UI 线程/工作线程日志，不在音频线程上）
+        var nowTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+        if (!quiet && nowTicks - _lastDiagTicks >= System.Diagnostics.Stopwatch.Frequency * DiagIntervalSeconds)
+        {
+            _lastDiagTicks = nowTicks;
+            var meanCos = cosineCount > 0 ? cosineSum / cosineCount : double.NaN;
+            Log.Info($"[AI 变声] 索引诊断：{frames} 帧 / 占比 {rate:0.##} / "
+                     + $"替换前后余弦 {meanCos:F4}"
+                     + $"（1.0000 = 检索结果与原始特征几乎相同，索引改不动什么）");
+        }
     }
+
+    /// <summary>上次索引诊断日志的时间戳（Stopwatch ticks）。</summary>
+    private long _lastDiagTicks;
+
+    /// <summary>索引诊断的最小间隔（秒）。与 AiVoiceEffect 的诊断同节奏。</summary>
+    private const double DiagIntervalSeconds = 2.0;
 
     public void Dispose()
     {

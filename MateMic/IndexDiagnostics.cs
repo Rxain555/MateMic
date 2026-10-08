@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using MateMic.Ai;
 using MateMic.Core;
+using NAudio.Wave;
+using NAudio.Wave.SampleProviders;
 
 namespace MateMic;
 
@@ -63,16 +65,41 @@ internal static class IndexDiagnostics
                  + $"｜OpenBLAS 线程数 = {SafeOpenBlasThreads()}｜CPU 逻辑核心 {Environment.ProcessorCount}");
 
         var dim = index.Dim;
-        var feats = new float[(long)frames * dim];
 
-        // 查询特征用固定种子的随机数：检索耗时由"规模 + 维度 + k + nprobe"决定，
-        // 与特征取值基本无关；用随机数只是为了避开全 0 可能走的特殊路径。
-        var rng = new Random(12345);
-        for (var i = 0; i < feats.Length; i++) feats[i] = (float)(rng.NextDouble() * 2 - 1);
+        // 查询特征：默认随机（只测耗时），给 --wav 就用**真实语音**（这才是"索引有没有用"的依据）。
+        float[] feats;
+        var frameCount = frames;
+        var quiet = true;
+        if (dim != ContentEncoder.FeatureDim)
+        {
+            Log.Error($"[索引自检] 这个索引是 {dim} 维，而 contentvec 特征是 {ContentEncoder.FeatureDim} 维，无法做真实语音检索");
+            return 1;
+        }
+
+        var wav = ValueOf(args, "--wav");
+        if (!string.IsNullOrWhiteSpace(wav) && File.Exists(wav))
+        {
+            var audio = LoadMono16k(wav);
+            Log.Info($"[索引自检] 语音素材：{Path.GetFileName(wav)} → 16 kHz 单声道"
+                     + $" {audio.Length} 样本（{audio.Length / 16000.0:0.00} 秒）");
+            using var encoder = new ContentEncoder(
+                Path.Combine(ConfigStore.AiEngineDirectory, "contentvec.onnx"), useGpu: false);
+            (feats, frameCount) = encoder.Encode(audio);
+            quiet = false;      // 真实特征：这条诊断就是本次自检的重点
+            Log.Info($"[索引自检] contentvec 特征 {frameCount} 帧 × {ContentEncoder.FeatureDim} 维");
+        }
+        else
+        {
+            feats = new float[(long)frames * dim];
+            var rng = new Random(12345);
+            for (var i = 0; i < feats.Length; i++) feats[i] = (float)(rng.NextDouble() * 2 - 1);
+            Log.Info("[索引自检] 未给 --wav：用随机特征，**只能看耗时/CPU 占用**"
+                     + "（随机特征与训练集无关，检索出来的东西说明不了音质问题）");
+        }
 
         // 预热：第一次调用要建 OpenBLAS/OpenMP 线程池、把倒排表页读进来，
         // 不计入统计（否则量到的是"首次开销"而不是稳态耗时）。
-        for (var i = 0; i < 3; i++) index.Retrieve(feats, frames, rate);
+        for (var i = 0; i < 3; i++) index.Retrieve(feats, frameCount, rate, quiet: quiet);
 
         var process = Process.GetCurrentProcess();
         var cpuBefore = process.TotalProcessorTime;
@@ -83,7 +110,7 @@ internal static class IndexDiagnostics
         for (var i = 0; i < iters; i++)
         {
             sw.Restart();
-            index.Retrieve(feats, frames, rate);
+            index.Retrieve(feats, frameCount, rate, quiet: quiet);
             sw.Stop();
             times[i] = sw.Elapsed.TotalMilliseconds;
         }
@@ -118,6 +145,28 @@ internal static class IndexDiagnostics
             if (string.Equals(args[i], name, StringComparison.OrdinalIgnoreCase)) return args[i + 1];
         }
         return null;
+    }
+
+    /// <summary>
+    /// 把任意格式的音频解成 16 kHz 单声道 float（ContentVec 要的就是这个）。
+    /// 读法与 `tools\dev\VcFileProbe` 一致：Media Foundation 解码（wav/mp3/m4a 都能吃）
+    /// → 需要就下混单声道 → 需要就重采样到 16 kHz。
+    /// </summary>
+    private static float[] LoadMono16k(string path)
+    {
+        using var reader = new MediaFoundationReader(path);
+        ISampleProvider provider = reader.ToSampleProvider();
+        if (provider.WaveFormat.Channels > 1)
+            provider = new StereoToMonoSampleProvider(provider);
+        if (provider.WaveFormat.SampleRate != 16000)
+            provider = new WdlResamplingSampleProvider(provider, 16000);
+
+        var buffer = new float[8192];
+        var all = new List<float>();
+        int read;
+        while ((read = provider.Read(buffer.AsSpan())) > 0)
+            all.AddRange(buffer.AsSpan(0, read).ToArray());
+        return all.ToArray();
     }
 
     private static int IntOf(string[] args, string name, int fallback)
