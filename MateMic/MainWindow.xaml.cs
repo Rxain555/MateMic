@@ -371,7 +371,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             // 因此必须在载入模型**之后**再统一应用一次参数，
             // 否则重启后链路仍按"默认模型"构建，必须手动重选一次模型才生效。
             _engine.UpdateAllParameters();
-            UpdateMixLineStatus();
 
             _engine.Start();
             if (!_engine.IsRunning && _engine.LastError != null)
@@ -2034,8 +2033,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                  $"，监听「{_devices.DescribeName(_config.Devices.MonitorDeviceId, DataFlow.Render)}」" +
                  $"，流运行中={_engine.IsRunning}，首选缺失={inputMissing}");
 
-        // 设备变化可能让"未检测到 MIXLINE"的前提也变了，顺手刷新一下状态条
-        UpdateMixLineStatus();
     }
 
     private void RefreshDeviceLists(ComboBox? only = null)
@@ -2143,23 +2140,12 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         if (!_engine.IsRunning && _engine.LastError != null)
             ShowStatus("音频设备切换失败：" + _engine.LastError, false);
 
-        UpdateMixLineStatus();
         SaveConfig();
     }
 
     private static string? SelectedDeviceId(ComboBox combo)
         => (combo.SelectedItem as ComboBoxItem)?.Tag is AudioDevice device ? device.Id : null;
 
-    private void UpdateMixLineStatus()
-    {
-        if (_devices.HasMixLineDevice())
-        {
-            HideStatus();
-            return;
-        }
-
-        ShowStatus("未检测到 MIXLINE，请先安装并配置 MIXLINE。", true);
-    }
 
     // =============================================================== 左侧处理链
 
@@ -3969,17 +3955,17 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     private DispatcherTimer? _statusTimer;
 
     /// <summary>
-    /// 显示状态条。
-    /// <paramref name="showGuideButton"/> = true 表示这是一条"需要用户处理"的提示
-    /// （目前只有"未检测到 MIXLINE"），它带「查看设置指南」按钮并且**不自动消失**；
-    /// 其余提示都是普通反馈，4 秒后自动收起。
+    /// 显示状态条，4 秒后自动收起。
+    /// <paramref name="showGuideButton"/> 曾用于"未检测到 MIXLINE"那条带按钮、不自动消失的提示；
+    /// 那个强制检测已移除（本软件同样适用于 VB-CABLE / VoiceMeeter 等虚拟声卡），
+    /// 参数保留以备将来有别的"需要用户处理"的提示，目前所有调用都传 false。
     /// </summary>
     private void ShowStatus(string message, bool showGuideButton)
     {
         StatusText.Text = message;
         StatusBar.Visibility = Visibility.Visible;
         StatusActionButton.Visibility = showGuideButton ? Visibility.Visible : Visibility.Collapsed;
-        _statusAction = showGuideButton ? ShowMixLineGuide : null;
+        _statusAction = null;   // 曾用于 MIXLINE 的「查看设置指南」，该检测已移除
         Log.Info("[状态] " + message);
 
         _statusTimer?.Stop();
@@ -3994,21 +3980,8 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         _statusTimer.Start();
     }
 
-    private void HideStatus()
-    {
-        _statusTimer?.Stop();
-        StatusBar.Visibility = Visibility.Collapsed;
-        _statusAction = null;
-    }
-
+    /// <summary>状态条上那个操作按钮的点击处理（目前无提示会显示它，留着以备将来）。</summary>
     private void OnStatusActionClick(object sender, RoutedEventArgs e) => _statusAction?.Invoke();
-
-    /// <summary>
-    /// MIXLINE 接法：内容就是使用指南里的「MIXLINE 接法」那一页，
-    /// 所以直接打开使用指南，不再单独维护一份重复的文案。
-    /// </summary>
-    private void ShowMixLineGuide()
-        => DialogHost.ShowGuide(this, "MateMic 使用指南", GuideCatalog.Pages);
 
     /// <summary>
     /// 关闭主窗口。打开「关闭到托盘」时收进托盘（托盘双击恢复），否则真正退出。
@@ -4045,6 +4018,13 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         }
 
         ExitApplication();
+    }
+
+    private void HideStatus()
+    {
+        _statusTimer?.Stop();
+        StatusBar.Visibility = Visibility.Collapsed;
+        _statusAction = null;
     }
 
     /// <summary>
