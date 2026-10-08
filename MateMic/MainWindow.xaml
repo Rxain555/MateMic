@@ -386,12 +386,12 @@
                                                 <ColumnDefinition Width="62" />
                                                 <ColumnDefinition Width="*" />
                                                 <!--
-                                                  这里不放按钮，但**保留与音色/索引行同宽的占位列**。
-                                                  那两行右侧各有一个 26px 的文件夹按钮（外加 6px 间距），
-                                                  下拉框因此窄了 32px；若本行不占位，两行的下拉框右边界就不同，
-                                                  看起来就是"间距不一样"（2026-10-08 用户指出）。
+                                                  与音色/索引行**完全相同的列定义**（第三列 Auto），
+                                                  只是这里不放那个 26px 的文件夹按钮。
+                                                  （2026-10-08 用户要求："直接用下面音色和索引的样式，
+                                                    不要后面那个按钮就行了"。）
                                                 -->
-                                                <ColumnDefinition Width="32" />
+                                                <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="运算方式" />
                                             <ComboBox x:Name="AiVoiceProviderCombo" Grid.Column="1"
@@ -399,6 +399,14 @@
                                                       ItemContainerStyle="{StaticResource FlatComboItem}"
                                                       DropDownOpened="OnAiVoiceProviderDropDownOpened"
                                                       SelectionChanged="OnAiVoiceProviderSelectionChanged"/>
+                                            <!--
+                                              与音色/索引行那个 26×26 文件夹按钮**同尺寸的透明占位**。
+                                              它不显示任何东西，但把本行的高度撑到与那两行完全一致 ——
+                                              否则本行可见的下边界只有文字，视觉上"运算方式与音色之间"的空隙
+                                              就比"音色与索引之间"大（2026-10-08 用户指出）。
+                                            -->
+                                            <Border Grid.Column="2" Width="26" Height="26"
+                                                    Margin="6,0,0,0" Background="Transparent" />
                                         </Grid>
                                         <Grid x:Name="AiVoiceModelRow" Margin="0,2,0,2">
                                             <Grid.ColumnDefinitions>

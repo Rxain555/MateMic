@@ -34,8 +34,14 @@ public partial class App : Application
 
         // AI 变声的原生运行时装配：**必须早于任何 ONNX 会话创建**
         // （降噪的模型扫描就会建会话）。组件装了就把 onnxruntime 解析到组件里的
-        // GPU 版，没装就交回默认的 CPU 版；降噪本身始终显式走 CPU，不占显卡。
-        Ai.AiComponent.InstallNativeResolver();
+        // 那个后端版本，没装就交回默认的 CPU 版；降噪本身始终显式走 CPU，不占显卡。
+        //
+        // ⚠ 必须把配置里用户选的运算方式传进去。
+        // 曾经这里是无参调用，于是 _preferredProvider 永远是 null、每次都走 auto（CUDA），
+        // 用户在界面上切成 CPU / DirectML 后**重启也没用**
+        //（2026-10-08 用户实测："我之前说的切换运算方式没用，就是重启后也没用"）。
+        var bootConfig = new ConfigStore().Load();
+        Ai.AiComponent.InstallNativeResolver(bootConfig.AiVoice.Provider);
 
         // 单实例：重复启动时把已有窗口激活
         _singleInstance = new Mutex(true, @"Local\MateMic.SingleInstance", out _ownsMutex);

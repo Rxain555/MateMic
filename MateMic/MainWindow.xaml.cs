@@ -3239,7 +3239,15 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         }
     }
 
-    /// <summary>重启整个程序。</summary>
+    /// <summary>
+    /// 重启整个程序。
+    ///
+    /// ⚠ 不能直接 Process.Start 新进程再退出：新进程会**立刻**去抢单实例 Mutex，
+    /// 而旧进程还没释放，于是新进程弹"MateMic 已经在运行中"然后自杀。
+    /// （2026-10-08 用户实测："立即重启没关程序就又打开一个新的进程，导致显示软件已在运行"。）
+    ///
+    /// 所以交给一个独立的 cmd：它先等 2 秒（足够本进程退出并释放 Mutex）再启动程序。
+    /// </summary>
     private void RestartApplication()
     {
         try
@@ -3247,17 +3255,23 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             CancelAiVoiceApply();       // 先停掉待生效的计时器，避免它回调已释放的引擎
             _saveTimer?.Stop();         // 停掉延迟保存，改为立刻落盘
             SaveConfig();
+
             var exe = Environment.ProcessPath;
             if (string.IsNullOrEmpty(exe))
             {
                 ShowStatus("重启失败（取不到程序路径），请手动重启", false);
                 return;
             }
-            Process.Start(new ProcessStartInfo(exe)
+
+            var psi = new ProcessStartInfo("cmd.exe")
             {
-                UseShellExecute = true,
+                Arguments = $"/c timeout /t 2 /nobreak >nul & start \"\" \"{exe}\"",
+                CreateNoWindow = true,
+                UseShellExecute = false,
                 WorkingDirectory = AppContext.BaseDirectory,
-            });
+            };
+            Process.Start(psi);
+
             _exiting = true;            // 让 OnClosing 走真正的退出，而不是收进托盘
             ExitApplication();
         }
