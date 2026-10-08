@@ -1,0 +1,15 @@
+# 统一行尾为 LF。
+#
+# 起因：用 PowerShell 的 File.WriteAllLines 改文件时，它按 Environment.NewLine（CRLF）写，
+# 会把原本 LF 的文件整体变成 CRLF —— 于是"只改十几行"的提交在 git 里显示成
+# 整文件重写（2026-10-08 实测：563/543 行全变）。有这条规定后，任何工具写出的 CRLF
+# 都会在提交时被规范回 LF。
+* text=auto eol=lf
+
+# 图片等二进制资源不要动
+*.png binary
+*.jpg binary
+*.ico binary
+*.dll binary
+*.onnx binary
+*.index binary
