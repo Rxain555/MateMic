@@ -380,7 +380,7 @@
                                                 Style="{StaticResource ExpanderButton}"
                                                 Click="OnExpandClick" Tag="{Binding AiVoiceExpanded, RelativeSource={RelativeSource AncestorType=Window}}" />
                                     </Grid>
-                                    <StackPanel x:Name="PanelAiVoice" Visibility="Collapsed" Margin="0,6,0,0">
+                                    <StackPanel x:Name="PanelAiVoice" Visibility="Collapsed" Margin="0,4,0,0">
                                         <Grid x:Name="AiVoiceProviderRow" Margin="0,2,0,2">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="62" />

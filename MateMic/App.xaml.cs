@@ -234,7 +234,8 @@ public partial class App : Application
             {
                 if (tick == 1)
                 {
-                    dialog = Ui.DialogHost.CreateCustom("添加 AI 变声", new AiComponentPanel());
+                    dialog = Ui.DialogHost.CreateCustom("添加 AI 变声", new AiComponentPanel(),
+                        "关闭", "打开组件文件夹", AiComponentPanel.OpenComponentFolder);
                     dialog.Show();
                     dialog.UpdateLayout();
                 }

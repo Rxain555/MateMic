@@ -3193,9 +3193,14 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         }
 
         _config.AiVoice.Provider = item.Name;
-        AiComponent.InstallNativeResolver(item.Name);   // 重新指定后端
+        AiComponent.InstallNativeResolver(item.Name);   // 重新指定后端（写入静态字段，供下次装配用）
         SaveConfig();
-        ShowStatus($"运算方式已切换为 {item.Display}，下次开启 AI 变声时生效", true);
+
+        // ⚠ 必须是"重启程序"而不是"重开 AI 变声"：
+        // onnxruntime.dll 一旦被加载进进程就不会重新解析（NativeLibrary 的解析器只生效一次），
+        // 所以换后端只能靠重启进程 —— 否则用户会觉得"切了没反应"
+        //（2026-10-08 用户实测反馈）。
+        ShowStatus($"运算方式已切换为 {item.Display}，需重启程序后生效", true);
     }
 
     private void OnAiVoiceModelDropDownOpened(object sender, EventArgs e)
@@ -3262,10 +3267,17 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
     private void OnAddAiVoiceClick(object sender, RoutedEventArgs e)
     {
-        // 复用 DialogHost 的现成样式（标题栏/描边/按钮），内容用 AiComponentPanel
-        DialogHost.ShowCustom(this, "添加 AI 变声", new AiComponentPanel());
-        // 对话框里可能刚放进组件或音色，回来刷新一下下拉与索引可用性
+        // 复用 DialogHost 的现成样式（标题栏/描边/按钮），内容用 AiComponentPanel。
+        // "打开组件文件夹"作为次要按钮 —— 用对话框自己的按钮样式，不再自造 ToolbarButton
+        //（2026-10-08 用户要求："为什么要单独做呢？用那个不就行了，又美观"）。
+        DialogHost.ShowCustom(this, "添加 AI 变声", new AiComponentPanel(),
+            primaryText: "关闭",
+            secondaryText: "打开组件文件夹",
+            onSecondary: AiComponentPanel.OpenComponentFolder);
+        // 对话框里可能刚放进组件，回来刷新一下下拉与可用性
         RefreshAiVoiceLists();
+        RefreshAiVoiceProviderCombo();
+        UpdateAiVoiceControlAvailability();
     }
 
     /// <summary>重新扫描音色与索引目录，把已保存的选择对上号。</summary>

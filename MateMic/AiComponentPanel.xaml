@@ -1,21 +1,21 @@
 <UserControl x:Class="MateMic.AiComponentPanel"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             Width="460">
+             Width="420">
 
     <!--
-      「添加 AI 变声」的对话框内容。
-      **刻意不做成独立窗口**：由 Ui\DialogHost.ShowCustom 承载，
-      标题栏、描边、圆角、底部按钮全部复用现成样式（2026-10-07 用户指出应当如此）。
+      「添加 AI 变声」的对话框内容（由 Ui\DialogHost.ShowCustom 承载）。
 
-      这里**只关心组件本身**（通用 + 运算后端）。
-      音色模型与索引不在这里检测、也不在这里安装 —— 它们由用户直接拖到主界面
-      （2026-10-08 用户要求：界面太复杂，对话框只管组件）。
+      刻意保持极简（2026-10-08 用户要求"只用显示通用组件和运算组件的就绪状态就行"）：
+        · 一个拖放区
+        · 两项状态
+      其余（音色、索引、目录路径、操作按钮）一概不放 ——
+      音色与索引由用户直接拖到主界面；"打开组件文件夹"用对话框现成的次要按钮。
     -->
     <StackPanel Margin="0,0,0,2">
 
         <!-- 拖放区 -->
-        <Border x:Name="DropZone" Padding="14,18"
+        <Border x:Name="DropZone" Padding="14,20"
                 CornerRadius="6" BorderThickness="1.4"
                 BorderBrush="{DynamicResource CardBorderBrush}"
                 Background="{DynamicResource WindowSurfaceBrush}"
@@ -26,52 +26,32 @@
                            HorizontalAlignment="Center" TextWrapping="Wrap"
                            Foreground="{DynamicResource TextBrush}" />
                 <TextBlock Text="支持 .zip 组件包（自动解压安装）、解压后的文件夹，或零散文件"
-                           Margin="0,5,0,0" HorizontalAlignment="Center" TextWrapping="Wrap"
+                           Margin="0,6,0,0" HorizontalAlignment="Center" TextWrapping="Wrap"
                            FontSize="11" Foreground="{DynamicResource SubtleTextBrush}" />
-                <TextBlock Text="点这里也可以打开文件选择框"
+                <TextBlock Text="点这里也可以选择文件"
                            Margin="0,3,0,0" HorizontalAlignment="Center"
                            FontSize="11" Foreground="{DynamicResource SubtleTextBrush}" />
             </StackPanel>
         </Border>
 
-        <!-- 只显示两类：通用组件 + 运算组件 -->
-        <StackPanel Margin="0,14,0,0">
-            <Grid Margin="0,3,0,3">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="78" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="通用组件" Style="{StaticResource LabelText}" />
-                <TextBlock x:Name="CoreStatusText" Grid.Column="1" TextWrapping="Wrap"
-                           Foreground="{DynamicResource TextBrush}" />
-            </Grid>
-            <Grid Margin="0,3,0,3">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="78" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="运算组件" Style="{StaticResource LabelText}" />
-                <TextBlock x:Name="ProviderStatusText" Grid.Column="1" TextWrapping="Wrap"
-                           Foreground="{DynamicResource TextBrush}" />
-            </Grid>
-        </StackPanel>
-
-        <!-- 已装的后端明细 -->
-        <TextBlock x:Name="ProviderDetailText" Margin="0,8,0,0" TextWrapping="Wrap"
-                   FontSize="11" Foreground="{DynamicResource SubtleTextBrush}" />
-
-        <TextBlock Margin="0,6,0,0" TextWrapping="Wrap"
-                   FontSize="11" Foreground="{DynamicResource SubtleTextBrush}"
-                   Text="音色模型与索引不在这里安装 —— 直接把它们拖到主界面即可（也可以拖进 voices\ 与 index\）。" />
-
-        <TextBlock x:Name="ComponentDirText" Margin="0,8,0,0" TextWrapping="Wrap"
-                   FontSize="11" Foreground="{DynamicResource SubtleTextBrush}" />
-
-        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
-            <Button Content="打开组件文件夹" Style="{StaticResource ToolbarButton}"
-                    Padding="10,4,10,4" Margin="0,0,8,0" Click="OnOpenFolderClick" />
-            <Button Content="重新检测" Style="{StaticResource ToolbarButton}"
-                    Padding="10,4,10,4" Click="OnRefreshClick" />
-        </StackPanel>
+        <!-- 只两项状态 -->
+        <Grid Margin="0,16,0,3">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="78" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="通用组件" Style="{StaticResource LabelText}" />
+            <TextBlock x:Name="CoreStatusText" Grid.Column="1" TextWrapping="Wrap"
+                       Foreground="{DynamicResource TextBrush}" />
+        </Grid>
+        <Grid Margin="0,3,0,3">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="78" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="运算组件" Style="{StaticResource LabelText}" />
+            <TextBlock x:Name="ProviderStatusText" Grid.Column="1" TextWrapping="Wrap"
+                       Foreground="{DynamicResource TextBrush}" />
+        </Grid>
     </StackPanel>
 </UserControl>

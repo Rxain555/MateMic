@@ -41,24 +41,18 @@ public partial class AiComponentPanel : UserControl
             ? "✓ 已安装"
             : (status.HasRuntime ? "✗ 缺推理引擎模型" : "✗ 未安装");
 
+        // 只列短名，避免整行换行（括号里的说明由下拉与说明文档承担）
         ProviderStatusText.Text = installed.Count > 0
-            ? "✓ " + string.Join("、", installed.Select(AiComponent.ProviderDisplayName))
-            : "✗ 未安装";
-
-        ProviderDetailText.Text = installed.Count > 0
-            ? "可选后端：CUDA（NVIDIA，最快）· DirectML（AMD/Intel/NVIDIA 通用，约 15MB）· CPU（约 5MB）"
-            : "请安装至少一个运算组件：CUDA / DirectML / CPU";
-
-        ComponentDirText.Text = $"组件目录：{ConfigStore.AiComponentDirectory}";
+            ? "✓ " + string.Join("、", installed.Select(n => n.ToUpperInvariant()))
+            : "✗ 未安装（需 CUDA / DirectML / CPU 之一）";
 
         DropHintText.Text = status.HasRuntime && status.HasEngine && installed.Count > 0
-            ? "组件已就绪，可以关闭本窗口"
+            ? "组件已就绪，重启程序即可使用"
             : "把组件包拖到这里";
     }
 
-    private void OnRefreshClick(object sender, RoutedEventArgs e) => Refresh();
-
-    private void OnOpenFolderClick(object sender, RoutedEventArgs e)
+    /// <summary>供对话框的次要按钮调用：打开组件文件夹。</summary>
+    public static void OpenComponentFolder()
     {
         try
         {
@@ -69,9 +63,9 @@ public partial class AiComponentPanel : UserControl
                 UseShellExecute = true,
             });
         }
-        catch (Exception ex)
+        catch
         {
-            DropHintText.Text = "打开文件夹失败：" + ex.Message;
+            // 打不开就算了，不影响装组件
         }
     }
 

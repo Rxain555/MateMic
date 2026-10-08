@@ -48,7 +48,8 @@ public sealed class DialogHost : Window
 
     private DialogHost(string title, string message, string? secondaryText, string primaryText,
                        IReadOnlyList<GuideCatalog.Page>? pages = null,
-                       FrameworkElement? customContent = null)
+                       FrameworkElement? customContent = null,
+                       Action? onSecondary = null)
     {
         WindowStyle = WindowStyle.None;
         ResizeMode = ResizeMode.NoResize;
@@ -138,7 +139,13 @@ public sealed class DialogHost : Window
         else if (secondaryText != null)
         {
             var secondary = MakeButton(secondaryText, primary: false);
-            secondary.Click += (_, _) => { _accepted = false; Close(); };
+            // 传了动作就执行它、不关闭对话框（例如"打开组件文件夹"）；
+            // 没传就是常规的"取消"语义。
+            secondary.Click += (_, _) =>
+            {
+                if (onSecondary != null) onSecondary();
+                else { _accepted = false; Close(); }
+            };
             buttons.Children.Add(secondary);
         }
 
@@ -294,9 +301,10 @@ public sealed class DialogHost : Window
     /// 主按钮返回 true。
     /// </summary>
     public static bool ShowCustom(Window? owner, string title, FrameworkElement content,
-                                  string primaryText = "关闭")
+                                  string primaryText = "关闭",
+                                  string? secondaryText = null, Action? onSecondary = null)
     {
-        var dialog = CreateCustom(title, content, primaryText);
+        var dialog = CreateCustom(title, content, primaryText, secondaryText, onSecondary);
         if (owner != null) dialog.Owner = owner;
         dialog.ShowDialog();
         return dialog._accepted;
@@ -307,8 +315,10 @@ public sealed class DialogHost : Window
     /// 供自检使用：ShowDialog 会阻塞调用线程，截图流程需要自己 Show() 再抓图。
     /// </summary>
     internal static DialogHost CreateCustom(string title, FrameworkElement content,
-                                            string primaryText = "关闭")
-        => new(title, string.Empty, null, primaryText, pages: null, customContent: content);
+                                            string primaryText = "关闭",
+                                            string? secondaryText = null, Action? onSecondary = null)
+        => new(title, string.Empty, secondaryText, primaryText,
+               pages: null, customContent: content, onSecondary: onSecondary);
 
     /// <summary>
     /// 分页显示使用指南。页数与每页内容都是**内置**的（仓库 Assets\使用指南.txt，随程序集编译进来）。
