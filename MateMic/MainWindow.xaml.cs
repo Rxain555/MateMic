@@ -2454,23 +2454,25 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     {
         var running = _config.AiVoice.Enabled;
 
-        // ⚠ 必须**整行**置灰（含前面的文字与后面的数值），不能只灰滑条本身。
-        // 用户 2026-10-07 与 2026-10-08 两次指出这一点：只让滑条变灰会让一行里
+        // ⚠ 必须**整行**置灰（含前面的文字与后面的数值/按钮），不能只灰控件本身。
+        // 用户 2026-10-07 与 2026-10-08 两次指出这一点：只让控件变灰会让一行里
         // "文字正常、控件灰、数值正常"，看起来像是控件坏了而不是"这一项暂时不可调"。
-        // 与 AiVoiceIndexRateRow 的做法保持一致：整行 IsEnabled + Opacity 0.4。
+        //
+        // 而且**各行必须用同一种灰法**：曾经"运算方式"整行淡出，而"音色/索引"只设了
+        // ComboBox 的 IsEnabled、没设 Opacity，两种灰法肉眼可见地不一致
+        //（2026-10-08 用户指出"样式不一样，你之后统一一下"）。
+        // 现在统一：整行 IsEnabled + Opacity 0.4，与 AiVoiceIndexRateRow 一致。
         foreach (var row in new System.Windows.FrameworkElement[]
                  {
+                     AiVoiceProviderRow,          // 换运算后端同样要重建引擎
+                     AiVoiceModelRow,             // 换音色
+                     AiVoiceIndexRow,             // 换索引
                      AiVoiceBlockRow, AiVoiceContextRow, AiVoiceCrossfadeRow,
-                     AiVoiceProviderRow,          // 换运算后端同样要重建引擎，必须一起置灰
                  })
         {
             row.IsEnabled = !running;
             row.Opacity = running ? 0.4 : 1.0;
         }
-
-        // 下拉框是独立控件（不占整行），单独置灰
-        AiVoiceModelCombo.IsEnabled = !running;
-        AiVoiceIndexCombo.IsEnabled = !running;
 
         // 走热更新的：保持可用
         AiVoicePitchSlider.IsEnabled = true;
