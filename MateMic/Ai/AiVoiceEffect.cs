@@ -73,6 +73,9 @@ public sealed class AiVoiceEffect : IAudioEffect
     private const double DiagIntervalSeconds = 2.0;
     private double _lastInferMs;
 
+    /// <summary>输出环积压（毫秒），audio 线程写、UI 线程读。</summary>
+    private int _lastBacklogMs;
+
     /// <summary>最近一次引擎创建失败的原因（成功时为 null）。供界面提示用户。</summary>
     private volatile string? _lastError;
 
@@ -104,6 +107,12 @@ public sealed class AiVoiceEffect : IAudioEffect
 
     /// <summary>当前配置下的算法延迟（ms），= 2 × block，官方口径。</summary>
     public int LatencyMs => 2 * _config.AiVoice.BlockMs;
+
+    /// <summary>
+    /// 输出环当前积压（毫秒）—— 这是**真实存在的额外延迟**（产出快过消费时的排队量），
+    /// 稳态下不应长期偏大（上限约 2×块长）。界面把它计入总延迟。
+    /// </summary>
+    public int OutputBacklogMs => Volatile.Read(ref _lastBacklogMs);
 
     // ---------------------------------------------------------------- 参数
 
@@ -406,6 +415,10 @@ public sealed class AiVoiceEffect : IAudioEffect
 
         // 输出：有就取，没有补静音
         var available = (_outWrite - _outRead + _outRing.Length) % _outRing.Length;
+
+        // 记下当前积压供界面显示。这是**真实存在的额外延迟**（产出快过消费时的排队量），
+        // 稳态下不应长期偏大（上限 2×块长）。2026-10-08 加入"延迟与性能"卡片。
+        Volatile.Write(ref _lastBacklogMs, available * 1000 / ChainRate);
 
         // ⚠ 限流：积压超过目标就把**最老的**丢掉，把延迟拉回来。
         //

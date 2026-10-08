@@ -1366,6 +1366,88 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
         UpdateLevelMeter();
         UpdateTrackProgress();
+
+        // 延迟与性能卡片：**不是每帧刷**。
+        // 这些量变化很慢（推理耗时、占用率、延迟构成），跟 30Hz 刷新只是白耗 CPU
+        // 和制造无谓的文本布局；约每 15 帧（≈0.5 秒）刷一次足够（2026-10-08）。
+        if (++_statsTick % 15 == 0) UpdateRealtimeStats();
+    }
+
+    private int _statsTick;
+
+    /// <summary>
+    /// 刷新中间栏底部的"延迟与性能"卡片。
+    ///
+    /// 数据来源：
+    ///   · AI 降噪 —— DenoiseEffect.LastInferMs（单帧推理耗时）/ FrameMs（一帧时长，作为分母）
+    ///   · AI 变声 —— AiVoiceEffect.LastInferMs（单块推理耗时）/ BlockMs（块长，作为分母）
+    ///   · 延迟构成 —— 采集 + 降噪一帧 + 变声 2×块长 + 输出
+    ///
+    /// "占用率"是**该模块耗时占它自己处理周期的比例**：降噪按 10ms 一帧跑、
+    /// 变声按 250ms 一块跑，所以分母各不相同，不能混用。
+    /// </summary>
+    private void UpdateRealtimeStats()
+    {
+        // ---- AI 降噪 ----
+        var denoise = _engine.Denoise;
+        var denoiseInfer = denoise.LastInferMs;
+        var denoiseFrame = denoise.FrameMs;
+        if (denoise.Enabled && denoise.Wet > 0.001f)
+        {
+            StatsDenoiseText.Text = $"{denoiseInfer:0.0} ms / 帧 {denoiseFrame:0.#} ms";
+            StatsDenoiseLoad.Text = denoiseFrame > 0
+                ? $"占 {denoiseInfer / denoiseFrame * 100:0}%"
+                : "";
+        }
+        else
+        {
+            StatsDenoiseText.Text = "未启用";
+            StatsDenoiseLoad.Text = "";
+        }
+
+        // ---- AI 变声 ----
+        var ai = _engine.AiVoice;
+        var blockMs = _config.AiVoice.BlockMs;
+        if (_config.AiVoice.Enabled && blockMs > 0)
+        {
+            var infer = ai.LastInferMs;
+            StatsAiVoiceText.Text = $"{infer:0} ms / 块 {blockMs} ms";
+            StatsAiVoiceLoad.Text = $"占 {infer / blockMs * 100:0}%";
+        }
+        else
+        {
+            StatsAiVoiceText.Text = "未启用";
+            StatsAiVoiceLoad.Text = "";
+        }
+
+        // ---- 延迟构成 ----
+        // 降噪的 LatencyMs 是"固定一帧"（它是帧式处理，输出天然滞后一帧）；
+        // 变声用 AiVoiceEffect.LatencyMs（= 2×块长，与官方口径一致）。
+        var parts = new List<string>
+        {
+            $"采集 {_engine.CaptureLatencyMs}",
+        };
+        if (denoise.Enabled && denoise.Wet > 0.001f)
+            parts.Add($"降噪 {denoise.LatencyMs:0.#}");
+        if (_config.AiVoice.Enabled)
+        {
+            parts.Add($"变声 {ai.LatencyMs}");
+            // 输出环的稳态积压也是真实延迟，一并计入总账
+            var backlog = ai.OutputBacklogMs;
+            if (backlog > 5) parts.Add($"缓冲 {backlog}");
+        }
+        parts.Add($"输出 {_engine.OutputLatencyMs}");
+
+        var total = _engine.CaptureLatencyMs + _engine.OutputLatencyMs;
+        if (denoise.Enabled && denoise.Wet > 0.001f) total += (int)Math.Round(denoise.LatencyMs);
+        if (_config.AiVoice.Enabled)
+        {
+            total += ai.LatencyMs;
+            var backlog = ai.OutputBacklogMs;
+            if (backlog > 5) total += backlog;
+        }
+
+        StatsLatencyText.Text = string.Join(" + ", parts) + $"  ≈ {total} ms";
     }
 
     /// <summary>

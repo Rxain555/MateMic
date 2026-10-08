@@ -47,6 +47,9 @@ public sealed class DenoiseEffect : IAudioEffect
     private int _doneHead;
     private int _doneCount;
     private long _skippedFrames;
+
+    /// <summary>最近一帧的推理耗时（毫秒）。audio 线程写、UI 线程读，用 Volatile。</summary>
+    private double _lastInferMs;
     private long _processedFrames;
     private long _bypassedSamples;
 
@@ -77,6 +80,19 @@ public sealed class DenoiseEffect : IAudioEffect
 
     /// <summary>诊断用：已处理的音频帧数。</summary>
     public long ProcessedFrames => Interlocked.Read(ref _processedFrames);
+
+    /// <summary>一帧的时长（毫秒）。降噪按 480 样本一帧处理，本节点的时间占用率就以它为分母。</summary>
+    public double FrameMs => FrameSize * 1000.0 / WaveFormat.SampleRate;
+
+    /// <summary>本节点固定引入的算法延迟（毫秒）= 一帧。</summary>
+    public double LatencyMs => FrameMs;
+
+    /// <summary>
+    /// 最近一帧降噪推理的耗时（毫秒）。供界面显示性能消耗。
+    /// 用 <see cref="Stopwatch"/> 而不是 <c>Environment.TickCount64</c>：后者精度只有 1ms，
+    /// 而降噪单帧往往不到 1ms，用它会一直显示 0（2026-10-08）。
+    /// </summary>
+    public double LastInferMs => Volatile.Read(ref _lastInferMs);
 
     /// <summary>
     /// 切换降噪后端（模型下拉框）。
@@ -164,7 +180,8 @@ public sealed class DenoiseEffect : IAudioEffect
     /// </summary>
     private void ProcessFrame(float wet)
     {
-        var start = Environment.TickCount64;
+        // 用 Stopwatch 而不是 TickCount64：降噪单帧常在 1ms 以内，1ms 精度会显示成 0
+        var start = System.Diagnostics.Stopwatch.GetTimestamp();
         Interlocked.Increment(ref _processedFrames);
 
         var model = _model;   // 本帧固定用一个模型，避免中途换模型导致半帧前后不一致
@@ -183,12 +200,15 @@ public sealed class DenoiseEffect : IAudioEffect
             return;
         }
 
-        var elapsed = Environment.TickCount64 - start;
-        if (elapsed > SkipThresholdMs)
+        var elapsedMs = (System.Diagnostics.Stopwatch.GetTimestamp() - start)
+                        * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+        Volatile.Write(ref _lastInferMs, elapsedMs);
+
+        if (elapsedMs > SkipThresholdMs)
         {
             var skipped = Interlocked.Increment(ref _skippedFrames);
             if (skipped % 50 == 1)
-                Log.Warn($"降噪单帧推理耗时 {elapsed} ms（> {SkipThresholdMs} ms），已跳过该帧");
+                Log.Warn($"降噪单帧推理耗时 {elapsedMs:0.#} ms（> {SkipThresholdMs} ms），已跳过该帧");
             PushFrame(_dry);
             return;
         }

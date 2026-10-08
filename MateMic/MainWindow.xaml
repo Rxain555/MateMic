@@ -825,18 +825,21 @@
                         </Grid.ColumnDefinitions>
                         <Border Grid.Column="0" Width="3" Height="11" CornerRadius="2"
                                 Background="{DynamicResource AccentBrush}" VerticalAlignment="Center" />
-                        <TextBlock Grid.Column="1" Style="{StaticResource RegionTitle}" Text="实时频谱" />
+                        <TextBlock Grid.Column="1" Style="{StaticResource RegionTitle}" Text="实时数据" />
                         <Border Grid.Column="2" Height="1" Margin="9,0,0,0" VerticalAlignment="Center"
                                 Background="{DynamicResource HairlineBrush}" />
                     </Grid>
 
                     <Grid>
                         <Grid.RowDefinitions>
-                            <!-- 输入频谱：占上半剩余空间 -->
-                            <RowDefinition Height="*" MinHeight="90" />
+                            <!-- 输入频谱：占上半剩余空间。MinHeight 由 90 降到 55（2026-10-08）：
+                                 底部要放"实时数据"卡片，压缩频谱图高度腾出空间。 -->
+                            <RowDefinition Height="*" MinHeight="55" />
                             <!-- 输出频谱：占下半剩余空间 -->
-                            <RowDefinition Height="*" MinHeight="90" />
-                            <!-- RMS 电平条：放在最下面 -->
+                            <RowDefinition Height="*" MinHeight="55" />
+                            <!-- RMS 电平条 -->
+                            <RowDefinition Height="Auto" />
+                            <!-- 实时数据卡片：延迟与性能消耗 -->
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
 
@@ -956,6 +959,68 @@
                                         </Rectangle>
                                     </Grid>
                                 </Border>
+
+                            <!--
+                              ============ 实时数据卡片（2026-10-08 用户要求）============
+                              位置：电平条下方（主体 Grid 的第 3 行）。为它腾空间把两张频谱图的
+                              MinHeight 由 90 压到 55。
+                              数据由 MainWindow.UpdateRealtimeStats() 按固定频率刷新 —— 这些都是
+                              低频变化的量，跟着 30Hz 的频谱刷新只会白耗 CPU。
+                            -->
+                            <Border Grid.Row="3" Style="{StaticResource Card}" Padding="8,5,8,7"
+                                    Margin="0,7,0,0">
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource LabelText}" Text="延迟与性能"
+                                               FontWeight="SemiBold" FontSize="11.5" Margin="0,0,0,5"
+                                               Foreground="{DynamicResource TextBrush}" />
+
+                                    <!-- 每行：名称 | 耗时 | 时间占用率 -->
+                                    <Grid Margin="0,1,0,1">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="72" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource LabelText}"
+                                                   Text="AI 降噪" FontSize="11" />
+                                        <TextBlock Grid.Column="1" x:Name="StatsDenoiseText"
+                                                   Style="{StaticResource LabelText}" FontSize="11" Text="—" />
+                                        <TextBlock Grid.Column="2" x:Name="StatsDenoiseLoad"
+                                                   Style="{StaticResource LabelText}" FontSize="11" Text=""
+                                                   Foreground="{DynamicResource SubtleTextBrush}" />
+                                    </Grid>
+
+                                    <Grid Margin="0,1,0,1">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="72" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource LabelText}"
+                                                   Text="AI 变声" FontSize="11" />
+                                        <TextBlock Grid.Column="1" x:Name="StatsAiVoiceText"
+                                                   Style="{StaticResource LabelText}" FontSize="11" Text="—" />
+                                        <TextBlock Grid.Column="2" x:Name="StatsAiVoiceLoad"
+                                                   Style="{StaticResource LabelText}" FontSize="11" Text=""
+                                                   Foreground="{DynamicResource SubtleTextBrush}" />
+                                    </Grid>
+
+                                    <Border Height="1" Margin="0,5,0,5"
+                                            Background="{DynamicResource HairlineBrush}" />
+
+                                    <Grid Margin="0,1,0,1">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="72" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource LabelText}"
+                                                   Text="延迟构成" FontSize="11" />
+                                        <TextBlock Grid.Column="1" x:Name="StatsLatencyText"
+                                                   Style="{StaticResource LabelText}" FontSize="11"
+                                                   Text="—" TextWrapping="Wrap" />
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
                             </Grid>
                         </Border></Grid>
                 </DockPanel>
