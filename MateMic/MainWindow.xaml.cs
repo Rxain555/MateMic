@@ -2402,7 +2402,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         // 而配置里其实存着选择——用户看到"没选模型却能打开功能"（2026-10-07 反馈）。
         RefreshAiVoiceLists();
         UpdateAiVoiceIndexAvailability();
-        RefreshAiVoiceProviderCombo();           // 运算方式下拉：列出各后端与其安装状态
         UpdateAiVoiceCardVisibility();           // 组件没装齐就整个卡片不显示
         UpdateAiVoiceControlAvailability();      // 若配置里 AI 变声是开着的，相应控件应为禁用态
     }
@@ -2465,7 +2464,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         // 现在统一：整行 IsEnabled + Opacity 0.4，与 AiVoiceIndexRateRow 一致。
         foreach (var row in new System.Windows.FrameworkElement[]
                  {
-                     AiVoiceProviderRow,          // 换运算后端同样要重建引擎
                      AiVoiceModelRow,             // 换音色
                      AiVoiceIndexRow,             // 换索引
                      AiVoiceBlockRow, AiVoiceContextRow, AiVoiceCrossfadeRow,
@@ -3172,115 +3170,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         public override string ToString() => FileName;
     }
 
-    /// <summary>运算方式下拉项。未安装的后端也列出来，但标注为未安装（不可选）。</summary>
-    private sealed record AiProviderItem(string Name, string Display, bool Installed)
-    {
-        public override string ToString() => Installed ? Display : Display + "（未安装）";
-    }
-
-    private void RefreshAiVoiceProviderCombo()
-    {
-        if (AiVoiceProviderCombo == null) return;
-        var wasLoading = _loading;
-        _loading = true;
-        try
-        {
-            var installed = AiComponent.InstalledProviders();
-            AiVoiceProviderCombo.Items.Clear();
-            AiVoiceProviderCombo.Items.Add(new AiProviderItem("auto", "自动", true));
-            foreach (var name in new[] { "cuda", "directml", "cpu" })
-            {
-                var ok = installed.Contains(name, StringComparer.OrdinalIgnoreCase);
-                AiVoiceProviderCombo.Items.Add(
-                    new AiProviderItem(name, AiComponent.ProviderDisplayName(name), ok));
-            }
-
-            var current = string.IsNullOrWhiteSpace(_config.AiVoice.Provider) ? "auto" : _config.AiVoice.Provider;
-            AiVoiceProviderCombo.SelectedItem = AiVoiceProviderCombo.Items.Cast<AiProviderItem>()
-                .FirstOrDefault(i => string.Equals(i.Name, current, StringComparison.OrdinalIgnoreCase))
-                ?? AiVoiceProviderCombo.Items[0];
-        }
-        finally { _loading = wasLoading; }
-    }
-
-    private void OnAiVoiceProviderDropDownOpened(object sender, EventArgs e) => RefreshAiVoiceProviderCombo();
-
-    private void OnAiVoiceProviderSelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (_loading) return;
-        if (AiVoiceProviderCombo.SelectedItem is not AiProviderItem item) return;
-
-        // 未安装的后端选了也没用，静默退回当前值。
-        // 下拉项本身就带"（未安装）"标注，再弹一条黄字状态纯属重复
-        //（2026-10-08 用户要求移除）。
-        if (!item.Installed && item.Name != "auto")
-        {
-            RefreshAiVoiceProviderCombo();
-            return;
-        }
-
-        _config.AiVoice.Provider = item.Name;
-        AiComponent.InstallNativeResolver(item.Name);   // 重新指定后端（写入静态字段，供下次装配用）
-        SaveConfig();
-        RefreshAiVoiceProviderCombo();
-
-        // ⚠ 必须是"重启程序"而不是"重开 AI 变声"：
-        // onnxruntime.dll 一旦被加载进进程就不会重新解析（NativeLibrary 的解析器只生效一次），
-        // 而且三个后端的文件同名，同一进程无法加载两份 —— 这是 Windows 的 DLL 加载机制决定的。
-        // 所以直接问用户要不要现在就重启（2026-10-08 用户实测"切了没用"）。
-        if (DialogHost.Ask(this, "运算方式已切换",
-                $"已切换为「{item.Display}」。\n\n"
-                + "不同运算方式用的是不同的 onnxruntime 运行时文件，"
-                + "而同一个进程无法加载两份同名 DLL，因此需要重启程序才会生效。\n\n"
-                + "现在重启吗？",
-                secondaryText: "稍后手动重启", primaryText: "立即重启"))
-        {
-            RestartApplication();
-        }
-    }
-
-    /// <summary>
-    /// 重启整个程序。
-    ///
-    /// ⚠ 不能直接 Process.Start 新进程再退出：新进程会**立刻**去抢单实例 Mutex，
-    /// 而旧进程还没释放，于是新进程弹"MateMic 已经在运行中"然后自杀。
-    /// （2026-10-08 用户实测："立即重启没关程序就又打开一个新的进程，导致显示软件已在运行"。）
-    ///
-    /// 所以交给一个独立的 cmd：它先等 2 秒（足够本进程退出并释放 Mutex）再启动程序。
-    /// </summary>
-    private void RestartApplication()
-    {
-        try
-        {
-            CancelAiVoiceApply();       // 先停掉待生效的计时器，避免它回调已释放的引擎
-            _saveTimer?.Stop();         // 停掉延迟保存，改为立刻落盘
-            SaveConfig();
-
-            var exe = Environment.ProcessPath;
-            if (string.IsNullOrEmpty(exe))
-            {
-                ShowStatus("重启失败（取不到程序路径），请手动重启", false);
-                return;
-            }
-
-            var psi = new ProcessStartInfo("cmd.exe")
-            {
-                Arguments = $"/c timeout /t 2 /nobreak >nul & start \"\" \"{exe}\"",
-                CreateNoWindow = true,
-                UseShellExecute = false,
-                WorkingDirectory = AppContext.BaseDirectory,
-            };
-            Process.Start(psi);
-
-            _exiting = true;            // 让 OnClosing 走真正的退出，而不是收进托盘
-            ExitApplication();
-        }
-        catch (Exception ex)
-        {
-            ShowStatus("重启失败，请手动重启：" + ex.Message, false);
-        }
-    }
-
     private void OnAiVoiceModelDropDownOpened(object sender, EventArgs e)
     {
         if (_loading) return;
@@ -3354,7 +3243,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             onSecondary: AiComponentPanel.OpenComponentFolder);
         // 对话框里可能刚放进组件，回来刷新下拉、后端列表、卡片显隐与可用性
         RefreshAiVoiceLists();
-        RefreshAiVoiceProviderCombo();
         UpdateAiVoiceCardVisibility();
         UpdateAiVoiceControlAvailability();
     }
@@ -3543,10 +3431,10 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             return;
         }
 
-        // 组件变了，把后端下拉与卡片可用性刷新一遍
-        AiComponent.InstallNativeResolver(_config.AiVoice.Provider);
-        RefreshAiVoiceProviderCombo();
+        // 组件变了，刷新卡片可用性与下拉
+        AiComponent.InstallNativeResolver();
         RefreshAiVoiceLists();
+        UpdateAiVoiceCardVisibility();
         UpdateAiVoiceControlAvailability();
 
         var status = AiComponent.Inspect();

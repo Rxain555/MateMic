@@ -40,8 +40,7 @@ public partial class App : Application
         // 曾经这里是无参调用，于是 _preferredProvider 永远是 null、每次都走 auto（CUDA），
         // 用户在界面上切成 CPU / DirectML 后**重启也没用**
         //（2026-10-08 用户实测："我之前说的切换运算方式没用，就是重启后也没用"）。
-        var bootConfig = new ConfigStore().Load();
-        Ai.AiComponent.InstallNativeResolver(bootConfig.AiVoice.Provider);
+        Ai.AiComponent.InstallNativeResolver();
 
         // 单实例：重复启动时把已有窗口激活
         _singleInstance = new Mutex(true, @"Local\MateMic.SingleInstance", out _ownsMutex);

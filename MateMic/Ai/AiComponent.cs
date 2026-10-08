@@ -105,15 +105,6 @@ public static class AiComponent
             "nvrtc64_120_0.dll",
             "nvJitLink_120_0.dll",
         }),
-        new("directml", "DirectML（AMD / Intel / NVIDIA 通用）", new[]
-        {
-            "onnxruntime.dll",
-            "DirectML.dll",
-        }),
-        new("cpu", "CPU（不占用显卡）", new[]
-        {
-            "onnxruntime.dll",
-        }),
     };
 
     /// <summary>程序引用的 managed onnxruntime 版本，用于校验组件里的原生库。</summary>
@@ -124,10 +115,8 @@ public static class AiComponent
     private static bool _nativeLoaded;
     private static string? _lastError;
     private static string? _activeProvider;
-    private static string? _preferredProvider;
 
     /// <summary>用户指定的运算方式（"auto" 或具体后端名）。</summary>
-    public static string? PreferredProvider => _preferredProvider;
 
     /// <summary>当前生效的运算后端名（cuda / directml / cpu），未装配时为 null。</summary>
     public static string? ActiveProvider => _activeProvider;
@@ -160,19 +149,13 @@ public static class AiComponent
                 $"推理引擎缺 {missingEngine.Count} 个文件（如 {missingEngine[0]}）",
                 true, false, voices, indexes, null, null, installed);
 
-        // 按"用户指定的运算方式"（或 auto）挑后端
+        // 挑一个完整可用的后端（目前只有 CUDA）
         var spec = ResolveProvider();
         if (spec == null)
         {
-            var wanted = string.IsNullOrWhiteSpace(_preferredProvider)
-                         || string.Equals(_preferredProvider, "auto", StringComparison.OrdinalIgnoreCase)
-                ? "自动"
-                : ProviderDisplayName(_preferredProvider!);
-            var detail = Providers.Length == 0
-                ? ""
-                : "（已装：" + (installed.Count == 0 ? "无" : string.Join("、", installed)) + "）";
+            var detail = installed.Count == 0 ? "（未装运算组件）" : "（已装：" + string.Join("、", installed) + "）";
             return new AiComponentStatus(AiComponentState.Incomplete,
-                $"运算方式「{wanted}」没有可用的后端组件{detail}",
+                $"缺少运算组件{detail}",
                 true, true, voices, indexes, null, null, installed);
         }
 
@@ -186,21 +169,10 @@ public static class AiComponent
             true, true, voices, indexes, spec.Name, spec.Display, installed);
     }
 
-    /// <summary>返回按优先顺序挑出的可用后端；没有则返回 null。</summary>
+    /// <summary>返回第一个完整可用的后端；没有则返回 null。</summary>
     private static ProviderSpec? ResolveProvider()
     {
-        // 用户指定了具体后端：只用它（未装齐就算不可用，不去回退）
-        if (!string.IsNullOrWhiteSpace(_preferredProvider)
-            && !string.Equals(_preferredProvider, "auto", StringComparison.OrdinalIgnoreCase))
-        {
-            foreach (var spec in Providers)
-                if (string.Equals(spec.Name, _preferredProvider, StringComparison.OrdinalIgnoreCase)
-                    && MissingFiles(ConfigStore.AiProviderDirectory(spec.Name), spec.Files).Count == 0)
-                    return spec;
-            return null;
-        }
-
-        // auto：数组顺序即优先级（CUDA → DirectML → CPU）
+        // 目前只有 CUDA 一种后端；数组顺序即优先级（将来加别的后端时排在这里）
         foreach (var spec in Providers)
             if (MissingFiles(ConfigStore.AiProviderDirectory(spec.Name), spec.Files).Count == 0)
                 return spec;
@@ -283,10 +255,8 @@ public static class AiComponent
     /// **必须在任何 ONNX 调用之前调用**（降噪的模型扫描就会建会话），
     /// 因此由 App 启动时最先执行。组件不完整时什么都不做，交回默认解析（CPU 版）。
     /// </summary>
-    public static void InstallNativeResolver(string? preferredProvider = null)
+    public static void InstallNativeResolver()
     {
-        // 允许调整（界面改"运算方式"后要重新装配）
-        _preferredProvider = preferredProvider;
 
         if (_resolverInstalled) return;
         _resolverInstalled = true;
