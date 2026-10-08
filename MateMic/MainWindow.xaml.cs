@@ -2465,10 +2465,17 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
             story.Completed += (_, _) =>
             {
+                // ⚠ 收起时**只设 Collapsed，绝不去摘动画时钟**。
+                //
+                // 摘掉时钟会让 Height 立刻变回"布局自动值"，也就是卡片的**完整自然高度**，
+                // 而不是动画终点的 0 —— 于是收好的卡片会瞬间弹回满高，下一帧才被 Collapsed 盖掉。
+                // 用户看到的正是"收起动画的最后位置还没到、那一小段直接跳过了"
+                //（2026-10-08 反馈）。展开侧没有这个问题，因为展开的自然高度恰好等于动画终点。
+                //
+                // 留着时钟把 Height 钉在 0 是安全的：本方法开头（进入本分支之前）就会
+                // BeginAnimation(HeightProperty, null) + ClearValue(HeightProperty) 把它清掉，
+                // 所以下次展开量测自然高度时不会被这个 0 污染 —— 那条路径本来就有处理。
                 panel.Visibility = Visibility.Collapsed;
-                // 同上：先摘时钟，Height 复位才真的生效（否则下次量测会拿到动画终值 0）
-                panel.BeginAnimation(FrameworkElement.HeightProperty, null);
-                panel.ClearValue(FrameworkElement.HeightProperty);
                 RestoreCardShadow(shadowHost);
                 _panelAnimations.Remove(button);
             };
