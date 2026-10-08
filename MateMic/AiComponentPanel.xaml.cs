@@ -154,36 +154,13 @@ public partial class AiComponentPanel : UserControl
     }
 
     /// <summary>
-    /// 解压组件包并按目录合并。
-    /// 组件包内部是 <c>ai\runtime\…</c> / <c>ai\providers\cuda\…</c> / <c>ai\engine\…</c>；
-    /// 这里把 <c>ai\</c> 之后的**相对路径**原样拼到组件目录下，
-    /// 于是 Core 包与各后端包可以分别解压、自然叠加。
+    /// 解压组件包并按目录合并。实现已提到 <see cref="AiComponent.InstallFromZip"/>，
+    /// 这样主界面直接拖入 zip 时走的是同一份逻辑。
     /// </summary>
     private static void InstallZip(string zipPath, Dictionary<string, int> placed)
     {
-        using var archive = ZipFile.OpenRead(zipPath);
-        var root = ConfigStore.AiComponentDirectory;
-        Directory.CreateDirectory(root);
-
-        foreach (var entry in archive.Entries)
-        {
-            if (string.IsNullOrEmpty(entry.Name)) continue;          // 目录项
-
-            var relative = entry.FullName.Replace('/', '\\');
-            // 去掉最外层的 "ai\"（组件包都是这个结构）；没有则原样使用
-            var idx = relative.IndexOf("ai\\", StringComparison.OrdinalIgnoreCase);
-            if (idx >= 0) relative = relative[(idx + 3)..];
-            if (relative.Length == 0) continue;
-
-            // 只接受已知的顶层子目录，避免组件包里的杂项污染目录
-            var top = relative.Split('\\')[0];
-            if (top is not ("runtime" or "providers" or "engine")) continue;
-
-            var target = Path.Combine(root, relative);
-            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-            entry.ExtractToFile(target, overwrite: true);
-            Bump(placed, top);
-        }
+        var written = AiComponent.InstallFromZip(zipPath);
+        if (written > 0) Bump(placed, "组件包");
     }
 
     /// <summary>

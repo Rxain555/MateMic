@@ -3393,7 +3393,15 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         e.Handled = true;
     }
 
-    /// <summary>统一入口：拖进窗口的音频文件进播放列表（文件夹只取顶层）。</summary>
+    /// <summary>
+    /// 统一入口：拖进窗口的文件按类型分流。
+    ///
+    ///   ① 组件包 <c>.zip</c>  → 解压安装 AI 变声组件；
+    ///   ② <c>.onnx</c> 音色模型 / <c>.index</c> 索引 → 复制进 voices\ / index\ 并自动选中；
+    ///   ③ 音频文件           → 加进播放列表（原有行为，文件夹只取顶层）。
+    ///
+    /// 三类扩展名互不重叠，所以顺序无所谓；都处理完再统一提示。
+    /// </summary>
     private void OnWindowDrop(object sender, DragEventArgs e)
     {
         if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
@@ -3401,12 +3409,125 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         e.Handled = true;
 
         var files = ExpandDroppedPaths(dropped).ToList();
-        var audio = files.Where(IsAudioFile).ToList();
 
+        // ① 组件包
+        var zips = files.Where(f => f.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)).ToList();
+        if (zips.Count > 0) InstallAiComponentPacks(zips);
+
+        // ② 音色模型与索引
+        var voices = files.Where(f => f.EndsWith(".onnx", StringComparison.OrdinalIgnoreCase)).ToList();
+        var indexes = files.Where(f => f.EndsWith(".index", StringComparison.OrdinalIgnoreCase)).ToList();
+        if (voices.Count > 0 || indexes.Count > 0) InstallAiVoiceAssets(voices, indexes);
+
+        // ③ 音频
+        var audio = files.Where(IsAudioFile).ToList();
         if (audio.Count > 0)
         {
             var added = AddAudioFiles(audio);
             Log.Info($"拖入音频 {audio.Count} 个，新增 {added} 个到播放列表");
+        }
+    }
+
+    /// <summary>把拖入的组件包解压安装，并刷新界面状态。</summary>
+    private void InstallAiComponentPacks(List<string> zips)
+    {
+        var ok = 0;
+        var total = 0;
+        foreach (var zip in zips)
+        {
+            try
+            {
+                total += AiComponent.InstallFromZip(zip);
+                ok++;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"[AI 变声] 安装组件包失败：{Path.GetFileName(zip)} —— {ex.Message}");
+            }
+        }
+
+        if (ok == 0)
+        {
+            ShowStatus("组件包解压失败（可能不是 AI 变声组件包）", false);
+            return;
+        }
+
+        // 组件变了，把后端下拉与卡片可用性刷新一遍
+        AiComponent.InstallNativeResolver(_config.AiVoice.Provider);
+        RefreshAiVoiceProviderCombo();
+        RefreshAiVoiceLists();
+        UpdateAiVoiceControlAvailability();
+
+        var status = AiComponent.Inspect();
+        ShowStatus(status.State == AiComponentState.Ready
+            ? $"已安装 {ok} 个组件包（{total} 个文件）—— 重启程序后生效"
+            : $"已安装 {ok} 个组件包（{total} 个文件）；{status.Message}",
+            status.State == AiComponentState.Ready);
+    }
+
+    /// <summary>
+    /// 把拖入的音色模型与索引复制进组件目录，并刷新下拉、自动选中刚放进来的那一个。
+    /// 这样"拖进来就能用"，不必再去下拉里找。
+    /// </summary>
+    private void InstallAiVoiceAssets(List<string> voices, List<string> indexes)
+    {
+        var addedVoices = new List<string>();
+        var addedIndexes = new List<string>();
+        var failed = 0;
+
+        try
+        {
+            if (voices.Count > 0)
+            {
+                Directory.CreateDirectory(ConfigStore.AiVoicesDirectory);
+                foreach (var f in voices)
+                {
+                    try
+                    {
+                        var name = Path.GetFileName(f);
+                        File.Copy(f, Path.Combine(ConfigStore.AiVoicesDirectory, name), overwrite: true);
+                        addedVoices.Add(name);
+                    }
+                    catch { failed++; }
+                }
+            }
+            if (indexes.Count > 0)
+            {
+                Directory.CreateDirectory(ConfigStore.AiIndexDirectory);
+                foreach (var f in indexes)
+                {
+                    try
+                    {
+                        var name = Path.GetFileName(f);
+                        File.Copy(f, Path.Combine(ConfigStore.AiIndexDirectory, name), overwrite: true);
+                        addedIndexes.Add(name);
+                    }
+                    catch { failed++; }
+                }
+            }
+
+            // 自动选中最先放进去的那个，省得用户再去下拉里找
+            if (addedVoices.Count > 0) _config.AiVoice.VoiceModel = addedVoices[0];
+            if (addedIndexes.Count > 0) _config.AiVoice.IndexFile = addedIndexes[0];
+
+            RefreshAiVoiceLists();
+            UpdateAiVoiceIndexAvailability();
+            UpdateAiVoiceControlAvailability();
+            SaveConfig();
+
+            var parts = new List<string>();
+            if (addedVoices.Count > 0) parts.Add($"音色 {addedVoices.Count} 个");
+            if (addedIndexes.Count > 0) parts.Add($"索引 {addedIndexes.Count} 个");
+            var text = "已添加：" + string.Join("、", parts);
+            if (_config.AiVoice.Enabled) text += "（AI 变声正在运行，改动需关掉再开才生效）";
+            if (failed > 0) text += $"；{failed} 个失败（可能被占用）";
+            ShowStatus(text, failed == 0);
+            Log.Info($"[AI 变声] 拖入音色 {addedVoices.Count} 个、索引 {addedIndexes.Count} 个");
+        }
+        catch (Exception ex)
+        {
+            ShowStatus("添加音色/索引失败：" + ex.Message, false);
+            Log.Warn("[AI 变声] 添加音色/索引失败：" + ex.Message);
         }
     }
 

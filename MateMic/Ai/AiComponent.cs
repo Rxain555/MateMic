@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using MateMic.Core;
@@ -223,6 +224,41 @@ public static class AiComponent
             if (string.Equals(spec.Name, name, StringComparison.OrdinalIgnoreCase))
                 return spec.Display;
         return name;
+    }
+
+    /// <summary>
+    /// 安装一个组件包（.zip）。组件包内部结构是
+    /// <c>ai\runtime\…</c> / <c>ai\providers\cuda\…</c> / <c>ai\engine\…</c>，
+    /// 这里取 <c>ai\</c> 之后的相对路径拼到组件目录下，
+    /// 于是通用包与各后端包可以分别解压、自然叠加。
+    /// 返回实际写入的文件数；抛异常表示解压失败。
+    /// </summary>
+    public static int InstallFromZip(string zipPath)
+    {
+        using var archive = System.IO.Compression.ZipFile.OpenRead(zipPath);
+        var root = ConfigStore.AiComponentDirectory;
+        Directory.CreateDirectory(root);
+
+        var written = 0;
+        foreach (var entry in archive.Entries)
+        {
+            if (string.IsNullOrEmpty(entry.Name)) continue;          // 目录项
+
+            var relative = entry.FullName.Replace('/', '\\');
+            var idx = relative.IndexOf("ai\\", StringComparison.OrdinalIgnoreCase);
+            if (idx >= 0) relative = relative[(idx + 3)..];
+            if (relative.Length == 0) continue;
+
+            // 只接受已知的顶层子目录，避免组件包里的杂项污染目录
+            var top = relative.Split('\\')[0];
+            if (top is not ("runtime" or "providers" or "engine")) continue;
+
+            var target = Path.Combine(root, relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            entry.ExtractToFile(target, overwrite: true);
+            written++;
+        }
+        return written;
     }
 
     private static List<string> MissingFiles(string directory, string[] names)
