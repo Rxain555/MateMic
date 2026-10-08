@@ -7,6 +7,7 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using MateMic.Ai;
 using MateMic.Audio;
 using MateMic.Core;
 using MateMic.Denoise;
@@ -2401,6 +2402,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         // 而配置里其实存着选择——用户看到"没选模型却能打开功能"（2026-10-07 反馈）。
         RefreshAiVoiceLists();
         UpdateAiVoiceIndexAvailability();
+        RefreshAiVoiceProviderCombo();           // 运算方式下拉：列出各后端与其安装状态
         UpdateAiVoiceControlAvailability();      // 若配置里 AI 变声是开着的，相应控件应为禁用态
     }
 
@@ -2459,6 +2461,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         foreach (var row in new System.Windows.FrameworkElement[]
                  {
                      AiVoiceBlockRow, AiVoiceContextRow, AiVoiceCrossfadeRow,
+                     AiVoiceProviderRow,          // 换运算后端同样要重建引擎，必须一起置灰
                  })
         {
             row.IsEnabled = !running;
@@ -3139,6 +3142,58 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     private sealed record AiVoiceIndexItem(string FileName)
     {
         public override string ToString() => FileName;
+    }
+
+    /// <summary>运算方式下拉项。未安装的后端也列出来，但标注为未安装（不可选）。</summary>
+    private sealed record AiProviderItem(string Name, string Display, bool Installed)
+    {
+        public override string ToString() => Installed ? Display : Display + "（未安装）";
+    }
+
+    private void RefreshAiVoiceProviderCombo()
+    {
+        if (AiVoiceProviderCombo == null) return;
+        var wasLoading = _loading;
+        _loading = true;
+        try
+        {
+            var installed = AiComponent.InstalledProviders();
+            AiVoiceProviderCombo.Items.Clear();
+            AiVoiceProviderCombo.Items.Add(new AiProviderItem("auto", "自动", true));
+            foreach (var name in new[] { "cuda", "directml", "cpu" })
+            {
+                var ok = installed.Contains(name, StringComparer.OrdinalIgnoreCase);
+                AiVoiceProviderCombo.Items.Add(
+                    new AiProviderItem(name, AiComponent.ProviderDisplayName(name), ok));
+            }
+
+            var current = string.IsNullOrWhiteSpace(_config.AiVoice.Provider) ? "auto" : _config.AiVoice.Provider;
+            AiVoiceProviderCombo.SelectedItem = AiVoiceProviderCombo.Items.Cast<AiProviderItem>()
+                .FirstOrDefault(i => string.Equals(i.Name, current, StringComparison.OrdinalIgnoreCase))
+                ?? AiVoiceProviderCombo.Items[0];
+        }
+        finally { _loading = wasLoading; }
+    }
+
+    private void OnAiVoiceProviderDropDownOpened(object sender, EventArgs e) => RefreshAiVoiceProviderCombo();
+
+    private void OnAiVoiceProviderSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading) return;
+        if (AiVoiceProviderCombo.SelectedItem is not AiProviderItem item) return;
+
+        // 未安装的后端选了也没用，直接退回自动
+        if (!item.Installed && item.Name != "auto")
+        {
+            ShowStatus($"{item.Display} 的后端组件还没安装", false);
+            RefreshAiVoiceProviderCombo();
+            return;
+        }
+
+        _config.AiVoice.Provider = item.Name;
+        AiComponent.InstallNativeResolver(item.Name);   // 重新指定后端
+        SaveConfig();
+        ShowStatus($"运算方式已切换为 {item.Display}，下次开启 AI 变声时生效", true);
     }
 
     private void OnAiVoiceModelDropDownOpened(object sender, EventArgs e)

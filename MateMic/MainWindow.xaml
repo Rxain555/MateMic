@@ -381,6 +381,19 @@
                                                 Click="OnExpandClick" Tag="{Binding AiVoiceExpanded, RelativeSource={RelativeSource AncestorType=Window}}" />
                                     </Grid>
                                     <StackPanel x:Name="PanelAiVoice" Visibility="Collapsed" Margin="0,6,0,0">
+                                        <Grid x:Name="AiVoiceProviderRow" Margin="0,2,0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="62" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="运算方式" />
+                                            <ComboBox x:Name="AiVoiceProviderCombo" Grid.Column="1"
+                                                      Style="{StaticResource FlatCombo}"
+                                                      ItemContainerStyle="{StaticResource FlatComboItem}"
+                                                      DropDownOpened="OnAiVoiceProviderDropDownOpened"
+                                                      SelectionChanged="OnAiVoiceProviderSelectionChanged"/>
+                                        </Grid>
                                         <Grid Margin="0,2,0,2">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="62" />

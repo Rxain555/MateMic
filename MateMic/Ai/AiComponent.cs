@@ -123,6 +123,10 @@ public static class AiComponent
     private static bool _nativeLoaded;
     private static string? _lastError;
     private static string? _activeProvider;
+    private static string? _preferredProvider;
+
+    /// <summary>用户指定的运算方式（"auto" 或具体后端名）。</summary>
+    public static string? PreferredProvider => _preferredProvider;
 
     /// <summary>当前生效的运算后端名（cuda / directml / cpu），未装配时为 null。</summary>
     public static string? ActiveProvider => _activeProvider;
@@ -138,7 +142,7 @@ public static class AiComponent
             return new AiComponentStatus(AiComponentState.NotInstalled,
                 "未安装 AI 变声组件", false, false, 0, 0);
 
-        var materialized = Providers.Select(p => p.Name).ToList();
+        var installed = InstalledProviders();
 
         var missingRuntime = MissingFiles(ConfigStore.AiRuntimeDirectory, RuntimeFiles);
         var missingEngine = MissingFiles(ConfigStore.AiEngineDirectory, EngineFiles);
@@ -148,44 +152,77 @@ public static class AiComponent
         if (missingRuntime.Count > 0)
             return new AiComponentStatus(AiComponentState.Incomplete,
                 $"通用运行时缺 {missingRuntime.Count} 个文件（如 {missingRuntime[0]}）",
-                false, missingEngine.Count == 0, voices, indexes, null, null, materialized);
+                false, missingEngine.Count == 0, voices, indexes, null, null, installed);
 
         if (missingEngine.Count > 0)
             return new AiComponentStatus(AiComponentState.Incomplete,
                 $"推理引擎缺 {missingEngine.Count} 个文件（如 {missingEngine[0]}）",
-                true, false, voices, indexes, null, null, materialized);
+                true, false, voices, indexes, null, null, installed);
 
-        // 至少有一个运算后端完整可用
-        foreach (var spec in Providers)
+        // 按"用户指定的运算方式"（或 auto）挑后端
+        var spec = ResolveProvider();
+        if (spec == null)
         {
-            var missing = MissingFiles(ConfigStore.AiProviderDirectory(spec.Name), spec.Files);
-            if (missing.Count > 0) continue;
-
-            if (voices == 0)
-                return new AiComponentStatus(AiComponentState.Incomplete,
-                    "还没有音色模型（请把音色 .onnx 放进 voices\\）",
-                    true, true, 0, indexes, spec.Name, spec.Display, materialized);
-
-            return new AiComponentStatus(AiComponentState.Ready,
-                $"组件就绪：{voices} 个音色{(indexes > 0 ? $"，{indexes} 个索引" : "")}，后端 {spec.Display}",
-                true, true, voices, indexes, spec.Name, spec.Display, materialized);
+            var wanted = string.IsNullOrWhiteSpace(_preferredProvider)
+                         || string.Equals(_preferredProvider, "auto", StringComparison.OrdinalIgnoreCase)
+                ? "自动"
+                : ProviderDisplayName(_preferredProvider!);
+            var detail = Providers.Length == 0
+                ? ""
+                : "（已装：" + (installed.Count == 0 ? "无" : string.Join("、", installed)) + "）";
+            return new AiComponentStatus(AiComponentState.Incomplete,
+                $"运算方式「{wanted}」没有可用的后端组件{detail}",
+                true, true, voices, indexes, null, null, installed);
         }
 
-        // 通用与引擎都齐了，但没有任何后端完整
-        var detail = string.Join("、", Providers.Select(p =>
-            $"{p.Display} 缺 {MissingFiles(ConfigStore.AiProviderDirectory(p.Name), p.Files).Count} 个文件"));
-        return new AiComponentStatus(AiComponentState.Incomplete,
-            $"还缺运算后端组件（{detail}）",
-            true, true, voices, indexes, null, null, materialized);
+        if (voices == 0)
+            return new AiComponentStatus(AiComponentState.Incomplete,
+                "还没有音色模型（请把音色 .onnx 放进 voices\\）",
+                true, true, 0, indexes, spec.Name, spec.Display, installed);
+
+        return new AiComponentStatus(AiComponentState.Ready,
+            $"组件就绪：{voices} 个音色{(indexes > 0 ? $"，{indexes} 个索引" : "")}，后端 {spec.Display}",
+            true, true, voices, indexes, spec.Name, spec.Display, installed);
     }
 
-    /// <summary>返回第一个完整可用的后端规格；没有则返回 null。</summary>
+    /// <summary>返回按优先顺序挑出的可用后端；没有则返回 null。</summary>
     private static ProviderSpec? ResolveProvider()
     {
+        // 用户指定了具体后端：只用它（未装齐就算不可用，不去回退）
+        if (!string.IsNullOrWhiteSpace(_preferredProvider)
+            && !string.Equals(_preferredProvider, "auto", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (var spec in Providers)
+                if (string.Equals(spec.Name, _preferredProvider, StringComparison.OrdinalIgnoreCase)
+                    && MissingFiles(ConfigStore.AiProviderDirectory(spec.Name), spec.Files).Count == 0)
+                    return spec;
+            return null;
+        }
+
+        // auto：数组顺序即优先级（CUDA → DirectML → CPU）
         foreach (var spec in Providers)
             if (MissingFiles(ConfigStore.AiProviderDirectory(spec.Name), spec.Files).Count == 0)
                 return spec;
         return null;
+    }
+
+    /// <summary>已完整安装的后端名列表（供界面下拉显示哪些可用）。</summary>
+    public static IReadOnlyList<string> InstalledProviders()
+    {
+        var list = new List<string>();
+        foreach (var spec in Providers)
+            if (MissingFiles(ConfigStore.AiProviderDirectory(spec.Name), spec.Files).Count == 0)
+                list.Add(spec.Name);
+        return list;
+    }
+
+    /// <summary>后端名 → 界面显示名。</summary>
+    public static string ProviderDisplayName(string name)
+    {
+        foreach (var spec in Providers)
+            if (string.Equals(spec.Name, name, StringComparison.OrdinalIgnoreCase))
+                return spec.Display;
+        return name;
     }
 
     private static List<string> MissingFiles(string directory, string[] names)
@@ -210,8 +247,11 @@ public static class AiComponent
     /// **必须在任何 ONNX 调用之前调用**（降噪的模型扫描就会建会话），
     /// 因此由 App 启动时最先执行。组件不完整时什么都不做，交回默认解析（CPU 版）。
     /// </summary>
-    public static void InstallNativeResolver()
+    public static void InstallNativeResolver(string? preferredProvider = null)
     {
+        // 允许调整（界面改"运算方式"后要重新装配）
+        _preferredProvider = preferredProvider;
+
         if (_resolverInstalled) return;
         _resolverInstalled = true;
 

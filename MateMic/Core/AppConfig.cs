@@ -169,6 +169,16 @@ public sealed class AiVoiceSettings
     public float Semitones { get; set; }
 
     /// <summary>
+    /// 运算方式（运算后端）。取值："auto" / "cuda" / "directml" / "cpu"。
+    ///
+    /// "auto"（默认）按 CUDA → DirectML → CPU 挑第一个完整可用的后端；
+    /// 指定具体值时只用那一个（未安装则该 AI 变声不可用）。
+    /// 让用户能手动指定，是为了应付"装了 CUDA 但驱动有问题"这类情况 ——
+    /// 自动选择只能看文件是否齐全，无法判断驱动是否真的能用。
+    /// </summary>
+    public string Provider { get; set; } = "auto";
+
+    /// <summary>
     /// 音色模型（合成器 .onnx）的**文件名**（位于 data\components\ai\voices\）。
     /// 存文件名而非绝对路径，换机/换目录后仍能对上；null 表示尚未选择。
     /// </summary>
