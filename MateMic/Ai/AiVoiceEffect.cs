@@ -65,6 +65,12 @@ public sealed class AiVoiceEffect : IAudioEffect
 
     // 统计（供界面显示；全部用 Interlocked，避免音频线程与 UI 线程竞争）
     private long _blocks, _lateBlocks, _droppedSamples;
+
+    /// <summary>上次输出诊断日志的时间戳（Stopwatch ticks）。见 Read() 里的时间门控。</summary>
+    private long _lastDiagTicks;
+
+    /// <summary>输出诊断日志的最小间隔（秒）。曾经用 _blocks 计数门控，推理持续失败时会退化成每次调用都打。</summary>
+    private const double DiagIntervalSeconds = 2.0;
     private double _lastInferMs;
 
     /// <summary>最近一次引擎创建失败的原因（成功时为 null）。供界面提示用户。</summary>
@@ -433,8 +439,18 @@ public sealed class AiVoiceEffect : IAudioEffect
 
         // 诊断：积压量就是额外延迟。每隔一段时间记一次，用于判断"延迟到底是算法本身
         // 还是缓冲在持续增长"（缓冲只增不减 = 产出快过消费 = 延迟会一直涨）。
-        if ((Interlocked.Read(ref _blocks) & 0x3F) == 0)
+        //
+        // ⚠ 门控必须**基于时间**，不能基于 _blocks 的计数：
+        // _blocks 只在"推理成功"之后自增。一旦推理持续失败（模型版本不对、引擎没起来等），
+        // _blocks 会**冻结**；若它恰好冻结在 64 的倍数上，`(_blocks & 0x3F) == 0` 就**恒为真**，
+        // 于是这一行会在实时线程上**每次 Read() 都写一条日志**。
+        // 实测后果：日志 8 MB/天、每 10 ms 一条（约 100 行/秒），
+        // 实时线程每次都要字符串插值 + 加锁入队 + 置内核事件，后台还反复写盘。
+        //（2026-10-08 从用户日志 app_20261008.log 里量出来的。）
+        var nowTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+        if (nowTicks - _lastDiagTicks >= System.Diagnostics.Stopwatch.Frequency * DiagIntervalSeconds)
         {
+            _lastDiagTicks = nowTicks;
             var inAvail = Available(_inRing, _inRead, _inWrite);
             Log.Info($"[AI 变声] 诊断：输出环积压 {available * 1000 / ChainRate}ms"
                      + $"（额外延迟，上限 {_blockSamples48 * 2 * 1000 / ChainRate}ms）"
