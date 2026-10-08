@@ -2342,10 +2342,18 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         if (expand)
         {
             panel.Visibility = Visibility.Visible;
-            var height = new DoubleAnimation(0, target, TimeSpan.FromMilliseconds(220))
-            {
-                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
-            };
+
+            // 卡片展开：**340ms + cubic-bezier(0.4, 0, 0.2, 1)**（Material 标准曲线）。
+            // 用 SplineDoubleKeyFrame 是为了精确复现这条贝塞尔 ——
+            // WPF 的 CubicEase 只有固定的几个预设，与它并不等价
+            //（原来用的是 220ms + CubicEase EaseOut，明显更急）。
+            // 曲线取自用户 2026-10-08 提供的方案 01「平滑展开」
+            //（文档\设计参考\卡片展开收起动画.html）。
+            var height = new DoubleAnimationUsingKeyFrames();
+            height.KeyFrames.Add(new SplineDoubleKeyFrame(
+                target,
+                KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(CardAnimationMs)),
+                new KeySpline(0.4, 0.0, 0.2, 1.0)));
             Storyboard.SetTarget(height, panel);
             Storyboard.SetTargetProperty(height, new PropertyPath(nameof(FrameworkElement.Height)));
             story.Children.Add(height);
@@ -2359,10 +2367,13 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         }
         else
         {
-            var height = new DoubleAnimation(target, 0, TimeSpan.FromMilliseconds(180))
-            {
-                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn },
-            };
+            // 收起用**同一个时长与曲线**：CSS 的 transition 对展开/收起是同一条，
+            // 方案 01 的观感正是"来回一致"。原先是 180ms + EaseIn，与展开不对称。
+            var height = new DoubleAnimationUsingKeyFrames();
+            height.KeyFrames.Add(new SplineDoubleKeyFrame(
+                0,
+                KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(CardAnimationMs)),
+                new KeySpline(0.4, 0.0, 0.2, 1.0)));
             Storyboard.SetTarget(height, panel);
             Storyboard.SetTargetProperty(height, new PropertyPath(nameof(FrameworkElement.Height)));
             story.Children.Add(height);
@@ -2378,6 +2389,12 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         _panelAnimations[button] = (panel, story);
         story.Begin();
     }
+
+    /// <summary>
+    /// 卡片展开/收起的动画时长（毫秒）。340ms 与 cubic-bezier(0.4, 0, 0.2, 1) 一起，
+    /// 复现用户选定的方案 01「平滑展开」（见 文档\设计参考\卡片展开收起动画.html）。
+    /// </summary>
+    private const int CardAnimationMs = 340;
 
     /// <summary>把配置里记录的展开状态应用到各模块面板与箭头。</summary>
     private void SyncExpanderArrows()
