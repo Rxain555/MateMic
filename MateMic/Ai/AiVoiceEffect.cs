@@ -71,6 +71,22 @@ public sealed class AiVoiceEffect : IAudioEffect
 
     /// <summary>输出诊断日志的最小间隔（秒）。曾经用 _blocks 计数门控，推理持续失败时会退化成每次调用都打。</summary>
     private const double DiagIntervalSeconds = 2.0;
+
+    /// <summary>
+    /// 输出环的**预填充余量**（ms）：在"一个块"之外额外垫的静音。
+    ///
+    /// 它决定稳态水位的**下沿**：worker 从"输入攒够一块"到"把结果写进输出环"要花
+    /// 一次推理的时间，这段窗口里输出环只出不进，所以水位最低点 ≈ 余量 − 推理耗时。
+    /// 取小了会在每批产出之间欠载（补静音 ⇒ 听感是咔哒），取大了白白增加延迟。
+    /// 实测推理 54~64ms（2026-10-08 用户日志），故取 120ms 留出调度抖动空间。
+    /// </summary>
+    private const int StartupPadMs = 120;
+
+    /// <summary>
+    /// 输出环积压上限在"一个块"之外允许的**净余量**（ms）的取值下限。
+    /// 上限 = 块长 + max(本值, 实测推理耗时 + 40ms)，既覆盖推理窗口又留抖动余量。
+    /// </summary>
+    private const int MinBacklogHeadroomMs = 120;
     private double _lastInferMs;
 
     /// <summary>输出环积压（毫秒），audio 线程写、UI 线程读。</summary>
@@ -216,8 +232,18 @@ public sealed class AiVoiceEffect : IAudioEffect
         _inScratch = new float[_blockSamples48];
         _outScratch = new float[_blockSamples48];
 
-        // 预填充一个块的静音作为"启动延迟"，此后 worker 一产出就能接上
-        _outWrite = _blockSamples48;
+        // 预填充 = 一个块 + 余量（见 StartupPadMs）。
+        //
+        // ⚠ 只垫"一个块"是不够的：worker 首次产出之前，输出环已经被消费掉
+        // 「块长 + 一次推理耗时」，于是稳态水位被压到 0 附近、每批产出之间欠载
+        // （补静音 ⇒ 咔哒）。2026-10-08 之前之所以没暴露这个问题，是因为
+        // 引擎加载期间输入环攒了 1 秒历史、worker 起来追赶把水位顶到了上限，
+        // 那个"上限水位"顺带掩盖了预填充的不足 —— 代价是几百毫秒的永久延迟。
+        //
+        // 夹到环容量的一半：块长来自配置（可能被手改成超出界面滑条范围的值），
+        // 必须保证读写指针不会碰头。
+        var pad = _blockSamples48 + ChainRate * StartupPadMs / 1000;
+        _outWrite = Math.Min(pad, _outRing.Length / 2);
     }
 
     private void Restart()
@@ -385,7 +411,7 @@ public sealed class AiVoiceEffect : IAudioEffect
 
     private int ReadCore(Span<float> buffer)
     {
-        // 输入环：只有积压到接近容量上限（这种情况只可能是引擎创建期间的追赶）才丢最老的。
+        // 输入环：只有积压到接近容量上限（下游长时间不来取）才丢最老的。
         // 平时**绝不能丢**——丢输入会让音频出现断裂，听感是"呲呲/咔哒"。
         var inAvailNow = Available(_inRing, _inRead, _inWrite);
         var inCapSamples = ChainRate;                 // 1 秒
@@ -394,6 +420,27 @@ public sealed class AiVoiceEffect : IAudioEffect
             var dropIn = inAvailNow - inCapSamples;
             _inRead = (_inRead + dropIn) % _inRing.Length;
             Interlocked.Add(ref _droppedSamples, dropIn);
+        }
+
+        // 引擎尚未就绪（首次加载 / 重建中，实测约 1.5~2 秒）：输入环**只保留最近一个块**。
+        //
+        // 原先这里照常攒到 1 秒上限，worker 一起来就连续追赶（产出速率是实时的好几倍），
+        // 一路把输出环灌到上限、并丢掉那段历史音频。实测（2026-10-08 用户日志）
+        // 启动一次**丢弃 1679ms、欠载 186 次**（约 0.9 秒静音）；更糟的是被灌上去的
+        // 水位**不会自然回落**（稳态下产出≈消费），于是变成永久延迟。
+        //
+        // 那段历史要等 1.5 秒后才被处理，实时通话里早已过期：
+        // 宁可丢掉它，也不要"处理旧音频 + 制造永久延迟"。
+        if (_engine == null)
+        {
+            var keep = _blockSamples48;
+            var avail = Available(_inRing, _inRead, _inWrite);
+            if (avail > keep)
+            {
+                var drop = avail - keep;
+                _inRead = (_inRead + drop) % _inRing.Length;
+                Interlocked.Add(ref _droppedSamples, drop);
+            }
         }
 
         // 输入环可能装不下（下游阻塞太久）：放不下就丢弃最老的，保证实时性优先
@@ -417,7 +464,7 @@ public sealed class AiVoiceEffect : IAudioEffect
         var available = (_outWrite - _outRead + _outRing.Length) % _outRing.Length;
 
         // 记下当前积压供界面显示。这是**真实存在的额外延迟**（产出快过消费时的排队量），
-        // 稳态下不应长期偏大（上限 2×块长）。2026-10-08 加入"延迟与性能"卡片。
+        // 稳态下应稳定在"一个块 + 推理余量"这一档（2026-10-08 起上限不再固定为 2×块长）。
         Volatile.Write(ref _lastBacklogMs, available * 1000 / ChainRate);
 
         // ⚠ 限流：积压超过目标就把**最老的**丢掉，把延迟拉回来。
@@ -426,10 +473,15 @@ public sealed class AiVoiceEffect : IAudioEffect
         // （环容量 2 秒），worker 一起来就连续追赶、一次性把输出环灌满；而积压**不会自然消失**
         // （稳态下产出≈消费），于是变成永久延迟——实测曾达 839ms，用户听到的是"延迟一秒多"。
         // 实时语音里宁可丢一点音频，也不能让延迟无界增长。
-        // 输出环稳态需要容纳"一次推理的产出"，所以上限取 2 个块：
-        // 1 个块是 worker 一次产出的量，另 1 个块是给消费端留的余量。
-        // 取更大只会徒增延迟——实测上限 3 个块时稳态积压达 380ms，用户听到的总延迟约 590ms。
-        var capSamples = _blockSamples48 * 2;
+        // 输出环稳态要容纳"一次推理的产出"（一个块），**再加上覆盖一次推理耗时的余量**：
+        // 写入之前水位必须撑得过 worker 算这一块的时间，否则会欠载（补静音 ⇒ 咔哒）。
+        // 上限 = 块长 + max(120ms, 实测推理耗时 + 40ms)。
+        //
+        // 旧实现直接取 2 个块 = 块长 + 块长。块长 160ms 时是 320ms，而这一档真正的
+        // 物理需求只有约 220~260ms（推理实测 54~64ms）。多出来的部分在"积压不会自然
+        // 回落"的前提下等于白送的永久延迟 —— 实测稳态水位就停在 [160 … 300]ms。
+        var headroomMs = Math.Max(MinBacklogHeadroomMs, (int)Math.Ceiling(_lastInferMs) + 40);
+        var capSamples = Math.Min(_blockSamples48 + ChainRate * headroomMs / 1000, _outRing.Length / 2);
         if (available > capSamples)
         {
             var drop = available - capSamples;
