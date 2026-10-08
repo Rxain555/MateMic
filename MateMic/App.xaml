@@ -12,6 +12,25 @@
                 -->
                 <ResourceDictionary Source="Ui/Theme.Modern.xaml" />
             </ResourceDictionary.MergedDictionaries>
+
+            <!--
+              关掉系统的焦点虚线框。
+              （2026-10-08 用户要求："我看见软件有焦点虚线框……我不想要这个功能"。）
+
+              ⚠ 做法有讲究：**不能**靠"给 Button / ToggleButton / ComboBox / … 各加一个隐式样式、
+              里面只设 FocusVisualStyle=null"——WPF 的隐式样式按 TargetType 匹配，
+              那样会直接顶掉主题里同 TargetType 的样式，等于把整套外观废掉。
+
+              控件 FocusVisualStyle 的默认值来自 SystemParameters.FocusVisualStyleKey 这个资源键，
+              而 App 级资源**优先于**合并进来的主题字典。所以只在这里重定义它一次，
+              就能关掉所有控件的虚线框，且完全不触碰任何既有样式。
+
+              模板给 null（而不是给一个空 Border）：前者根本不创建焦点视觉元素，
+              后者仍会参与布局与绘制。
+            -->
+            <Style x:Key="{x:Static SystemParameters.FocusVisualStyleKey}">
+                <Setter Property="Control.Template" Value="{x:Null}" />
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>
