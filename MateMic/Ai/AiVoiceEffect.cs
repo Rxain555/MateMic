@@ -73,24 +73,49 @@ public sealed class AiVoiceEffect : IAudioEffect
     private const double DiagIntervalSeconds = 2.0;
 
     /// <summary>
-    /// 输出环的**预填充余量**（ms）：在"一个块"之外额外垫的静音。
+    /// 「输出缓冲」的**硬下限**（ms）。
+    ///
+    /// 滑条本身已经限制了范围，这里再兜一次：配置是明文 JSON，被手改成 0 会让水位
+    /// 低到"每批产出末尾必然欠载"（补静音 ⇒ 咔哒）。
+    /// </summary>
+    private const int MinBacklogPadMs = 60;
+
+    /// <summary>预填充之外、给推理耗时抖动留的额外余量（ms），用于算积压上限。</summary>
+    private const int BacklogJitterMarginMs = 40;
+
+    /// <summary>
+    /// 当前配置下的「输出缓冲」余量（ms）—— 界面上那个滑条，用户在**延迟与稳定性**之间取舍。
     ///
     /// 它决定稳态水位的**下沿**：worker 从"输入攒够一块"到"把结果写进输出环"要花
     /// 一次推理的时间，这段窗口里输出环只出不进，所以水位最低点 ≈ 余量 − 推理耗时。
     /// 取小了会在每批产出之间欠载（补静音 ⇒ 听感是咔哒），取大了白白增加延迟。
-    /// 实测推理 54~64ms（2026-10-08 用户日志），故取 120ms 留出调度抖动空间。
+    /// 实测推理 54~64ms（2026-10-08 用户日志），故默认取 120ms。
     /// </summary>
-    private const int StartupPadMs = 120;
+    private int BacklogPadMs() => Math.Max(MinBacklogPadMs, _config.AiVoice.BacklogPadMs);
 
     /// <summary>
-    /// 输出环积压上限在"一个块"之外允许的**净余量**（ms）的取值下限。
-    /// 上限 = 块长 + max(本值, 实测推理耗时 + 40ms)，既覆盖推理窗口又留抖动余量。
+    /// 输出环的预填充量（样本）= 一个块 + 用户选的缓冲余量，并夹到环容量的一半
+    /// （块长与余量都来自配置，可能被手改成超范围的值，必须保证读写指针不会碰头）。
     /// </summary>
-    private const int MinBacklogHeadroomMs = 120;
+    private int PadSamples()
+        => Math.Min(_blockSamples48 + ChainRate * BacklogPadMs() / 1000, _outRing.Length / 2);
     private double _lastInferMs;
 
     /// <summary>输出环积压（毫秒），audio 线程写、UI 线程读。</summary>
     private int _lastBacklogMs;
+
+    /// <summary>
+    /// 「输出缓冲」滑条被拖动后置位：下一次 Read 时把水位**一次性**拉到目标值。
+    ///
+    /// 为什么需要它：调小 → 积压上限自然把水位压下来（限流逻辑）；但**调大**时水位
+    /// 不会自己升上去（稳态下产出≈消费，水位不回归），滑条看起来就"没功能" ——
+    /// 本项目已经因为这类"滑条不生效"被用户报过一次（音频块那次）。
+    /// 一次性校准之后仍交给自然锯齿，**不做持续调节**（持续丢/垫样本反而会断音）。
+    /// </summary>
+    private volatile bool _backlogRetargetPending;
+
+    /// <summary>由界面在「输出缓冲」变化后调用：请求把水位重新拉到目标值。</summary>
+    public void RequestBacklogRetarget() => _backlogRetargetPending = true;
 
     /// <summary>最近一次引擎创建失败的原因（成功时为 null）。供界面提示用户。</summary>
     private volatile string? _lastError;
@@ -247,10 +272,9 @@ public sealed class AiVoiceEffect : IAudioEffect
         // 否则预填充会在加载的 1.5 秒里被吃光，就绪时水位从 0 起步，稳态水位掉到
         // [0 … 块长]，每批产出的末尾恰好触底 —— 任何抖动都欠载（比高延迟更糟）。
         //
-        // 夹到环容量的一半：块长来自配置（可能被手改成超出界面滑条范围的值），
+        // 夹到环容量的一半：块长与余量都来自配置（可能被手改成超范围的值），
         // 必须保证读写指针不会碰头。
-        var pad = _blockSamples48 + ChainRate * StartupPadMs / 1000;
-        _outWrite = Math.Min(pad, _outRing.Length / 2);
+        _outWrite = PadSamples();
     }
 
     private void Restart()
@@ -485,6 +509,33 @@ public sealed class AiVoiceEffect : IAudioEffect
         // 输出：有就取，没有补静音
         var available = (_outWrite - _outRead + _outRing.Length) % _outRing.Length;
 
+        // 「输出缓冲」滑条刚被拖过：把水位**一次性**拉到目标值。
+        //   高了 → 丢掉最老的（那正是用户想砍掉的那段延迟）；
+        //   低了 → 垫静音（多出一小段静音，换回"不欠载"的余量）。
+        // 只做一次，之后仍由自然锯齿运行。
+        if (_backlogRetargetPending)
+        {
+            _backlogRetargetPending = false;
+            var target = PadSamples();
+            if (available > target)
+            {
+                var drop = available - target;
+                _outRead = (_outRead + drop) % _outRing.Length;
+                Interlocked.Add(ref _droppedSamples, drop);
+                available = target;
+            }
+            else if (available < target)
+            {
+                var fill = target - available;
+                for (var i = 0; i < fill; i++)
+                {
+                    _outRing[_outWrite] = 0f;
+                    _outWrite = (_outWrite + 1) % _outRing.Length;
+                }
+                available = target;
+            }
+        }
+
         // 记下当前积压供界面显示。这是**真实存在的额外延迟**（产出快过消费时的排队量），
         // 稳态下应稳定在"一个块 + 推理余量"这一档（2026-10-08 起上限不再固定为 2×块长）。
         Volatile.Write(ref _lastBacklogMs, available * 1000 / ChainRate);
@@ -502,7 +553,7 @@ public sealed class AiVoiceEffect : IAudioEffect
         // 旧实现直接取 2 个块 = 块长 + 块长。块长 160ms 时是 320ms，而这一档真正的
         // 物理需求只有约 220~260ms（推理实测 54~64ms）。多出来的部分在"积压不会自然
         // 回落"的前提下等于白送的永久延迟 —— 实测稳态水位就停在 [160 … 300]ms。
-        var headroomMs = Math.Max(MinBacklogHeadroomMs, (int)Math.Ceiling(_lastInferMs) + 40);
+        var headroomMs = Math.Max(BacklogPadMs(), (int)Math.Ceiling(_lastInferMs) + BacklogJitterMarginMs);
         var capSamples = Math.Min(_blockSamples48 + ChainRate * headroomMs / 1000, _outRing.Length / 2);
         if (available > capSamples)
         {
@@ -588,11 +639,19 @@ public sealed class AiVoiceEffect : IAudioEffect
     /// 退出静音用 −48 dBFS，中间 7dB 是死区，避免说话间隙在阈值附近反复切换。
     private void ProcessOneBlock()
     {
-        // 取一个块（40k 域）
-        for (var i = 0; i < _blockSamples48; i++)
+        // ⚠ 环的读/写各用一次锁，**推理本身在锁外**。
+        // 音频线程的 Read 持同一把锁，锁内只有内存拷贝（微秒级）；
+        // 推理要 60ms 上下，绝不能放进锁里，否则音频线程会被卡住。
+        // 为什么 worker 也要持锁：界面线程随时可能改环（「输出缓冲」滑条、参数重建），
+        // 不串行化就会让 worker 在错位的位置上读写。
+        lock (_ringGate)
         {
-            _inScratch[i] = _inRing[_inRead];
-            _inRead = (_inRead + 1) % _inRing.Length;
+            // 取一个块（40k 域）
+            for (var i = 0; i < _blockSamples48; i++)
+            {
+                _inScratch[i] = _inRing[_inRead];
+                _inRead = (_inRead + 1) % _inRing.Length;
+            }
         }
 
         var modelBlock = _blockSamples48 * ModelRate / ChainRate;
@@ -609,23 +668,28 @@ public sealed class AiVoiceEffect : IAudioEffect
         // 回到 48k 并写进输出环
         var out48 = new float[out40.Length * ChainRate / ModelRate + 64];
         var n = _fromModel!.Process(out40, out48);
-        for (var i = 0; i < n; i++)
+        lock (_ringGate)
         {
-            _outRing[_outWrite] = out48[i];
-            _outWrite = (_outWrite + 1) % _outRing.Length;
+            for (var i = 0; i < n; i++)
+            {
+                _outRing[_outWrite] = out48[i];
+                _outWrite = (_outWrite + 1) % _outRing.Length;
+            }
         }
-
     }
 
     private void SkipOneBlock()
     {
-        for (var i = 0; i < _blockSamples48; i++)
-            _inRead = (_inRead + 1) % _inRing.Length;
-        // 输出补一段静音，保持时间轴对齐
-        for (var i = 0; i < _blockSamples48; i++)
+        lock (_ringGate)
         {
-            _outRing[_outWrite] = 0f;
-            _outWrite = (_outWrite + 1) % _outRing.Length;
+            for (var i = 0; i < _blockSamples48; i++)
+                _inRead = (_inRead + 1) % _inRing.Length;
+            // 输出补一段静音，保持时间轴对齐
+            for (var i = 0; i < _blockSamples48; i++)
+            {
+                _outRing[_outWrite] = 0f;
+                _outWrite = (_outWrite + 1) % _outRing.Length;
+            }
         }
     }
 

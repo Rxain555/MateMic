@@ -219,6 +219,22 @@ public sealed class AiVoiceSettings
     /// </summary>
     public int CrossfadeMs { get; set; } = 40;
 
+    /// <summary>
+    /// **输出缓冲余量（ms）** —— 界面上的「输出缓冲」滑条，让用户在**延迟与稳定性**之间取舍。
+    ///
+    /// 含义：AI 变声的输出环在"一个音频块"之外额外保留的水位。环里排队等着播的音频
+    /// 就是实打实的额外延迟，所以这个值越小延迟越低；但它同时是"worker 算完这一块之前、
+    /// 输出环别被抽干"的余量，取太小会欠载（补静音 ⇒ 听感是咔哒）。
+    ///
+    /// 为什么做成滑条：这个下限**消不掉**（worker 一次产出一整块、设备连续取走），
+    /// 官方实时实现干脆把它交给音频设备的 blocksize（`sd.Stream(blocksize=block_frame)`），
+    /// 于是同一件事在官方那里体现为 `stream.latency`。既然是个取舍，就把选择权交给用户。
+    ///
+    /// 实测（块长 160ms）：推理 54~64ms，故默认 120ms 给抖动留足空间。
+    /// 下限 60ms 由滑条与 `AiVoiceEffect.MinBacklogPadMs` 双重保证。
+    /// </summary>
+    public int BacklogPadMs { get; set; } = 120;
+
 }
 
 

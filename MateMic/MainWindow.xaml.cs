@@ -2703,6 +2703,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         AiVoiceBlockSlider.Value = _config.AiVoice.BlockMs;
         AiVoiceContextSlider.Value = _config.AiVoice.ContextMs;
         AiVoiceCrossfadeSlider.Value = _config.AiVoice.CrossfadeMs;
+        AiVoiceBacklogSlider.Value = _config.AiVoice.BacklogPadMs;
 
         // ⚠ 必须在这里扫一次音色/索引目录：原先只有点过「添加 AI 变声」之后才调用
         // RefreshAiVoiceLists()，于是**启动后音色下拉框一直是空的**，
@@ -2956,6 +2957,13 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             case "AiVoiceCrossfadeMs":
                 _config.AiVoice.CrossfadeMs = (int)Math.Round(value);
                 needsRebuild = true;
+                break;
+            case "AiVoiceBacklogPadMs":
+                // 只改输出环的水位，不动缓冲几何 ⇒ 不重建引擎。
+                // 但要让**调大**也立刻生效：水位不会自己升上去，得让引擎做一次一次性校准
+                // （调小的话上限本来就会把它压下来，这条同样适用）。
+                _config.AiVoice.BacklogPadMs = (int)Math.Round(value);
+                _engine.AiVoice.RequestBacklogRetarget();
                 break;
             default:
                 return;

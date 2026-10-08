@@ -481,6 +481,24 @@
                                             <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
                                                        Text="{Binding Value, ElementName=AiVoiceCrossfadeSlider, StringFormat='{}{0:0} ms'}" />
                                         </Grid>
+                                        <!-- 输出缓冲：用它在「延迟」与「稳定性」之间取舍。
+                                             环里排队的音频就是额外延迟，所以越小越跟手；
+                                             但它是"worker 算完这一块之前别被抽干"的余量，
+                                             太小会欠载（补静音 ⇒ 咔哒）。下限 60ms。 -->
+                                        <Grid x:Name="AiVoiceBacklogRow" Margin="0,2,0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="62" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="62" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="输出缓冲" />
+                                            <Slider x:Name="AiVoiceBacklogSlider" Grid.Column="1" VerticalAlignment="Center"
+                                                    Style="{StaticResource FlatSlider}" Minimum="60" Maximum="300"
+                                                    IsSnapToTickEnabled="True" TickFrequency="20"
+                                                    Value="120" Tag="AiVoiceBacklogPadMs" ValueChanged="OnSliderChanged"/>
+                                            <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
+                                                       Text="{Binding Value, ElementName=AiVoiceBacklogSlider, StringFormat='{}{0:0} ms'}" />
+                                        </Grid>
                                     </StackPanel>
                                 </StackPanel>
                             </Border>
