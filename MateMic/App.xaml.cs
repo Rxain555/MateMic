@@ -88,6 +88,11 @@ public partial class App : Application
         // 正文在仓库的 Assets\使用指南.txt，编译时嵌进程序集。**必须在构造主窗口之前加载**。
         GuideCatalog.Load();
 
+        // 「关于」声明与「同步按住键」风险说明的正文同样是内置资源
+        // （Assets\关于.txt / Assets\风险说明.txt，见 Core\TextAssets.cs）。
+        // 预读一次并记日志：改完 txt 有没有生效，看启动日志里的字数即可。
+        TextAssets.Load();
+
         // 改名迁移：把旧版（MicMate）留下的开机自启项改写成新 exe 与新名字，
         // 否则开机时系统还会去启动那个已经不存在的旧 exe。
         AutoStartService.MigrateLegacyEntry();

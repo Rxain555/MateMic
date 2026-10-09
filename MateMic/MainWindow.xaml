@@ -1049,6 +1049,25 @@
                                                    Foreground="{DynamicResource SubtleTextBrush}" />
                                     </Grid>
 
+                                    <!-- 资源占用：本进程 CPU 占用 + 显卡整体利用率。
+                                         与上面两行同列宽（名称 | 内容 | 右侧）。2026-10-09 用户要求补一行
+                                         —— 调「音频块 / 输出缓冲」是在拿延迟换稳定性，得能看见整机还剩多少余量。
+                                         GPU 读不到时（非 N 卡 / 驱动没提供 NVML）显示「GPU —」。 -->
+                                    <Grid Margin="0,1,0,1">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="72" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource LabelText}"
+                                                   Text="资源占用" FontSize="11" />
+                                        <TextBlock Grid.Column="1" x:Name="StatsCpuText"
+                                                   Style="{StaticResource LabelText}" FontSize="11" Text="—" />
+                                        <TextBlock Grid.Column="2" x:Name="StatsGpuText"
+                                                   Style="{StaticResource LabelText}" FontSize="11" Text=""
+                                                   Foreground="{DynamicResource SubtleTextBrush}" />
+                                    </Grid>
+
                                     <Border Height="1" Margin="0,5,0,5"
                                             Background="{DynamicResource HairlineBrush}" />
 

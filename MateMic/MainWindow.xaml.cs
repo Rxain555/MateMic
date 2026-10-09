@@ -1469,6 +1469,14 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             StatsAiVoiceLoad.Text = "";
         }
 
+        // ---- 资源占用（本进程 CPU + 显卡整体利用率）----
+        // 与上面两个模块的"负载"不同：负载是"占它自己处理周期的比例"，
+        // 这里才是"整机吃了多少"，调块长/输出缓冲时靠它判断还有多少余量。
+        // 采样频率跟着本方法（约 0.5 秒一次）就够：CPU 占用是两次采样的差值，越密越抖。
+        ResourceUsage.Sample();
+        StatsCpuText.Text = $"CPU {ResourceUsage.CpuPercent:0.0}%";
+        StatsGpuText.Text = ResourceUsage.GpuPercent is { } gpu ? $"GPU {gpu:0}%" : "GPU —";
+
         // ---- 延迟构成 ----
         // 降噪的 LatencyMs 是"固定一帧"（它是帧式处理，输出天然滞后一帧）；
         // 变声用 AiVoiceEffect.LatencyMs（= 2×块长，与官方口径一致）。
@@ -3633,8 +3641,9 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     /// 关于：把"必须声明的东西"集中在一处 —— 界面字体（MiSans 的授权要求）、
     /// 内置降噪模型、用户自备模型的许可归属、第三方组件。版本号与工具栏显示同一个来源。
     ///
-    /// ⚠ 这段是**功能性对话框**（许可与署名），不是"使用说明"，所以仍留在代码里；
-    /// 使用说明已全部搬进使用指南。
+    /// 正文来自内置资源 `Assets\关于.txt`（见 <see cref="TextAssets"/>）：
+    /// 2026-10-09 按用户要求把声明也做成"一个可以直接编辑的文件"，与使用指南同一套路。
+    /// 这里只负责拼上运行时读到的版本号。
     /// </summary>
     private void OnAboutClick(object sender, RoutedEventArgs e)
         => DialogHost.Info(this, "关于 MateMic", AboutText());
@@ -3643,16 +3652,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     {
         var version = typeof(MainWindow).Assembly.GetName().Version;
         var text = version == null ? "v?" : "v" + version.ToString(3);
-
-        return
-            $"MateMic {text}   MIT 许可\n\n" +
-            "降噪模型   DPDFNet / gtcrn\n" +
-            "界面字体   MiSans\n" +
-            "第三方组件   NAudio / NWaves / ONNX Runtime\n\n" +
-            "AI 变声   算法基于 RVC（Retrieval-based-Voice-Conversion-WebUI，MIT）\n" +
-            "           需另行下载组件；组件内含 ONNX Runtime / faiss / OpenBLAS\n" +
-            "           GPU 推理依赖用户自行安装的 NVIDIA CUDA / cuDNN\n" +
-            "           音色模型与索引由用户自备，版权与许可归其提供方";
+        return $"MateMic {text}   MIT 许可\n\n" + TextAssets.About;
     }
 
     // =============================================================== 播放器
@@ -4005,42 +4005,25 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     /// <summary>
     /// 「同步按住键」的风险说明。
     ///
-    /// ⚠ 这是**功能性提示**（开启前的风险确认），不是"使用说明"，所以留在代码里：
-    /// 它必须跟着功能走，不该被外部文件改掉之后失去效力。
-    /// 使用说明那些内容已经全部搬进使用指南。
+    /// 正文来自内置资源 `Assets\风险说明.txt`（见 <see cref="TextAssets"/>）：
+    /// 2026-10-09 按用户要求把这段也做成"一个可以直接编辑的文件"。
+    /// 标题与确认按钮文案留在这里 —— 它们是对话框的结构，不属于可自由改写的正文。
     /// </summary>
     private const string HoldKeyRiskTitle = "同步按住键 · 风险说明";
-
-    private const string HoldKeyRiskText =
-        """
-        请不要在反作弊运行时使用此功能！
-        请不要在反作弊运行时使用此功能！
-        请不要在反作弊运行时使用此功能！
-
-        同步按住键功能使用 Win32 SendInput 向系统注入按键事件
-        SendInput 注入带有 LLKHF_INJECTED 标记，属于软件模拟输入
-        此种行为是否违规由反作弊的策略决定
-        此功能不包含任何作弊功能，仅在用户播放音频时通过模拟输入同步按住一个用户设置的按键
-        请遵守游戏或第三方平台的用户协议及相关规则
-        因开启此功能导致被反作弊封禁，本软件开发者及关联方不承担任何责任
-
-        请认真阅读以上内容，点击下方确认继续按钮将视为已阅读并了解相应风险
-        并自行承担由此产生的一切后果
-        """;
 
     /// <summary>确认框的主按钮文案（用户指定：把"继续"写清楚，避免顺手点过）。</summary>
     private const string HoldKeyRiskConfirmText = "我已阅读并了解风险，确认继续";
 
     /// <summary>开启前的确认框；返回 true 表示用户接受风险。</summary>
     private bool ConfirmHoldKeyRisk()
-        => DialogHost.Ask(this, HoldKeyRiskTitle, HoldKeyRiskText,
+        => DialogHost.Ask(this, HoldKeyRiskTitle, TextAssets.HoldKeyRisk,
                           "取消", HoldKeyRiskConfirmText);
 
     private void ShowHoldKeyRisk(bool warning)
     {
         // warning 为真表示"刚被启用"，此时配置未必已落盘，所以直接按已启用来显示
         var state = warning || _config.Player.EnableHoldKey ? "当前开关：已启用。" : "当前开关：未启用。";
-        var text = HoldKeyRiskText + "\n\n" + state;
+        var text = TextAssets.HoldKeyRisk + "\n\n" + state;
 
         if (warning) DialogHost.Warn(this, HoldKeyRiskTitle, text);
         else DialogHost.Info(this, HoldKeyRiskTitle, text);

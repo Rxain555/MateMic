@@ -41,6 +41,8 @@ public sealed class DialogHost : Window
     /// <summary>分页内容；为空表示这是普通的一次性对话框。</summary>
     private readonly IReadOnlyList<GuideCatalog.Page> _pages = Array.Empty<GuideCatalog.Page>();
     private TextBlock? _bodyBlock;
+    /// <summary>正文的滚动宿主：换页时要把它拨回顶部（见 <see cref="UpdatePage"/>）。</summary>
+    private ScrollViewer? _bodyScroll;
     private TextBlock? _pageLabel;
     private Button? _prevButton;
     private Button? _nextButton;
@@ -99,6 +101,11 @@ public sealed class DialogHost : Window
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
                 MaxHeight = 380,
             };
+
+            // 滚轮改成逐帧指数平滑（与主界面左栏同一套 Ui\SmoothScroll）：
+            // 原生的"一格一跳"用户 2026-10-09 反馈"很生硬"。长文案对话框（风险说明等）一并受益。
+            SmoothScroll.SetEnabled(scroll, true);
+            _bodyScroll = scroll;
 
             // 分页（使用指南）时把正文区**钉死成固定尺寸**：
             // 每页长短不一，若让它随内容变化，翻页时整个对话框会重新居中、
@@ -215,6 +222,12 @@ public sealed class DialogHost : Window
 
         var page = _pages[_pageIndex];
         _bodyBlock.Text = page.Body;
+
+        // 换页要回到正文最上面。用户 2026-10-09 反馈："换页不会重置滚动条和内容位置，
+        // 我想每次切换新的一页都处在内容最上面"。
+        // 必须连平滑滚动的内部记账一起归零 —— 只调 ScrollToVerticalOffset(0) 的话，
+        // 逐帧回调还记着旧目标，下一帧就把位置拉回去（见 SmoothScroll.ResetToTop）。
+        SmoothScroll.ResetToTop(_bodyScroll);
 
         if (_pageLabel != null)
             _pageLabel.Text = $"第 {_pageIndex + 1} / {_pages.Count} 页 · {page.Title}";

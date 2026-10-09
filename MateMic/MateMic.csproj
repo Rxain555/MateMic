@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -88,16 +88,28 @@
   </ItemGroup>
 
   <!--
-    使用指南的**内置默认内容**（作者自己写的那份）。
-    编成 EmbeddedResource 而不是复制成文件：新用户首次运行时，程序会把它写进
-    data\使用指南.txt 当作初始内容；之后用户/作者改的是自己那一份，
-    升级覆盖安装也不会被冲掉。打包脚本无需额外处理。
+    使用指南的**内置内容**（作者写给用户的那份）。
+    编成 EmbeddedResource 而不是复制成文件：`data\` 是用户数据目录，不该由程序
+    往里写一份"作者自己的说明"；内置之后语义干净 —— 作者改这个 txt → 重新编译打包
+    → 所有人看到新的，覆盖安装自然也就更新了。运行时由 Core\GuideCatalog 解析分页。
     LogicalName 固定成 ASCII，省得中文文件名在资源名里出幺蛾子。
     （默认的 None 通配会把它也当成 None，重复包含会报错，所以先 Remove 再 Include。）
   -->
   <ItemGroup>
     <None Remove="Assets\使用指南.txt" />
     <EmbeddedResource Include="Assets\使用指南.txt" LogicalName="MateMic.Guide.Default.txt" />
+  </ItemGroup>
+
+  <!--
+    「关于」声明与「同步按住键」风险说明的正文：同样是**作者自己改**的长文案，
+    2026-10-09 按用户要求从 C# 常量搬成 Assets\ 下的 txt（与使用指南一致）。
+    改完必须重新编译才生效；运行时由 Core\TextAssets 读取（它会跳过 # 注释行）。
+  -->
+  <ItemGroup>
+    <None Remove="Assets\关于.txt" />
+    <EmbeddedResource Include="Assets\关于.txt" LogicalName="MateMic.About.txt" />
+    <None Remove="Assets\风险说明.txt" />
+    <EmbeddedResource Include="Assets\风险说明.txt" LogicalName="MateMic.HoldKeyRisk.txt" />
   </ItemGroup>
 
 </Project>

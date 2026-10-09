@@ -1,0 +1,17 @@
+# ============================================================
+# MateMic「关于」对话框的声明内容
+#
+# 改完保存（UTF-8）后**需要重新编译**才会生效 —— 这段文字是编进程序集的
+# 内置资源（见 MateMic.csproj 里的 EmbeddedResource），不是 data\ 下的外部文件。
+#   · 以 # 开头的行是注释，不会显示。
+#   · 第一行「MateMic vX.Y.Z   MIT 许可」由程序运行时拼上，这里不用写。
+# ============================================================
+
+降噪模型   DPDFNet / gtcrn
+界面字体   MiSans
+第三方组件   NAudio / NWaves / ONNX Runtime
+
+AI 变声   算法基于 RVC（Retrieval-based-Voice-Conversion-WebUI，MIT）
+           需另行下载组件；组件内含 ONNX Runtime / faiss / OpenBLAS
+           GPU 推理依赖用户自行安装的 NVIDIA CUDA / cuDNN
+           音色模型与索引由用户自备，版权与许可归其提供方

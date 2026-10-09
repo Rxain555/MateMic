@@ -137,4 +137,19 @@ public static class SmoothScroll
         // 逐帧回调自己会摘掉；这里只需要让它"立刻落定"：把目标对齐当前值即可
         viewer.SetValue(TargetProperty, (double)viewer.GetValue(CurrentProperty));
     }
+
+    /// <summary>
+    /// 立刻回到最顶端，并把内部记账一起归零（分页/换内容时用）。
+    ///
+    /// ⚠ 必须**同时**重置 Current 与 Target：只调 <c>ScrollToVerticalOffset(0)</c> 的话，
+    /// 逐帧回调还记着旧目标，下一帧就把位置拉回去了。两个值都置 0 之后，
+    /// 回调会判定"已落定"、顺手把自己摘掉。
+    /// </summary>
+    public static void ResetToTop(ScrollViewer? viewer)
+    {
+        if (viewer == null) return;
+        viewer.SetValue(CurrentProperty, 0.0);
+        viewer.SetValue(TargetProperty, 0.0);
+        viewer.ScrollToVerticalOffset(0);
+    }
 }
