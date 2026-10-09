@@ -3648,7 +3648,11 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             $"MateMic {text}   MIT 许可\n\n" +
             "降噪模型   DPDFNet / gtcrn\n" +
             "界面字体   MiSans\n" +
-            "第三方组件   NAudio / NWaves / ONNX Runtime";
+            "第三方组件   NAudio / NWaves / ONNX Runtime\n\n" +
+            "AI 变声   算法基于 RVC（Retrieval-based-Voice-Conversion-WebUI，MIT）\n" +
+            "           需另行下载组件；组件内含 ONNX Runtime / faiss / OpenBLAS\n" +
+            "           GPU 推理依赖用户自行安装的 NVIDIA CUDA / cuDNN\n" +
+            "           音色模型与索引由用户自备，版权与许可归其提供方";
     }
 
     // =============================================================== 播放器

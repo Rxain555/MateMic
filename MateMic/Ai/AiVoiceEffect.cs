@@ -73,12 +73,16 @@ public sealed class AiVoiceEffect : IAudioEffect
     private const double DiagIntervalSeconds = 2.0;
 
     /// <summary>
-    /// 「输出缓冲」的**硬下限**（ms）。
+    /// 「输出缓冲」的**下限**（ms）。
     ///
-    /// 滑条本身已经限制了范围，这里再兜一次：配置是明文 JSON，被手改成 0 会让水位
-    /// 低到"每批产出末尾必然欠载"（补静音 ⇒ 咔哒）。
+    /// 用户 2026-10-09 明确要求把可调下限放到 **0**：
+    /// "当然这是不可能稳定输出的，我只是想把选择权交到用户手里"。所以这里不再兜底。
+    ///
+    /// 调到 0 会怎样：水位最低点 ≈ `0 − 一次推理耗时` ⇒ **每批产出之间必然欠载**
+    /// （补静音 ⇒ 咔哒 / 断续）。滑条的 0ms 是"能调，但基本不能听"的一档。
+    /// 另一侧仍有保护：积压上限 = 块长 + max(本值, 实测推理耗时 + 40ms)。
     /// </summary>
-    private const int MinBacklogPadMs = 60;
+    private const int MinBacklogPadMs = 0;
 
     /// <summary>预填充之外、给推理耗时抖动留的额外余量（ms），用于算积压上限。</summary>
     private const int BacklogJitterMarginMs = 40;
