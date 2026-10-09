@@ -217,6 +217,10 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         Loaded += OnLoaded;
         _timer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(33) };
         _timer.Tick += OnRenderTick;
+
+        // 收起托盘（Hide）与从托盘恢复（Show）都会改 IsVisible；用它同步渲染定时器的起停，
+        // 这样"收进托盘"期间连空回调都不再发生（见 UpdateRenderTimer）。
+        IsVisibleChanged += (_, _) => UpdateRenderTimer();
     }
 
     // =============================================================== 自绘标题栏
@@ -400,7 +404,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
             RegisterConfiguredHotkeys();
             RefreshTrackHighlight();
-            _timer.Start();
+            UpdateRenderTimer();   // 正常启动时窗口可见 ⇒ 就是原先的 _timer.Start()
 
             // 开机自启：不弹窗口，直接收进托盘（托盘双击即可恢复）。
             // 用户若关掉了「关闭到托盘」，则尊重该设置，仍然显示窗口。
@@ -1405,7 +1409,26 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
     private void OnRenderTick(object? sender, EventArgs e)
     {
+        // 窗口被隐藏（收起托盘）或最小化：什么都不做。
+        // 这两种状态下定时器本身也会被 UpdateRenderTimer 停掉，这里是双保险。
         if (!IsVisible || WindowState == WindowState.Minimized) return;
+
+        // 全屏应用在跑（游戏 / 演示 / 锁屏）时也停下 —— WPF 的 IsVisible 只表示"窗口没被隐藏"，
+        // **不表示"没被遮挡"**，所以全屏游戏时我们本来会一直刷看不见的界面（2026-10-09 用户提出）。
+        // 判断用官方的 SHQueryUserNotificationState，但它没有事件可订阅、只能轮询：
+        // 每 15 帧（≈0.5 秒）查一次，切回桌面后最多晚 0.5 秒恢复。
+        // ⚠ 只跳过**界面**刷新；音频处理跑在音频线程上，完全不受影响。
+        // ⚠ 自检会话里跳过这个判断：那些截图要能重复拍到"正在刷新"的界面，
+        //   不能因为跑自检的人恰好开着全屏游戏就拍出一片空频谱。
+        if (!App.IsSelfCheckSession)
+        {
+            if (--_fullScreenProbe <= 0)
+            {
+                _fullScreenProbe = 15;
+                _fullScreenActive = ShellState.ShouldSkipRendering();
+            }
+            if (_fullScreenActive) return;
+        }
 
         _engine.UpdateAnalysis();
 
@@ -1422,6 +1445,10 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     }
 
     private int _statsTick;
+
+    /// <summary>全屏检测的轮询计数与结果缓存（见 <see cref="OnRenderTick"/>）。</summary>
+    private int _fullScreenProbe = 1;
+    private bool _fullScreenActive;
 
     /// <summary>
     /// 刷新中间栏底部的"延迟与性能"卡片。
@@ -4350,6 +4377,28 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     {
         if (WindowState == WindowState.Minimized && !_exiting)
             Log.Debug("窗口已最小化到任务栏。");
+
+        UpdateRenderTimer();
+    }
+
+    /// <summary>
+    /// 按"窗口现在该不该刷"来起停渲染定时器。
+    ///
+    /// 最小化与收起托盘（Hide）时干脆把定时器停掉：虽然 OnRenderTick 开头也会 return，
+    /// 但停掉之后连"每 33ms 一次空回调"都省了（2026-10-09 用户要求：在不影响音频处理的前提下省性能）。
+    /// ⚠ 音频处理不受影响 —— 引擎跑在音频线程上，与界面刷新无关。
+    /// </summary>
+    private void UpdateRenderTimer()
+    {
+        var shouldRun = IsVisible && WindowState != WindowState.Minimized && !_exiting;
+        if (shouldRun)
+        {
+            if (!_timer.IsEnabled) _timer.Start();
+        }
+        else if (_timer.IsEnabled)
+        {
+            _timer.Stop();
+        }
     }
 
     /// <summary>
