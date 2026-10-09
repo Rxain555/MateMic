@@ -29,7 +29,7 @@
   #define MyOutputDir "..\dist"
 #endif
 #ifndef MyAppVersion
-  #define MyAppVersion "0.3.4"
+  #define MyAppVersion "0.4.1"
 #endif
 
 [Setup]
