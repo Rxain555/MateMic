@@ -1469,14 +1469,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             StatsAiVoiceLoad.Text = "";
         }
 
-        // ---- 资源占用（本进程 CPU + 显卡整体利用率）----
-        // 与上面两个模块的"负载"不同：负载是"占它自己处理周期的比例"，
-        // 这里才是"整机吃了多少"，调块长/输出缓冲时靠它判断还有多少余量。
-        // 采样频率跟着本方法（约 0.5 秒一次）就够：CPU 占用是两次采样的差值，越密越抖。
-        ResourceUsage.Sample();
-        StatsCpuText.Text = $"CPU {ResourceUsage.CpuPercent:0.0}%";
-        StatsGpuText.Text = ResourceUsage.GpuPercent is { } gpu ? $"GPU {gpu:0}%" : "GPU —";
-
         // ---- 延迟构成 ----
         // 降噪的 LatencyMs 是"固定一帧"（它是帧式处理，输出天然滞后一帧）；
         // 变声用 AiVoiceEffect.LatencyMs（= 2×块长，与官方口径一致）。
@@ -2811,7 +2803,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         // 走热更新的：保持可用
         AiVoicePitchSlider.IsEnabled = true;
 
-        // 「输出缓冲」**有意不列入**上面那份"运行时禁用"的名单：它也是热更新项
+        // 「额外缓冲」**有意不列入**上面那份"运行时禁用"的名单：它也是热更新项
         //（只改输出环的水位，不重建引擎），开着 AI 变声时照样能拖，而且立刻生效
         //（AiVoiceEffect.RequestBacklogRetarget 会做一次性水位校准，否则"调大"不生效）。
         // 与"变调 / 索引占比"同类 —— 用户在 2026-10-08 问过"这个能在开启时调吗"，

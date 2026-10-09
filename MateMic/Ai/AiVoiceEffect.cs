@@ -73,7 +73,7 @@ public sealed class AiVoiceEffect : IAudioEffect
     private const double DiagIntervalSeconds = 2.0;
 
     /// <summary>
-    /// 「输出缓冲」的**下限**（ms）。
+    /// 「额外缓冲」的**下限**（ms）。
     ///
     /// 用户 2026-10-09 明确要求把可调下限放到 **0**：
     /// "当然这是不可能稳定输出的，我只是想把选择权交到用户手里"。所以这里不再兜底。
@@ -88,7 +88,7 @@ public sealed class AiVoiceEffect : IAudioEffect
     private const int BacklogJitterMarginMs = 40;
 
     /// <summary>
-    /// 当前配置下的「输出缓冲」余量（ms）—— 界面上那个滑条，用户在**延迟与稳定性**之间取舍。
+    /// 当前配置下的「额外缓冲」余量（ms）—— 界面上那个滑条，用户在**延迟与稳定性**之间取舍。
     ///
     /// 它决定稳态水位的**下沿**：worker 从"输入攒够一块"到"把结果写进输出环"要花
     /// 一次推理的时间，这段窗口里输出环只出不进，所以水位最低点 ≈ 余量 − 推理耗时。
@@ -109,7 +109,7 @@ public sealed class AiVoiceEffect : IAudioEffect
     private int _lastBacklogMs;
 
     /// <summary>
-    /// 「输出缓冲」滑条被拖动后置位：下一次 Read 时把水位**一次性**拉到目标值。
+    /// 「额外缓冲」滑条被拖动后置位：下一次 Read 时把水位**一次性**拉到目标值。
     ///
     /// 为什么需要它：调小 → 积压上限自然把水位压下来（限流逻辑）；但**调大**时水位
     /// 不会自己升上去（稳态下产出≈消费，水位不回归），滑条看起来就"没功能" ——
@@ -118,7 +118,7 @@ public sealed class AiVoiceEffect : IAudioEffect
     /// </summary>
     private volatile bool _backlogRetargetPending;
 
-    /// <summary>由界面在「输出缓冲」变化后调用：请求把水位重新拉到目标值。</summary>
+    /// <summary>由界面在「额外缓冲」变化后调用：请求把水位重新拉到目标值。</summary>
     public void RequestBacklogRetarget() => _backlogRetargetPending = true;
 
     /// <summary>最近一次引擎创建失败的原因（成功时为 null）。供界面提示用户。</summary>
@@ -513,7 +513,7 @@ public sealed class AiVoiceEffect : IAudioEffect
         // 输出：有就取，没有补静音
         var available = (_outWrite - _outRead + _outRing.Length) % _outRing.Length;
 
-        // 「输出缓冲」滑条刚被拖过：把水位**一次性**拉到目标值。
+        // 「额外缓冲」滑条刚被拖过：把水位**一次性**拉到目标值。
         //   高了 → 丢掉最老的（那正是用户想砍掉的那段延迟）；
         //   低了 → 垫静音（多出一小段静音，换回"不欠载"的余量）。
         // 只做一次，之后仍由自然锯齿运行。
@@ -646,7 +646,7 @@ public sealed class AiVoiceEffect : IAudioEffect
         // ⚠ 环的读/写各用一次锁，**推理本身在锁外**。
         // 音频线程的 Read 持同一把锁，锁内只有内存拷贝（微秒级）；
         // 推理要 60ms 上下，绝不能放进锁里，否则音频线程会被卡住。
-        // 为什么 worker 也要持锁：界面线程随时可能改环（「输出缓冲」滑条、参数重建），
+        // 为什么 worker 也要持锁：界面线程随时可能改环（「额外缓冲」滑条、参数重建），
         // 不串行化就会让 worker 在错位的位置上读写。
         lock (_ringGate)
         {

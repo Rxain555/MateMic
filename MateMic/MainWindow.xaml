@@ -481,10 +481,11 @@
                                             <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
                                                        Text="{Binding Value, ElementName=AiVoiceCrossfadeSlider, StringFormat='{}{0:0} ms'}" />
                                         </Grid>
-                                        <!-- 输出缓冲：用它在「延迟」与「稳定性」之间取舍。
-                                             环里排队的音频就是额外延迟，所以越小越跟手；
-                                             但它是"worker 算完这一块之前别被抽干"的余量，
+                                        <!-- 额外缓冲：用它在「延迟」与「稳定性」之间取舍。
+                                             它是"worker 算完这一块之前别被抽干"的余量，
                                              越小越容易欠载（补静音 ⇒ 咔哒）。
+                                             ⚠ 它只是**额外**那一部分：环里永远还有一个块的固有水位，
+                                             所以调到 0 时性能卡片照样会显示缓冲（0 ~ 一个块长）。
                                              ⚠ 下限**刻意放到 0**（2026-10-09 用户要求）：
                                              0 基本不可能稳定输出，但选择权交给用户。 -->
                                         <Grid x:Name="AiVoiceBacklogRow" Margin="0,2,0,2">
@@ -493,7 +494,7 @@
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="62" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="输出缓冲" />
+                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="额外缓冲" />
                                             <Slider x:Name="AiVoiceBacklogSlider" Grid.Column="1" VerticalAlignment="Center"
                                                     Style="{StaticResource FlatSlider}" Minimum="0" Maximum="300"
                                                     IsSnapToTickEnabled="True" TickFrequency="20"
@@ -1030,8 +1031,7 @@
                                         <TextBlock Grid.Column="1" x:Name="StatsDenoiseText"
                                                    Style="{StaticResource LabelText}" FontSize="11" Text="—" />
                                         <TextBlock Grid.Column="2" x:Name="StatsDenoiseLoad"
-                                                   Style="{StaticResource LabelText}" FontSize="11" Text=""
-                                                   Foreground="{DynamicResource SubtleTextBrush}" />
+                                                   Style="{StaticResource LabelText}" FontSize="11" Text="" />
                                     </Grid>
 
                                     <Grid Margin="0,1,0,1">
@@ -1045,27 +1045,7 @@
                                         <TextBlock Grid.Column="1" x:Name="StatsAiVoiceText"
                                                    Style="{StaticResource LabelText}" FontSize="11" Text="—" />
                                         <TextBlock Grid.Column="2" x:Name="StatsAiVoiceLoad"
-                                                   Style="{StaticResource LabelText}" FontSize="11" Text=""
-                                                   Foreground="{DynamicResource SubtleTextBrush}" />
-                                    </Grid>
-
-                                    <!-- 资源占用：本进程 CPU 占用 + 显卡整体利用率。
-                                         与上面两行同列宽（名称 | 内容 | 右侧）。2026-10-09 用户要求补一行
-                                         —— 调「音频块 / 输出缓冲」是在拿延迟换稳定性，得能看见整机还剩多少余量。
-                                         GPU 读不到时（非 N 卡 / 驱动没提供 NVML）显示「GPU —」。 -->
-                                    <Grid Margin="0,1,0,1">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="72" />
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="0" Style="{StaticResource LabelText}"
-                                                   Text="资源占用" FontSize="11" />
-                                        <TextBlock Grid.Column="1" x:Name="StatsCpuText"
-                                                   Style="{StaticResource LabelText}" FontSize="11" Text="—" />
-                                        <TextBlock Grid.Column="2" x:Name="StatsGpuText"
-                                                   Style="{StaticResource LabelText}" FontSize="11" Text=""
-                                                   Foreground="{DynamicResource SubtleTextBrush}" />
+                                                   Style="{StaticResource LabelText}" FontSize="11" Text="" />
                                     </Grid>
 
                                     <Border Height="1" Margin="0,5,0,5"
