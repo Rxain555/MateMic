@@ -50,6 +50,25 @@ public sealed class AudioEngine : IDisposable
     private WasapiPlayer? _mainPlayer;
     private WasapiPlayer? _monitorPlayer;
     private BufferedWaveProvider? _monitorBuffer;
+
+    /// <summary>
+    /// 水位探针：每 30 秒把「采集环 / 监听环」的当前积压写进日志。
+    ///
+    /// 为什么需要它：用户 2026-10-09 报"只开降噪跑几个小时，延迟涨到 1 秒以上"。
+    /// 排查到的情况是 —— 降噪本身**不会**累积延迟（<c>DenoiseEffect.Read</c> 严格一个进一个出，
+    /// 输出恒等于输入延迟 480 样本）；而整条链路上**没有任何时钟漂移补偿**：
+    /// 采集设备与输出设备是两个独立的 WASAPI 端点，晶振有几十~一百多 ppm 的频差，
+    /// 采集端每秒比输出端多进几个样本 ⇒ 采集环的水位**只涨不落**，直到顶住容量（500 ms）
+    /// 靠 <c>DiscardOnBufferOverflow</c> 丢样本维持；监听环（250 ms）同理。
+    /// 两者相加约 750 ms，加上端点与基础延迟，正好是用户看到的"一秒多"。
+    ///
+    /// 这条日志就是判据：**水位若随时间单调上涨 ⇒ 实锤**。
+    /// 几十 ppm 在 10~20 分钟内就能看出趋势（不必等几个小时）。
+    /// </summary>
+    private System.Threading.Timer? _bufferProbe;
+
+    /// <summary>水位探针的计时起点（进程内单调时钟，用于把水位和运行时长对上）。</summary>
+    private readonly System.Diagnostics.Stopwatch _probeClock = new();
     private bool _disposed;
 
     /// <summary>当前真实打开的输入设备名（可能与配置里的首选设备不同，见 <see cref="IsOnFallbackInput"/>）。</summary>
@@ -250,8 +269,69 @@ public sealed class AudioEngine : IDisposable
                  $"，监听「{(_monitorDevice != null ? _monitorDevice.FriendlyName : "关闭")}」" +
                  $"，低延迟 {LowLatencyActive}，采集 {CaptureLatencyMs} ms / 输出 {OutputLatencyMs} ms");
 
+        // 输入与输出落在**同一个音频适配器**上时给出警告。
+        //
+        // 为什么值得单独警告：虚拟声卡（MIXLINE / VB-Cable）的"播放端"与"录音端"属于同一个适配器，
+        // 而 README 推荐把 MIXLINE Stream 设为系统默认录音设备。于是当物理麦克风被拔掉、
+        // 引擎按 209 行那段逻辑降级到"系统默认录音设备"时，采集的就变成了**软件自己的输出**
+        // ⇒ 形成闭环：输出 → 虚拟声卡 → 又作为输入回来 → 再输出……
+        // 这会让延迟持续累积（用户 2026-10-09 报"只开降噪跑几个小时延迟涨到 1 秒以上"，
+        // 而那次运行日志里的输入正是「麦克风 (MIXLINE Stream)」、并且标着"降级中"）。
+        //
+        // 注意这里只用"同适配器"做判据，**不自动修改设备选择** —— 同一张物理声卡的
+        // 播放与录音端也会同名（那是完全正常的用法），所以宁可多提示一句，也不擅自换设备。
+        if (_outputDevice != null && string.Equals(
+                _inputDevice.DeviceFriendlyName, _outputDevice.DeviceFriendlyName, StringComparison.OrdinalIgnoreCase))
+        {
+            Log.Warn($"输入与输出都落在「{_inputDevice.DeviceFriendlyName}」这个适配器上。"
+                     + "若它是虚拟声卡（MIXLINE / VB-Cable 之类），请把「输入」改成物理麦克风 —— "
+                     + "否则软件会采集到自己的输出，形成闭环并让延迟不断累积。");
+        }
+
         // 流建起来了不等于数据进得来（设备可能处于"假存活"状态），单独核对一次
         VerifyCaptureFlow(_startReason);
+
+        StartBufferProbe();
+    }
+
+    /// <summary>启动水位探针（每 30 秒一条日志）。判据见 <see cref="_bufferProbe"/> 的注释。</summary>
+    private void StartBufferProbe()
+    {
+        StopBufferProbe();
+        _probeClock.Restart();
+        _bufferProbe = new System.Threading.Timer(
+            _ => LogBufferLevels(), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+    }
+
+    private void StopBufferProbe()
+    {
+        _bufferProbe?.Dispose();
+        _bufferProbe = null;
+    }
+
+    /// <summary>
+    /// 把两个环形缓冲的当前水位写进日志。**只读、不改任何行为** ——
+    /// 先靠它确认"水位确实在涨"，再决定要不要做漂移补偿。
+    /// </summary>
+    private void LogBufferLevels()
+    {
+        try
+        {
+            var capture = _captureBuffer?.BufferedDuration.TotalMilliseconds ?? 0;
+            var monitor = _monitorBuffer?.BufferedDuration.TotalMilliseconds ?? 0;
+            // 同时带上"实际在用的输入设备"与采集回调累计次数：
+            // 前者让这行日志自包含（不必去前面翻启动那行），后者能看出有没有掉流/重建过。
+            Log.Info($"[水位] 运行 {_probeClock.Elapsed.TotalMinutes:0.0} 分钟："
+                     + $"采集环 {capture:0} ms（容量 {CaptureRingCapacityMs} ms）"
+                     + $"｜监听环 {monitor:0} ms（容量 {MonitorBufferMilliseconds} ms）"
+                     + $"｜采集回调 {Interlocked.Read(ref _captureCallbackCount)} 次"
+                     + $"｜输入「{_actualInputName ?? "未记录"}」"
+                     + "｜这两项水位若随时间单调上涨，就是采集与输出两个设备的时钟漂移");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("[水位] 读取失败：" + ex.Message);
+        }
     }
 
     /// <summary>
@@ -760,6 +840,8 @@ public sealed class AudioEngine : IDisposable
 
     private void StopCore()
     {
+        StopBufferProbe();
+
         try
         {
             if (_recorder != null)
