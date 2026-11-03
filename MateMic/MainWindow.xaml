@@ -822,7 +822,7 @@
                                             <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="干湿比" />
                                             <Slider x:Name="ReverbMixSlider" Grid.Column="1" VerticalAlignment="Center"
                                                     Style="{StaticResource FlatSlider}" Minimum="0" Maximum="100"
-                                                    Value="30" Tag="ReverbMix" ValueChanged="OnSliderChanged"/>
+                                                    Value="50" Tag="ReverbMix" ValueChanged="OnSliderChanged"/>
                                             <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
                                                        Text="{Binding Value, ElementName=ReverbMixSlider, StringFormat='{}{0:0}%'}" />
                                         </Grid>

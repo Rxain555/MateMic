@@ -295,8 +295,8 @@ public sealed class ReverbSettings
 {
     public bool Enabled { get; set; }
 
-    /// <summary>干湿比（%）：混响声占多少。</summary>
-    public float Mix { get; set; } = 30f;
+    /// <summary>干湿比（%）：混响声占多少。默认 50%（2026-11-03 用户指定，原来 30）。</summary>
+    public float Mix { get; set; } = 50f;
 
     /// <summary>房间大小（%）：尾音能拖多久。</summary>
     public float RoomSize { get; set; } = 50f;
