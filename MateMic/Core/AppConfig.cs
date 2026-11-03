@@ -303,6 +303,17 @@ public sealed class ReverbSettings
 
     /// <summary>阻尼（%）：高频衰减快慢，越大越闷。</summary>
     public float Damping { get; set; } = 40f;
+
+    /// <summary>
+    /// 预延迟（毫秒，0~100）：湿信号（混响声）相对干声的延迟。
+    ///
+    /// 这是混响里最影响"空间感"的参数：短 ⇒ 声音贴着墙、像在耳边；
+    /// 长 ⇒ 先听到直达声、过一会儿才听到房间反射，像在空旷的大房间。
+    ///
+    /// NAudio 的 <c>ReverbEffect</c> **没有**这个参数（只有 RoomSize/Damping/Width/Mix），
+    /// 所以由 <c>ReverbEffect</c> 自己级联一条干声延迟线实现：干声直通、只有送进混响的那份被延迟。
+    /// </summary>
+    public float PreDelayMs { get; set; } = 20f;
 }
 
 public sealed class DeviceSettings

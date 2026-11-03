@@ -852,6 +852,21 @@
                                             <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
                                                        Text="{Binding Value, ElementName=ReverbDampingSlider, StringFormat='{}{0:0}%'}" />
                                         </Grid>
+                                        <!-- 预延迟：湿信号相对干声的延迟。短 = 贴着墙/耳边，长 = 空旷大房间。
+                                             NAudio 的 ReverbEffect 没有这个参数，由 Dsp\ReverbEffect 自己级联延迟线实现。 -->
+                                        <Grid Margin="0,2,0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="62" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="62" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="预延迟" />
+                                            <Slider x:Name="ReverbPreDelaySlider" Grid.Column="1" VerticalAlignment="Center"
+                                                    Style="{StaticResource FlatSlider}" Minimum="0" Maximum="100"
+                                                    Value="20" Tag="ReverbPreDelay" ValueChanged="OnSliderChanged"/>
+                                            <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
+                                                       Text="{Binding Value, ElementName=ReverbPreDelaySlider, StringFormat='{}{0:0} ms'}" />
+                                        </Grid>
                                     </StackPanel>
                                 </StackPanel>
                             </Border>

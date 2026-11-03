@@ -1685,6 +1685,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             (ExpandLoudness, PanelLoudness),
             (ExpandTone, PanelTone),
             (ExpandEffect, PanelCreative),
+            (ExpandReverb, PanelReverb),
             (ExpandGain, PanelGain),
             (ExpandVoiceChanger, PanelVoiceChanger),
             (ExpandAiVoice, PanelAiVoice),
@@ -1709,7 +1710,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         var buttons = new (string Name, Button Button)[]
         {
             ("噪声门", ExpandGate), ("AI 降噪", ExpandDenoise), ("响度平衡", ExpandLoudness),
-            ("EQ 均衡器", ExpandTone), ("效果器", ExpandEffect), ("增益", ExpandGain),
+            ("EQ 均衡器", ExpandTone), ("效果器", ExpandEffect), ("混响", ExpandReverb), ("增益", ExpandGain),
             ("DSP 变声", ExpandVoiceChanger),
             ("AI 变声", ExpandAiVoice),
         };
@@ -2753,6 +2754,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         ReverbMixSlider.Value = _config.Reverb.Mix;
         ReverbRoomSlider.Value = _config.Reverb.RoomSize;
         ReverbDampingSlider.Value = _config.Reverb.Damping;
+        ReverbPreDelaySlider.Value = _config.Reverb.PreDelayMs;
         VoiceChangerExpanded = _config.Panels.VoiceChanger;
         AiVoiceExpanded = _config.Panels.AiVoice;
 
@@ -3007,6 +3009,9 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                 break;
             case "ReverbDamping":
                 _config.Reverb.Damping = value;
+                break;
+            case "ReverbPreDelay":
+                _config.Reverb.PreDelayMs = value;
                 break;
             case "VoiceSemitones":
                 _config.VoiceChanger.Semitones = value;
