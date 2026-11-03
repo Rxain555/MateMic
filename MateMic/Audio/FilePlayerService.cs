@@ -159,8 +159,16 @@ public sealed class FilePlayerService : IDisposable
 
                 if (LoopEnabled)
                 {
-                    // 循环播放：重新排队同一个文件（代次不变，所以不会自我打断）
-                    _pendingPath = path;
+                    // 循环播放：重新排队同一个文件（代次不变，所以不会自我打断）。
+                    //
+                    // ⚠ 必须**先等缓冲播完**再重排。RenderFile 开头会 Clear 环形缓冲
+                    //（用来丢掉上一首的残留），而解码到文件末尾并不等于声音放完 ——
+                    // 缓冲里通常还压着几百毫秒。以前这里直接重排，尾巴就被下一次
+                    // Clear 一起丢掉了，听感是"最后一小段被提前切断"
+                    //（2026-11-03 用户实测）。非循环分支本来就有这一步，循环分支漏了。
+                    var drained = WaitForBufferDrain(generation);
+                    if (!IsCurrent(generation)) continue;   // 等排空期间被停止/换曲
+                    if (drained) _pendingPath = path;
                 }
                 else
                 {

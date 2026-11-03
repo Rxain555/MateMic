@@ -1362,6 +1362,16 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                          + $"两者差 {Math.Abs(above - below):0.#}px{(Math.Abs(above - below) <= 1.0 ? " ✓" : " ✗")}");
             }
         }
+
+        // 左栏滚动区的**视口底缘**：要和另外两栏"最下一张卡片"的底缘对齐
+        //（2026-11-03 用户反馈"卡片滚动区域的底部边框与中间、右边区域没对齐"）。
+        // 它有内容超出时才会有滚动条，平时看不出底缘在哪，所以这两个数字必须量出来才能比。
+        if (LeftScroll != null)
+        {
+            Log.Info($"[底部测量] 左栏滚动区视口：底缘距窗口底边 {Bottom(LeftScroll):0.#}px"
+                     + $"｜高 {LeftScroll.ActualHeight:0.#}｜内容高 {LeftScroll.ExtentHeight:0.#}"
+                     + $"｜可滚动 {LeftScroll.ScrollableHeight > 0.5}");
+        }
     }
 
     /// <summary>把频带值画成柱高（频带值已是 0…1）。</summary>
@@ -2224,7 +2234,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         try
         {
             combo.SelectedIndex = index;
-            UpdateDeviceComboTooltip(combo);
         }
         finally
         {
@@ -2284,7 +2293,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                     Content = device.Name,
                     Tag = device,
                     Style = itemStyle,
-                    ToolTip = device.Name,
                 });
             }
 
@@ -2305,14 +2313,11 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                 // 猜错比不选更糟——用户会以为已经配好了，实际录到的是别的东西。
                 // 因此就停在这里，等用户自己从下拉框里选。
                 combo.SelectedIndex = -1;
-                combo.ToolTip = string.IsNullOrWhiteSpace(selectedId)
-                    ? "尚未选择设备，请从列表中选择"
-                    : _devices.DescribeName(selectedId, DeviceFlowOf(combo)) + " —— 当前不可用，插回后会自动恢复";
+                // 这里也**不设悬浮提示**：设备选择框整体不显示悬浮说明（用户 2026-11-03 要求）。
                 return;
             }
 
             combo.SelectedIndex = index;
-            UpdateDeviceComboTooltip(combo);
         }
         finally
         {
@@ -2321,19 +2326,14 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     }
 
     /// <summary>
-    /// 设备下拉框的悬浮提示 = 当前设备的完整名称。
-    /// 设备名可能很长（"Realtek Digital Output (Realtek High Definition Audio)" 有 300 DIP 宽），
-    /// 框再宽也不能保证全都放得下，悬停能看到全名才算交代清楚。
+    /// 设备下拉框**不再显示悬浮提示**（用户 2026-11-03 要求：设备选择框的鼠标悬浮显示去掉）。
+    ///
+    /// 原先这里会把"当前设备全名"塞进 <c>ComboBox.ToolTip</c>，理由是设备名可能很长、
+    /// 框宽放不下。但三个设备框本来就紧挨着，鼠标划过就弹一层说明反而碍事；
+    /// 需要看全名时拉开下拉列表即可。
     /// </summary>
-    private static void UpdateDeviceComboTooltip(ComboBox combo)
-    {
-        combo.ToolTip = (combo.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? combo.ToolTip;
-    }
-
     private void OnDeviceSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        // 换设备时刷新悬浮提示（显示新设备的完整名称）
-        if (sender is ComboBox changed) UpdateDeviceComboTooltip(changed);
         if (_loading) return;
 
         // 热插拔后我们把下拉框选回首选设备，这不算"用户改了设备"：

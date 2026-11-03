@@ -40,8 +40,28 @@ namespace MateMic.Dsp;
 /// </summary>
 public sealed class MicMixer : NAudio.Wave.ISampleProvider
 {
-    private const float MicWeight = 0.5f;
-    private const float PlayerWeight = 0.5f;
+    /// <summary>
+    /// 主输出里麦克风 / 播放器的电平权重（线性）。由「混音」模块（<c>MixSettings</c>）设置，
+    /// 默认各 0.5（= −6.02 dB），与历史硬编码行为完全一致。
+    /// 音频线程只读、界面线程只写；单个 float 的读写在 x64 上是原子的，不需要再加锁。
+    /// </summary>
+    private float _micWeight = DefaultWeight;
+
+    private float _playerWeight = DefaultWeight;
+
+    /// <summary>默认权重：0.5 = −6.02 dB（历史行为）。</summary>
+    private const float DefaultWeight = 0.5f;
+
+    /// <summary>
+    /// 设置主输出/监听的混音电平（dB）。关闭「混音」自定义时，调用方传 −6 / −6 即可回到历史行为。
+    /// </summary>
+    public void SetMixLevels(float micDb, float playerDb)
+    {
+        _micWeight = DbToLinear(micDb);
+        _playerWeight = DbToLinear(playerDb);
+    }
+
+    private static float DbToLinear(float db) => (float)Math.Pow(10, db / 20.0);
 
     /// <summary>监听缓冲的写入口（音频线程调用，实现必须无锁、无分配）。</summary>
     public interface IMonitorSink
@@ -145,8 +165,8 @@ public sealed class MicMixer : NAudio.Wave.ISampleProvider
             // 3) 主输出混音：麦克风受总开关控制，播放器始终参与
             for (var i = 0; i < length; i++)
             {
-                var mic = MicEnabled && i < micRead ? _micScratch[i] * MicWeight : 0f;
-                var play = i < playerRead ? _playerScratch[i] * PlayerWeight : 0f;
+                var mic = MicEnabled && i < micRead ? _micScratch[i] * _micWeight : 0f;
+                var play = i < playerRead ? _playerScratch[i] * _playerWeight : 0f;
                 buffer[i] = mic + play;
             }
 
@@ -156,8 +176,8 @@ public sealed class MicMixer : NAudio.Wave.ISampleProvider
                 var monitorLength = Math.Min(length, _monitorScratch.Length);
                 for (var i = 0; i < monitorLength; i++)
                 {
-                    var mic = micInMonitor && i < micRead ? _micScratch[i] * MicWeight : 0f;
-                    var play = playerInMonitor && i < playerRead ? _playerScratch[i] * PlayerWeight : 0f;
+                    var mic = micInMonitor && i < micRead ? _micScratch[i] * _micWeight : 0f;
+                    var play = playerInMonitor && i < playerRead ? _playerScratch[i] * _playerWeight : 0f;
                     _monitorScratch[i] = mic + play;
                 }
 

@@ -957,6 +957,10 @@ public sealed class AudioEngine : IDisposable
         Creative.UpdateParameters();
         Gain.UpdateParameters();
 
+        // 混音电平：关闭自定义时按历史行为各 −6 dB（0.5 / 0.5），开启则用用户设的两档。
+        var mix = _config.Mix;
+        MicMixer.SetMixLevels(mix.Enabled ? mix.MicDb : -6f, mix.Enabled ? mix.PlayerDb : -6f);
+
         ApplyChain();
 
         // 把实际生效的链路记进日志，便于排查"重启后模块没生效"这类问题
