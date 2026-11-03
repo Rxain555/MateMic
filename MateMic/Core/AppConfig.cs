@@ -284,6 +284,27 @@ public sealed class PlayerSettings
     public List<PlayerTrack> Tracks { get; set; } = new();
 }
 
+/// <summary>
+/// 「混响」模块（独立卡片，2026-11-03 从「效果器」里拆出来）。
+///
+/// 效果器的七个预设是单选，同一时间只有一个生效；而混响通常要和别的效果叠加、
+/// 并单独调空间感，所以给它一个自己的卡片与三个参数。
+/// DSP 复用 NAudio 的 <c>ReverbEffect</c>（与效果器里那条完全相同），听感不会突变。
+/// </summary>
+public sealed class ReverbSettings
+{
+    public bool Enabled { get; set; }
+
+    /// <summary>干湿比（%）：混响声占多少。</summary>
+    public float Mix { get; set; } = 30f;
+
+    /// <summary>房间大小（%）：尾音能拖多久。</summary>
+    public float RoomSize { get; set; } = 50f;
+
+    /// <summary>阻尼（%）：高频衰减快慢，越大越闷。</summary>
+    public float Damping { get; set; } = 40f;
+}
+
 public sealed class DeviceSettings
 {
     public string? InputDeviceId { get; set; }
@@ -306,6 +327,9 @@ public sealed class PanelExpandState
 
     /// <summary>AI 变声模块的展开状态。</summary>
     public bool AiVoice { get; set; }
+
+    /// <summary>混响模块的展开状态。</summary>
+    public bool Reverb { get; set; }
 }
 
 public sealed class AppConfig
@@ -360,6 +384,9 @@ public sealed class AppConfig
     public LoudnessSettings Loudness { get; set; } = new();
     public ToneSettings Tone { get; set; } = new();
     public CreativeEffectSettings Effect { get; set; } = new();
+
+    /// <summary>混响（独立模块，位于效果器之后、增益之前）。</summary>
+    public ReverbSettings Reverb { get; set; } = new();
 
     /// <summary>变声（DSP 层）。</summary>
     public VoiceChangerSettings VoiceChanger { get; set; } = new();

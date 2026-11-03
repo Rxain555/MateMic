@@ -2382,6 +2382,11 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     public bool EffectExpanded { get => _effectExpanded; private set => SetExpanded(ref _effectExpanded, value, nameof(EffectExpanded)); }
     public bool GainExpanded { get => _gainExpanded; private set => SetExpanded(ref _gainExpanded, value, nameof(GainExpanded)); }
 
+    private bool _reverbExpanded;
+
+    /// <summary>混响模块是否展开（2026-11-03 从效果器拆出的独立卡片）。</summary>
+    public bool ReverbExpanded { get => _reverbExpanded; private set => SetExpanded(ref _reverbExpanded, value, nameof(ReverbExpanded)); }
+
     private bool _voiceChangerExpanded;
 
     private bool _aiVoiceExpanded;
@@ -2513,6 +2518,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             "ExpandLoudness" => PanelLoudness,
             "ExpandTone" => PanelTone,
             "ExpandEffect" => PanelCreative,
+            "ExpandReverb" => PanelReverb,
             "ExpandGain" => PanelGain,
             "ExpandVoiceChanger" => PanelVoiceChanger,
             "ExpandAiVoice" => PanelAiVoice,
@@ -2545,6 +2551,10 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             case "ExpandEffect":
                 EffectExpanded = expanded;
                 _config.Panels.Effect = expanded;
+                break;
+            case "ExpandReverb":
+                ReverbExpanded = expanded;
+                _config.Panels.Reverb = expanded;
                 break;
             case "ExpandGain":
                 GainExpanded = expanded;
@@ -2739,6 +2749,10 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         ToneExpanded = _config.Panels.Tone;
         EffectExpanded = _config.Panels.Effect;
         GainExpanded = _config.Panels.Gain;
+        ReverbExpanded = _config.Panels.Reverb;
+        ReverbMixSlider.Value = _config.Reverb.Mix;
+        ReverbRoomSlider.Value = _config.Reverb.RoomSize;
+        ReverbDampingSlider.Value = _config.Reverb.Damping;
         VoiceChangerExpanded = _config.Panels.VoiceChanger;
         AiVoiceExpanded = _config.Panels.AiVoice;
 
@@ -2781,6 +2795,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         _config.Loudness.Enabled = ToggleLoudness.IsChecked == true;
         _config.Tone.Enabled = ToggleTone.IsChecked == true;
         _config.Effect.Enabled = ToggleEffect.IsChecked == true;
+        _config.Reverb.Enabled = ToggleReverb.IsChecked == true;
         _config.Gain.Enabled = ToggleGain.IsChecked == true;
         _config.VoiceChanger.Enabled = ToggleVoiceChanger.IsChecked == true;
         _config.AiVoice.Enabled = ToggleAiVoice.IsChecked == true;
@@ -2983,6 +2998,15 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                 break;
             case "GainDb":
                 _config.Gain.GainDb = value;
+                break;
+            case "ReverbMix":
+                _config.Reverb.Mix = value;
+                break;
+            case "ReverbRoomSize":
+                _config.Reverb.RoomSize = value;
+                break;
+            case "ReverbDamping":
+                _config.Reverb.Damping = value;
                 break;
             case "VoiceSemitones":
                 _config.VoiceChanger.Semitones = value;

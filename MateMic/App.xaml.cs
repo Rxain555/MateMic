@@ -119,6 +119,29 @@ public partial class App : Application
 
         base.OnStartup(e);
 
+        // 构建后重置配置：MateMic.exe --reset-config
+        //
+        // 用"程序自己写回一份默认配置"代替"手动删除 config.json"：
+        //   · 删文件每次都要走确认（审批），构建流程里很烦；
+        //   · 让程序按自己的默认值生成，比"删掉再等它自己创建"更接近真实的首次启动。
+        // 只动 config.json，不碰 models / recordings / logs（见项目规则的例外条款）。
+        if (HasFlag(args, "--reset-config"))
+        {
+            try
+            {
+                ConfigStore.EnsureDirectories();
+                new ConfigStore().Save(new AppConfig());
+                Console.WriteLine("配置已重置为默认值：" + ConfigStore.ConfigPath);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine("重置配置失败：" + ex.Message);
+            }
+
+            Shutdown();
+            return;
+        }
+
         // 音频链路诊断：MateMic.exe --audiocheck [秒数] [输出设备关键字] [输入设备关键字]
         if (HasFlag(args, "--audiocheck"))
         {

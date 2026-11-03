@@ -15,6 +15,16 @@ public sealed class ConfigStore
         WriteIndented = true,
         DefaultIgnoreCondition = JsonIgnoreCondition.Never,
         Converters = { new JsonStringEnumConverter() },
+
+        // 允许 NaN / ±Infinity 参与序列化（写出来是 "NaN" 这种带引号的字面量，读回来一样能认）。
+        //
+        // 必须有：AppConfig 的 WindowLeft / WindowTop 默认值是 double.NaN（表示"还没保存过窗口位置"），
+        // 而 System.Text.Json 默认拒绝写非有限浮点数。平时保存时这两个值已被赋成真实坐标，
+        // 所以一直没暴露；直到 2026-11-03 加 `--reset-config`（拿一个全新的 AppConfig 直接保存）才炸出来：
+        //   配置保存失败 :: ArgumentException: .NET number values such as positive and negative
+        //   infinity cannot be written as valid JSON.
+        // 加上这条之后，"写一份默认配置"这件事在任何状态下都能成功。
+        NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals,
     };
 
     private static string? _overrideRoot;

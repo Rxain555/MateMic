@@ -755,8 +755,6 @@
                                     </Grid>
                                     <StackPanel x:Name="PanelCreative" Visibility="Collapsed" Margin="0,6,0,0">
                                         <UniformGrid x:Name="EffectGrid" Columns="6">
-                                            <RadioButton Style="{StaticResource ChipToggle}" Content="混响" Tag="Reverb"
-                                                         Margin="0,0,4,4" Click="OnCreativeEffectSelected" />
                                             <RadioButton Style="{StaticResource ChipToggle}" Content="延迟" Tag="Delay"
                                                          Margin="0,0,4,4" Click="OnCreativeEffectSelected" />
                                             <RadioButton Style="{StaticResource ChipToggle}" Content="和声" Tag="Harmony"
@@ -788,6 +786,71 @@
                                                 <TextBlock Grid.Column="1" Style="{StaticResource SliderValueText}"
                                                            Text="{Binding Value, ElementName=EffectAmountSlider, StringFormat='{}{0:0}%'}" />
                                             </Grid>
+                                        </Grid>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 混响（2026-11-03 从「效果器」里拆出来的独立卡片）：
+                                 效果器是**单选**的（混响/延迟/和声/电话/颤音/电音/炸麦 只有一个生效），
+                                 而混响最常见的用法是和别的效果叠加、并单独调空间感，所以给它自己的卡片。
+                                 DSP 复用 NAudio 的 ReverbEffect（与效果器里那条同一个实现），听感不变。
+                                 位置：效果器之后、增益之前 —— 混响是"空间收尾"，然后才调总音量。 -->
+                            <Border Style="{StaticResource Card}">
+                                <StackPanel>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Style="{StaticResource SectionTitle}" Text="混响" />
+                                        <CheckBox x:Name="ToggleReverb" Grid.Column="1"
+                                                  Style="{StaticResource Switch}" Margin="0,0,8,0"
+                                                  Checked="OnEffectToggled" Unchecked="OnEffectToggled"/>
+                                        <Button x:Name="ExpandReverb" Grid.Column="2"
+                                                Style="{StaticResource ExpanderButton}"
+                                                Click="OnExpandClick" Tag="{Binding ReverbExpanded, RelativeSource={RelativeSource AncestorType=Window}}" />
+                                    </Grid>
+                                    <StackPanel x:Name="PanelReverb" Visibility="Collapsed" Margin="0,6,0,0">
+                                        <Grid Margin="0,2,0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="62" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="62" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="干湿比" />
+                                            <Slider x:Name="ReverbMixSlider" Grid.Column="1" VerticalAlignment="Center"
+                                                    Style="{StaticResource FlatSlider}" Minimum="0" Maximum="100"
+                                                    Value="30" Tag="ReverbMix" ValueChanged="OnSliderChanged"/>
+                                            <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
+                                                       Text="{Binding Value, ElementName=ReverbMixSlider, StringFormat='{}{0:0}%'}" />
+                                        </Grid>
+                                        <Grid Margin="0,2,0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="62" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="62" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="房间大小" />
+                                            <Slider x:Name="ReverbRoomSlider" Grid.Column="1" VerticalAlignment="Center"
+                                                    Style="{StaticResource FlatSlider}" Minimum="0" Maximum="100"
+                                                    Value="50" Tag="ReverbRoomSize" ValueChanged="OnSliderChanged"/>
+                                            <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
+                                                       Text="{Binding Value, ElementName=ReverbRoomSlider, StringFormat='{}{0:0}%'}" />
+                                        </Grid>
+                                        <Grid Margin="0,2,0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="62" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="62" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Style="{StaticResource LabelText}" Text="阻尼" />
+                                            <Slider x:Name="ReverbDampingSlider" Grid.Column="1" VerticalAlignment="Center"
+                                                    Style="{StaticResource FlatSlider}" Minimum="0" Maximum="100"
+                                                    Value="40" Tag="ReverbDamping" ValueChanged="OnSliderChanged"/>
+                                            <TextBlock Grid.Column="2" Style="{StaticResource SliderValueText}"
+                                                       Text="{Binding Value, ElementName=ReverbDampingSlider, StringFormat='{}{0:0}%'}" />
                                         </Grid>
                                     </StackPanel>
                                 </StackPanel>

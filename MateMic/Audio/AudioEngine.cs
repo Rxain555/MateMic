@@ -110,6 +110,7 @@ public sealed class AudioEngine : IDisposable
         Loudness = new LoudnessBalanceEffect(Format, config.Loudness);
         Tone = new ToneStyleEffect(Format, config.Tone);
         Creative = new CreativeEffect(Format, config.Effect);
+        Reverb = new ReverbEffect(Format, config.Reverb);
         Gain = new GainEffect(Format, config.Gain);
 
         Chain = new DynamicChain(RawTap);
@@ -155,6 +156,9 @@ public sealed class AudioEngine : IDisposable
     public LoudnessBalanceEffect Loudness { get; }
     public ToneStyleEffect Tone { get; }
     public CreativeEffect Creative { get; }
+
+    /// <summary>混响模块（从效果器里拆出来的独立卡片，位于效果器之后、增益之前）。</summary>
+    public ReverbEffect Reverb { get; }
     public GainEffect Gain { get; }
 
     public SpectrumAnalyzer InputSpectrum { get; }
@@ -905,7 +909,7 @@ public sealed class AudioEngine : IDisposable
     {
         var desired = new List<IAudioEffect>
         {
-            NoiseGate, Denoise, AiVoice, VoiceChanger, Loudness, Tone, Creative, Gain,
+            NoiseGate, Denoise, AiVoice, VoiceChanger, Loudness, Tone, Creative, Reverb, Gain,
         }.Where(e => e.Enabled).ToList();
 
         // AI 变声需要独立工作线程与缓冲，随启用状态起停
@@ -946,6 +950,7 @@ public sealed class AudioEngine : IDisposable
         // 均衡器看的是增益表是否平坦（选没选预设不重要——预设只是把曲线写进增益表）。
         Tone.Enabled = _config.Tone.Enabled && !EqPreset.IsFlat(_config.Tone.Gains);
         Creative.Enabled = _config.Effect.Enabled && _config.Effect.Kind.HasValue;
+        Reverb.Enabled = _config.Reverb.Enabled;
         Gain.Enabled = _config.Gain.Enabled;
 
         NoiseGate.UpdateParameters();
@@ -955,6 +960,7 @@ public sealed class AudioEngine : IDisposable
         Loudness.UpdateParameters();
         Tone.UpdateParameters();
         Creative.UpdateParameters();
+        Reverb.UpdateParameters();
         Gain.UpdateParameters();
 
         ApplyChain();
@@ -962,7 +968,7 @@ public sealed class AudioEngine : IDisposable
         // 把实际生效的链路记进日志，便于排查"重启后模块没生效"这类问题
         Log.Info($"处理链状态：总开关={_config.AudioProcessingEnabled}，" +
                  $"噪声门={NoiseGate.Enabled}，降噪={Denoise.Enabled}（{Denoise.ModelName}），变声={VoiceChanger.Enabled}，" +
-                 $"响度={Loudness.Enabled}，音色={Tone.Enabled}，效果={Creative.Enabled}，增益={Gain.Enabled}");
+                 $"响度={Loudness.Enabled}，音色={Tone.Enabled}，效果={Creative.Enabled}，混响={Reverb.Enabled}，增益={Gain.Enabled}");
     }
 
     public void SetDenoiseModel(IDenoiseModel model)
