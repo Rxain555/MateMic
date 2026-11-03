@@ -208,8 +208,11 @@
                                 Background="{DynamicResource HairlineBrush}" />
                     </Grid>
 
-                    <!-- 覆盖式滚动条：滚动条浮在内容上方、不占布局列，因此出现时不会把卡片挤窄。 -->
-                    <ScrollViewer x:Name="LeftScroll" Style="{StaticResource OverlayScrollViewer}" ui:SmoothScroll.Enabled="True" Padding="0,0,0,6">
+                    <!-- 覆盖式滚动条：滚动条浮在内容上方、不占布局列，因此出现时不会把卡片挤窄。
+                         底部**不留 padding**：留了 6px 会让左栏最后一张卡片的底边比中/右栏高出一截
+                         （用户 2026-11-03 数的：左 20px / 右 12px）。滚动区视口本身与另外两栏对齐，
+                         多出来的只是这 6px。 -->
+                    <ScrollViewer x:Name="LeftScroll" Style="{StaticResource OverlayScrollViewer}" ui:SmoothScroll.Enabled="True" Padding="0">
                         <StackPanel>
                             <!-- 噪声门 -->
                             <Border Style="{StaticResource Card}">

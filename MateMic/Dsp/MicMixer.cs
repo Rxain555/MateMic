@@ -41,8 +41,9 @@ namespace MateMic.Dsp;
 public sealed class MicMixer : NAudio.Wave.ISampleProvider
 {
     /// <summary>
-    /// 主输出里麦克风 / 播放器的电平权重（线性）。由「混音」模块（<c>MixSettings</c>）设置，
-    /// 默认各 0.5（= −6.02 dB），与历史硬编码行为完全一致。
+    /// 主输出里麦克风 / 播放器的电平权重（线性）。
+    /// 默认各 0.5（= −6.02 dB），与历史行为完全一致；保留为字段是为了将来能有
+    /// "混音电平"这类可调参数，目前没有界面入口，恒等于默认值。
     /// 音频线程只读、界面线程只写；单个 float 的读写在 x64 上是原子的，不需要再加锁。
     /// </summary>
     private float _micWeight = DefaultWeight;
@@ -52,9 +53,7 @@ public sealed class MicMixer : NAudio.Wave.ISampleProvider
     /// <summary>默认权重：0.5 = −6.02 dB（历史行为）。</summary>
     private const float DefaultWeight = 0.5f;
 
-    /// <summary>
-    /// 设置主输出/监听的混音电平（dB）。关闭「混音」自定义时，调用方传 −6 / −6 即可回到历史行为。
-    /// </summary>
+    /// <summary>设置主输出/监听的混音电平（dB）。（当前没有界面调用，留作扩展点。）</summary>
     public void SetMixLevels(float micDb, float playerDb)
     {
         _micWeight = DbToLinear(micDb);

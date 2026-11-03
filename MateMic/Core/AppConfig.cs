@@ -284,25 +284,6 @@ public sealed class PlayerSettings
     public List<PlayerTrack> Tracks { get; set; } = new();
 }
 
-/// <summary>
-/// 「混音」模块：麦克风与播放器（伴奏 / 语音包）在**主输出**里的相对电平。
-///
-/// 历史上这是硬编码的 50:50（各 0.5 = −6.02 dB），很多场合不够用 ——
-/// 放语音包时往往要压低麦克风、或者反过来把伴奏当背景。
-/// 关闭自定义（<see cref="Enabled"/>=false）时仍按 −6 / −6 走，行为与旧版完全一致。
-/// </summary>
-public sealed class MixSettings
-{
-    /// <summary>是否启用自定义电平。默认关闭 ⇒ 各 −6 dB（历史行为）。</summary>
-    public bool Enabled { get; set; }
-
-    /// <summary>主输出里麦克风的电平（dB），默认 −6（= 0.5）。</summary>
-    public float MicDb { get; set; } = -6f;
-
-    /// <summary>主输出里播放器的电平（dB），默认 −6（= 0.5）。</summary>
-    public float PlayerDb { get; set; } = -6f;
-}
-
 public sealed class DeviceSettings
 {
     public string? InputDeviceId { get; set; }
@@ -388,9 +369,6 @@ public sealed class AppConfig
 
     public GainSettings Gain { get; set; } = new();
     public PlayerSettings Player { get; set; } = new();
-
-    /// <summary>混音（麦克风与播放器在主输出里的相对电平）。</summary>
-    public MixSettings Mix { get; set; } = new();
 
     [JsonIgnore]
     public bool Migrated => Version < 1;
