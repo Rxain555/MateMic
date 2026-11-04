@@ -168,6 +168,12 @@ public sealed class AudioEngine : IDisposable
     public InputTapSource RawTap { get; }
 
     /// <summary>
+    /// 采集环的水位治理器（<see cref="RawTap"/> 的上游）。
+    /// 负责把采集/输出两个设备的时钟漂移造成的积压摁回目标水位，防止"跑久了延迟越来越大"。
+    /// </summary>
+    public CaptureRateGovernor? CaptureGovernor { get; private set; }
+
+    /// <summary>
     /// 输出频谱/电平的唯一取样点是 <see cref="Bus"/>（混音之后）。
     /// 这里**不能**再给效果链输出套一个分析采样点：两路同时喂同一个分析器，
     /// 进入 FFT 的就成了"链路输出 + 混音输出"交替拼接的序列，
@@ -258,7 +264,12 @@ public sealed class AudioEngine : IDisposable
             ReadFully = true,
         };
 
-        RawTap.SetSource(_captureBuffer.ToSampleProvider());
+        // 采集环 → 水位治理器 → 频谱取样 → 处理链。
+        // 治理器把"采集端比输出端快"造成的积压摁回目标水位（见 Dsp\CaptureRateGovernor）。
+        // 没有它：实测 10 小时积压 284 ms（约 7.6 ppm 漂移），表现为"跑久了延迟越来越大"，
+        // 而切换一次输入设备（重建链路）就会恢复正常。
+        CaptureGovernor = new CaptureRateGovernor(Format, _captureBuffer);
+        RawTap.SetSource(CaptureGovernor);
 
         _recorder = BuildRecorderAndStart(_inputDevice);
         LowLatencyActive = _recorder.LowLatencyActive;
