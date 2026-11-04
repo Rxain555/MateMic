@@ -340,6 +340,7 @@ public sealed class AudioEngine : IDisposable
                      + $"采集环 {capture:0} ms（容量 {CaptureRingCapacityMs} ms）"
                      + $"｜监听环 {monitor:0} ms（容量 {MonitorBufferMilliseconds} ms）"
                      + $"｜采集回调 {Interlocked.Read(ref _captureCallbackCount)} 次"
+                     + $"｜治理丢弃 {CaptureGovernor?.DroppedSamples ?? 0} 个样本"
                      + $"｜输入「{_actualInputName ?? "未记录"}」"
                      + "｜这两项水位若随时间单调上涨，就是采集与输出两个设备的时钟漂移");
         }
