@@ -35,10 +35,13 @@ public sealed class CaptureRateGovernor : ISampleProvider
     public const int TargetMs = 40;
 
     /// <summary>硬限（毫秒）：超过它就一次性纠偏回目标。定在 140 —— 既远低于 500 的环容量，又不会频繁触发。</summary>
-    public const int HardLimitMs = 140;
+    public const int HardLimitMs = 70;
 
     /// <summary>一次性纠偏时保留的余量（毫秒），避免纠偏后立刻又欠载。</summary>
-    private const int CorrectionMarginMs = 20;
+    private const int CorrectionMarginMs = 10;
+
+    /// <summary>单次 Read 内水位突然上涨超过这个值（毫秒）就记日志 —— 用来抓"消费端停顿"的时刻。</summary>
+    private const int SpikeLogMs = 15;
 
     /// <summary>慢速维持的校正速率（样本/秒）。0.5 ⇒ 10.4 ppm；实测漂移 7.6 ppm，够用。</summary>
     private const double CorrectionPerSecond = 0.5;
@@ -51,6 +54,9 @@ public sealed class CaptureRateGovernor : ISampleProvider
     private double _dropCredit;
 
     private long _droppedSamples;
+
+    /// <summary>上一次 Read 时看到的水位（毫秒），用于检测"突然抬高"的停顿时刻。负值表示还没采过样。</summary>
+    private double _lastLevelMs = -1;
 
     public CaptureRateGovernor(WaveFormat format, BufferedWaveProvider buffer)
     {
@@ -69,7 +75,6 @@ public sealed class CaptureRateGovernor : ISampleProvider
         try
         {
             var toDrop = ComputeDropSamples(buffer.Length);
-
             // 先把"要丢掉"的样本读进临时区（不交给下游），再读正常的量 ——
             // 顺序不能反：若先读进 buffer 再丢，数据已经给下游了，丢的就变成后面的正常音频。
             while (toDrop > 0)
@@ -94,6 +99,17 @@ public sealed class CaptureRateGovernor : ISampleProvider
     private int ComputeDropSamples(int blockSamples)
     {
         var levelMs = _buffer.BufferedDuration.TotalMilliseconds;
+
+        // 突变检测：水位在两块之间突然抬高，说明刚才消费端被拖慢了
+        // （线程抢占 / GC 停顿 / 系统卡顿 / 别的程序抢设备）。
+        // 记一条日志把时刻留下来 —— 这是"台阶式积压"的唯一线索，否则事后根本不知道什么时候停的。
+        if (_lastLevelMs >= 0 && levelMs - _lastLevelMs > SpikeLogMs)
+        {
+            Log.Warn($"[水位治理] 水位突增 {levelMs - _lastLevelMs:0} ms（{_lastLevelMs:0} → {levelMs:0} ms）："
+                     + $"消费端刚才明显被拖慢过。超过硬限 {HardLimitMs} ms 会被立即纠偏。");
+        }
+
+        _lastLevelMs = levelMs;
 
         // 1) 硬超限：一次性纠偏到目标（留一点余量，别纠到刚好贴住目标）
         if (levelMs > HardLimitMs)
