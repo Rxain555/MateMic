@@ -31,14 +31,32 @@ namespace MateMic.Dsp;
 /// </summary>
 public sealed class CaptureRateGovernor : ISampleProvider
 {
-    /// <summary>目标水位（毫秒）：留足余量吸收抖动，又不明显增加延迟。</summary>
-    public const int TargetMs = 40;
+    /// <summary>
+    /// 目标水位（毫秒）。**实测正常水位只有 10~20 ms**（11-05 连续 8 小时全程 10 ms），
+    /// 所以目标贴着它取 20 —— 不人为抬高延迟（这一点是用户 2026-11-05 提的：
+    /// 原来定 40/50 等于默认把延迟抬到正常的 2~3 倍，没有道理）。
+    /// </summary>
+    public const int TargetMs = 20;
 
-    /// <summary>硬限（毫秒）：超过它就一次性纠偏回目标。定在 140 —— 既远低于 500 的环容量，又不会频繁触发。</summary>
-    public const int HardLimitMs = 70;
+    /// <summary>
+    /// 硬限（毫秒）：超过它就纠偏回目标。
+    ///
+    /// 取 40 = 目标 20 + 20 的抖动余量：实测抖动峰值约 30 ms（11-05 监听环最高 30、采集环 10），
+    /// 所以正常波动碰不到 40；而真积压（实测出现过 84 ms、284 ms）一定超，必被纠偏。
+    ///
+    /// 另外要求**连续两块都超限**才动手（见 <see cref="OverLimitBlocksToCorrect"/>），
+    /// 避免偶发的一次尖峰被当成积压而白丢一段音频。
+    /// </summary>
+    public const int HardLimitMs = 40;
 
-    /// <summary>一次性纠偏时保留的余量（毫秒），避免纠偏后立刻又欠载。</summary>
-    private const int CorrectionMarginMs = 10;
+    /// <summary>一次性纠偏时保留的余量（毫秒）：纠回 25 ms 左右，别纠到贴住目标。</summary>
+    private const int CorrectionMarginMs = 5;
+
+    /// <summary>连续多少块超过硬限才真的纠偏。两块 = 约 40 ms 的持续性，足以区分"尖峰"与"积压"。</summary>
+    private const int OverLimitBlocksToCorrect = 2;
+
+    /// <summary>单次纠偏最多丢多少毫秒 —— 大积压分几次丢，听感比一次跳几十毫秒好得多。</summary>
+    private const int MaxDropPerCorrectionMs = 20;
 
     /// <summary>单次 Read 内水位突然上涨超过这个值（毫秒）就记日志 —— 用来抓"消费端停顿"的时刻。</summary>
     private const int SpikeLogMs = 15;
@@ -57,6 +75,9 @@ public sealed class CaptureRateGovernor : ISampleProvider
 
     /// <summary>上一次 Read 时看到的水位（毫秒），用于检测"突然抬高"的停顿时刻。负值表示还没采过样。</summary>
     private double _lastLevelMs = -1;
+
+    /// <summary>连续超过硬限的块数（间断即清零）。用来区分"偶发尖峰"和"真积压"。</summary>
+    private int _overLimitBlocks;
 
     public CaptureRateGovernor(WaveFormat format, BufferedWaveProvider buffer)
     {
@@ -111,18 +132,28 @@ public sealed class CaptureRateGovernor : ISampleProvider
 
         _lastLevelMs = levelMs;
 
-        // 1) 硬超限：一次性纠偏到目标（留一点余量，别纠到刚好贴住目标）
+        // 1) 硬超限：**连续两块都超限**才算积压（偶发尖峰不算，避免白丢音频）；
+        //    而且分次纠偏，每次最多丢 20 ms —— 大积压（实测出现过 84、284 ms）分几块丢完，
+        //    听感比一次性跳几十毫秒好得多。
         if (levelMs > HardLimitMs)
         {
+            _overLimitBlocks++;
+
             var excessMs = levelMs - TargetMs - CorrectionMarginMs;
-            if (excessMs > 0)
+            if (_overLimitBlocks >= OverLimitBlocksToCorrect && excessMs > 0)
             {
-                var n = (int)(excessMs * WaveFormat.SampleRate / 1000.0);
+                var dropMs = Math.Min(excessMs, MaxDropPerCorrectionMs);
+                var n = (int)(dropMs * WaveFormat.SampleRate / 1000.0);
                 _dropCredit = 0;
                 Log.Info($"[水位治理] 采集环水位 {levelMs:0} ms 超过硬限 {HardLimitMs} ms，"
-                         + $"一次性丢弃 {n} 个样本（约 {excessMs:0} ms）以拉回 {TargetMs} ms。");
+                         + $"丢弃 {n} 个样本（约 {dropMs:0} ms）拉回 {TargetMs} ms 附近"
+                         + (excessMs > dropMs ? $"（还差 {excessMs - dropMs:0} ms，下一块继续）。" : "。"));
                 return n;
             }
+        }
+        else
+        {
+            _overLimitBlocks = 0;
         }
 
         // 2) 慢速维持：水位略高于目标就慢慢丢，低于目标就停止累积
