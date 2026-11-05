@@ -142,9 +142,18 @@ public sealed class AiVoiceEffect : IAudioEffect
         // 而差值恒为「40 − 推理耗时」，**与块长无关** ——
         // 这正是用户看到的"改块长只能减少、不能消除，看起来与参数无关"。
         //
-        // 现在按宿主回传的**实测推理耗时**动态给余量（+20ms 抖动余量），保底 40ms。
-        var inferPad = (int)Math.Ceiling(LastInferMs) + 20;
-        var hostPad = _hostClient != null ? ChainRate * Math.Max(40, inferPad) / 1000 : 0;
+        // 现在按"**产出延迟**"给余量，而不是只看推理耗时（2026-11-05 最终修正）。
+        //
+        // 产出测量实测（块长 80ms）：宿主产出间隔 82ms、帧长 80ms ⇒ **产能完全正常**。
+        // 但输出环水位在 0~155ms 摆动、最低点精确到 0 ⇒
+        // 预填充（155ms = 块长 80 + 推理约 75）< 需要的（块长 + 产出延迟）。
+        // 其中产出延迟 = 推理 + 管道 + 线程调度，实测约 155ms，明显大于单看推理的 75ms。
+        //
+        // 所以预填充 ≥ 块长 + 产出延迟。之前只给 推理+20，少掉"块长"那一段，
+        // 于是每块都被削到 0 ⇒ 周期性补静音。
+        // 这里按 推理×1.5+40 估算产出延迟（含管道与调度抖动），保底 60ms。
+        var inferPad = (int)Math.Ceiling(LastInferMs * 1.5) + 40;
+        var hostPad = _hostClient != null ? ChainRate * Math.Max(60, inferPad) / 1000 : 0;
         return Math.Min(_blockSamples48 + hostPad + ChainRate * BacklogPadMs() / 1000,
                         _outRing.Length / 2);
     }
@@ -1175,7 +1184,7 @@ public sealed class AiVoiceEffect : IAudioEffect
             _lastDiagTicks = nowTicks;
             var inAvail = Available(_inRing, _inRead, _inWrite);
             Log.Info($"[AI 变声] 诊断：输出环积压 {available * 1000 / ChainRate}ms"
-                     + $"（额外延迟，上限 {_blockSamples48 * 2 * 1000 / ChainRate}ms）"
+                     + $"（额外延迟，上限 {capSamples * 1000 / ChainRate}ms）"
                      + $"，输入环 {inAvail * 1000 / ChainRate}ms"
                      + $"，欠载 {LateBlocks}，累计丢弃 {Interlocked.Read(ref _droppedSamples) * 1000 / ChainRate}ms"
                      + $"，上次推理 {LastInferMs:F0}ms");
