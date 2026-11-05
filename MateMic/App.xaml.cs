@@ -175,10 +175,6 @@ public partial class App : Application
             var hostCode = MateMic.Ai.AiVoiceIpc.HostCheck.Run(args);
             Shutdown(hostCode);
             return;
-        }        {
-            MateMic.Ai.AiVoiceIpc.ShmRingCheck.Run();
-            Shutdown();
-            return;
         }
 
         // 音频链路诊断：MateMic.exe --audiocheck [秒数] [输出设备关键字] [输入设备关键字]
