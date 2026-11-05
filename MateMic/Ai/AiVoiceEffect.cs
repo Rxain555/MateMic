@@ -1050,8 +1050,21 @@ public sealed class AiVoiceEffect : IAudioEffect
         // 旧实现直接取 2 个块 = 块长 + 块长。块长 160ms 时是 320ms，而这一档真正的
         // 物理需求只有约 220~260ms（推理实测 54~64ms）。多出来的部分在"积压不会自然
         // 回落"的前提下等于白送的永久延迟 —— 实测稳态水位就停在 [160 … 300]ms。
-        var headroomMs = Math.Max(BacklogPadMs(), (int)Math.Ceiling(_lastInferMs) + BacklogJitterMarginMs);
-        var capSamples = Math.Min(_blockSamples48 + ChainRate * headroomMs / 1000, _outRing.Length / 2);
+        // ⚠⚠ 两处关键修正（2026-11-05，修"跨进程后周期性爆音/底噪"）：
+        //
+        // 1) 必须用 **LastInferMs 属性**，不能用字段 _lastInferMs。
+        //    字段只有进程内 worker 会写，跨进程时**恒为 0** ⇒ headroomMs 永远算成 40ms。
+        //    属性在跨进程时读的是宿主回传的真实推理耗时。
+        //
+        // 2) capSamples 必须 ≥ **预填充 + 一整块**，不能只有"块长 + headroom"。
+        //    宿主是**一整块突发**写入的：预填充 P 加上刚写入的一块 B，瞬时水位就是 P+B。
+        //    原来 cap = 块长 + 40ms，而预填充也正好是 块长 + 40ms（跨进程时 headroom 被算成 40）
+        //    ⇒ 两者相等 ⇒ 水位一开始就顶在 cap 上 ⇒ 宿主每产出一块就被"丢最老"削掉一整块
+        //    ⇒ 时间轴每块跳一次 ⇒ 听感是有节奏的爆音/底噪。
+        //    也因为 cap 与预填充同步随块长变化、差值恒为 0，所以**改参数完全没效果**
+        //    —— 这正是用户观察到"参数无关"的原因。
+        var headroomMs = Math.Max(BacklogPadMs(), (int)Math.Ceiling(LastInferMs) + BacklogJitterMarginMs);
+        var capSamples = Math.Min(PadSamples() + _blockSamples48, _outRing.Length / 2);
         if (available > capSamples)
         {
             var drop = available - capSamples;
