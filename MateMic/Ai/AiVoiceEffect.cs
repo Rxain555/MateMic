@@ -1,4 +1,5 @@
 using NAudio.Wave;
+using MateMic.Ai.AiVoiceIpc;
 using MateMic.Core;
 using MateMic.Denoise;
 using MateMic.Dsp;
@@ -299,6 +300,152 @@ public sealed class AiVoiceEffect : IAudioEffect
     /// 会把界面完全卡死（用户实测："打开 AI 变声按钮时，在加载时间内软件是卡死的"）。
     /// 加载期间 <see cref="Read"/> 照常把输入排队、输出补静音，音频线程不受影响。
     /// </summary>
+    /// <summary>独立进程客户端（<c>EnableHostProcess</c> 为真时才有值；否则为 null，走进程内引擎）。</summary>
+    private AiVoiceHostClient? _hostClient;
+
+    /// <summary>
+    /// 独立进程路径（实验性）：起子进程并把参数发过去，等它加载完。
+    ///
+    /// 只做"起 + 等"，**不碰** <c>_toModel/_fromModel</c>：跨进程时采样率转换在宿主里
+    /// （<see cref="RvcBlockProcessor"/>），主进程收发的一直是 48 kHz。
+    /// </summary>
+    private void StartHostBackend(string engineDir)
+    {
+        var parameters = new AiVoiceHostParams
+        {
+            Cv = Path.Combine(engineDir, "contentvec.onnx"),
+            Rmvpe = Path.Combine(engineDir, "rmvpe.onnx"),
+            Voice = Path.Combine(ConfigStore.AiVoicesDirectory, _config.AiVoice.VoiceModel!),
+            Index = string.IsNullOrWhiteSpace(_config.AiVoice.IndexFile)
+                ? null
+                : Path.Combine(ConfigStore.AiIndexDirectory, _config.AiVoice.IndexFile),
+            BlockMs = _config.AiVoice.BlockMs,
+            ContextMs = _config.AiVoice.ContextMs,
+            CrossfadeMs = _config.AiVoice.CrossfadeMs,
+            Semitones = (int)Math.Round(_config.AiVoice.Semitones),
+            IndexRate = _config.AiVoice.IndexRate / 100f,
+            UseGpu = true,
+        };
+
+        var client = AiVoiceHostClient.Start(parameters, ChainRate * 2, out var startError);
+        if (client == null)
+            throw new InvalidOperationException("宿主进程启动失败：" + startError);
+
+        try
+        {
+            // 给足时间：GPU 首次加载 + CUDA context + kernel 编译
+            if (!client.WaitReady(180_000, out var readyError))
+                throw new InvalidOperationException("宿主进程未就绪：" + readyError);
+            if (!client.IsAlive)
+                throw new InvalidOperationException("宿主进程已退出：" + client.LastError);
+        }
+        catch
+        {
+            client.Dispose();
+            throw;
+        }
+
+        _hostClient = client;
+        _loadProgress = 100;
+        ProgressChanged?.Invoke(this, 100);
+        Log.Info($"[AI 变声] 已切换到独立进程（PID {client.HostPid}）：块 {_config.AiVoice.BlockMs}ms"
+                 + $" / 上下文 {_config.AiVoice.ContextMs}ms / 音色 {_config.AiVoice.VoiceModel}");
+    }
+
+    /// <summary>
+    /// 跨进程的工作循环：把输入环的数据喂给宿主，再把宿主的输出写进输出环。
+    ///
+    /// 与进程内那套最大的不同是**异步**：写进去不会立刻有结果，要过一会儿才能取。
+    /// 所以这里不是"取一块 → 处理 → 写回"，而是"喂一批、取一批"反复进行，
+    /// 输入与输出各自按自己的节奏流动，靠两端的环做解耦。
+    ///
+    /// 输出环的水位策略与进程内**完全一致**（同样受 <c>capSamples</c> 限制、超了丢最老），
+    /// 所以延迟不会因为跨进程而变大。
+    /// </summary>
+    private void HostWorkerLoop()
+    {
+        var scratch = new float[_blockSamples48];
+        var outScratch = new float[_blockSamples48 * 2];
+
+        while (_running)
+        {
+            var client = _hostClient;
+            if (client == null || !client.IsAlive)
+            {
+                // 宿主没了：静音输出，等 Stop/重启（不在这里自作主张重启，
+                // 免得崩溃后陷入"起来就崩"的循环）
+                lock (_ringGate)
+                {
+                    for (var i = 0; i < _blockSamples48; i++)
+                    {
+                        _outRing[_outWrite] = 0f;
+                        _outWrite = (_outWrite + 1) % _outRing.Length;
+                    }
+                }
+
+                Thread.Sleep(20);
+                continue;
+            }
+
+            var didWork = false;
+
+            // ---- 1) 喂：把输入环里已有的数据送给宿主（最多一整块）----
+            int take;
+            lock (_ringGate)
+            {
+                var available = Available(_inRing, _inRead, _inWrite);
+                take = Math.Min(available, _blockSamples48);
+                for (var i = 0; i < take; i++)
+                {
+                    scratch[i] = _inRing[_inRead];
+                    _inRead = (_inRead + 1) % _inRing.Length;
+                }
+            }
+
+            if (take > 0)
+            {
+                var sent = 0;
+                while (sent < take)
+                {
+                    var n = client.WriteInput(scratch.AsSpan(sent, take - sent));
+                    if (n <= 0)
+                    {
+                        if (!client.WaitForInputRoom(20)) break;   // 宿主那边堵住了：丢掉剩余
+                        continue;
+                    }
+                    sent += n;
+                }
+
+                didWork = true;
+            }
+
+            // ---- 2) 取：把宿主的输出写进输出环（受 capSamples 限制，超了丢最老）----
+            var got = client.ReadOutput(outScratch);
+            if (got > 0)
+            {
+                lock (_ringGate)
+                {
+                    for (var i = 0; i < got; i++)
+                    {
+                        var next = (_outWrite + 1) % _outRing.Length;
+                        if (next == _outRead)
+                        {
+                            _outRead = (_outRead + 1) % _outRing.Length;   // 丢最老
+                            Interlocked.Increment(ref _lateBlocks);
+                        }
+
+                        _outRing[_outWrite] = outScratch[i];
+                        _outWrite = next;
+                    }
+                }
+
+                didWork = true;
+            }
+
+            if (!didWork) Thread.Sleep(2);   // 两头都没事干，让出 CPU
+        }
+    }
+
     private void StartWorker()
     {
         if (_engine != null || _starting) return;
@@ -357,25 +504,33 @@ public sealed class AiVoiceEffect : IAudioEffect
             }
         }
 
-        _engine = new StreamingRvc(
-            Path.Combine(engineDir, "contentvec.onnx"),
-            Path.Combine(engineDir, "rmvpe.onnx"),
-            Path.Combine(ConfigStore.AiVoicesDirectory, _config.AiVoice.VoiceModel!),
-            _config.AiVoice.BlockMs,
-            _config.AiVoice.ContextMs,
-            _config.AiVoice.CrossfadeMs,
-            (int)Math.Round(_config.AiVoice.Semitones),
-            useGpu: true,
-            index: index,
-            indexRate: rate,
-            onProgress: p =>
-            {
-                _loadProgress = p;
-                ProgressChanged?.Invoke(this, p);
-            });
+        if (_config.AiVoice.EnableHostProcess)
+        {
+            // 独立进程路径（实验性）：起子进程、等它就绪。**不动下面的进程内路径**。
+            StartHostBackend(engineDir);
+        }
+        else
+        {
+            _engine = new StreamingRvc(
+                Path.Combine(engineDir, "contentvec.onnx"),
+                Path.Combine(engineDir, "rmvpe.onnx"),
+                Path.Combine(ConfigStore.AiVoicesDirectory, _config.AiVoice.VoiceModel!),
+                _config.AiVoice.BlockMs,
+                _config.AiVoice.ContextMs,
+                _config.AiVoice.CrossfadeMs,
+                (int)Math.Round(_config.AiVoice.Semitones),
+                useGpu: true,
+                index: index,
+                indexRate: rate,
+                onProgress: p =>
+                {
+                    _loadProgress = p;
+                    ProgressChanged?.Invoke(this, p);
+                });
 
-        _toModel = new RateConverter(ChainRate, ModelRate, _blockSamples48 + 64);
-        _fromModel = new RateConverter(ModelRate, ChainRate, _blockSamples48 * ModelRate / ChainRate + 64);
+            _toModel = new RateConverter(ChainRate, ModelRate, _blockSamples48 + 64);
+            _fromModel = new RateConverter(ModelRate, ChainRate, _blockSamples48 * ModelRate / ChainRate + 64);
+        }
 
         _running = true;
         _worker = new Thread(WorkerLoop)
@@ -410,6 +565,12 @@ public sealed class AiVoiceEffect : IAudioEffect
         _engine = null;
         _toModel = null;
         _fromModel = null;
+
+        // 独立进程：Dispose 会先请求它自己退出（最多等 5 秒），超时才强杀整棵进程树。
+        // 这就是"关掉 AI 变声就能把内存还回去"的关键一步：进程一结束，
+        // 模型内存 / CUDA context / 显存 / faiss 索引全由操作系统回收。
+        try { _hostClient?.Dispose(); } catch { /* 忽略 */ }
+        _hostClient = null;
 
         // 关键：清掉"正在加载"标记。否则上一次后台加载还没结束时，
         // StartWorker 会因为 _starting == true 直接 return，引擎永远建不起来。
@@ -613,6 +774,12 @@ public sealed class AiVoiceEffect : IAudioEffect
 
     private void WorkerLoop()
     {
+        // 独立进程路径走另一套循环（跨进程是异步的，不能复用下面"一块进一块出"的逻辑）
+        if (_hostClient != null)
+        {
+            HostWorkerLoop();
+            return;
+        }
         while (_running)
         {
             _wake.Wait(20);

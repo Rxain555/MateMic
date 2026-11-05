@@ -175,6 +175,9 @@ public sealed class AiVoiceHostClient : IDisposable
     /// </summary>
     public int WriteInput(ReadOnlySpan<float> samples) => _inRing.Write(samples);
 
+    /// <summary>输入环满时等一会儿（宿主读得慢）。返回 true 表示有空间了。</summary>
+    public bool WaitForInputRoom(int timeoutMs) => _inRing.WaitForRoom(timeoutMs);
+
     /// <summary>
     /// 读输出音频（48 kHz）。返回实际读到的样本数；0 表示还没产出。
     ///
