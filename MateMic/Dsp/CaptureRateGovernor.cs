@@ -91,6 +91,15 @@ public sealed class CaptureRateGovernor : ISampleProvider
     /// <summary>累计丢弃的样本数（诊断用）。</summary>
     public long DroppedSamples => Interlocked.Read(ref _droppedSamples);
 
+    /// <summary>
+    /// 采集环当前积压的毫秒数 —— **这就是"延迟构成"里那项真实存在、但以前没被计入的延迟**。
+    ///
+    /// 采集端点延迟（20 ms）是设备决定的常量，而这里的积压是**动态**的：
+    /// 正常 10~20 ms 可忽略，但一旦消费端被拖慢就会台阶式涨到 84 ms、284 ms 甚至更多，
+    /// 且不会自己回落（2026-11-04 实测）。把它显示出来，"延迟变大"才看得见。
+    /// </summary>
+    public double CurrentLevelMs => _buffer.BufferedDuration.TotalMilliseconds;
+
     public int Read(Span<float> buffer)
     {
         try

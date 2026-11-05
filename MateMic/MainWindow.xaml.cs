@@ -1509,10 +1509,20 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         // ---- 延迟构成 ----
         // 降噪的 LatencyMs 是"固定一帧"（它是帧式处理，输出天然滞后一帧）；
         // 变声用 AiVoiceEffect.LatencyMs（= 2×块长，与官方口径一致）。
+        //
+        // **2026-11-05 补上"积压"一项**：以前这里只算"端点延迟 + 算法延迟 + AI 变声的缓冲"，
+        // 全是参数推算（常量），而**采集环的水位从来没计入** —— 于是实测积压 284 ms 时，
+        // 卡片仍然显示 ≈27 ms，等于一张理论黑板（用户正是这么发现的）。
+        // 采集环水位是真实延迟的一部分：音频进来后要排在积压后面才被处理。
+        // 它天然是实时的（每帧都读一次 BufferedDuration），所以补上它就是"实时延迟"了。
+        var captureBacklog = (int)Math.Round(_engine.CaptureGovernor?.CurrentLevelMs ?? 0);
+
         var parts = new List<string>
         {
             $"采集 {_engine.CaptureLatencyMs}",
         };
+        if (captureBacklog > 40)
+            parts.Add($"积压 {captureBacklog}");
         if (denoise.Enabled && denoise.Wet > 0.001f)
             parts.Add($"降噪 {denoise.LatencyMs:0.#}");
         if (_config.AiVoice.Enabled)
@@ -1525,6 +1535,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         parts.Add($"输出 {_engine.OutputLatencyMs}");
 
         var total = _engine.CaptureLatencyMs + _engine.OutputLatencyMs;
+        if (captureBacklog > 40) total += captureBacklog;
         if (denoise.Enabled && denoise.Wet > 0.001f) total += (int)Math.Round(denoise.LatencyMs);
         if (_config.AiVoice.Enabled)
         {
@@ -1534,7 +1545,9 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         }
 
         StatsLatencyText.Text = string.Join(" + ", parts);
-        StatsLatencyTotal.Text = $"≈ {total} ms";
+        // 总延迟超过 100 ms 时加一个警示符号：正常（无积压、无 AI 变声）只有 20~40 ms，
+        // 到这个量级说明链路上确实堆了东西，比盯着一串数字更容易发现。
+        StatsLatencyTotal.Text = total > 100 ? $"≈ {total} ms ⚠" : $"≈ {total} ms";
     }
 
     /// <summary>
