@@ -80,6 +80,20 @@ public sealed class AiVoiceEffect : IAudioEffect
     /// </summary>
     private long _measuredProduceGapMs;
 
+    /// <summary>
+    /// 消费侧观测到的输出环水位最低点（毫秒）。由 `ReadCore` 写、诊断日志读后清零。
+    /// 它才是"预填充够不够"的判据：> 0 说明一直有余量，= 0 说明每次都被吃光。
+    /// </summary>
+    private int _minOutAvailMs = int.MaxValue;
+
+    /// <summary>读取并清零消费侧水位最低点；没测到过返回 -1。</summary>
+    private int TakeMinOutAvailMs()
+    {
+        var value = Volatile.Read(ref _minOutAvailMs);
+        Volatile.Write(ref _minOutAvailMs, int.MaxValue);
+        return value == int.MaxValue ? -1 : value;
+    }
+
     /// <summary>上次输出诊断日志的时间戳（Stopwatch ticks）。见 Read() 里的时间门控。</summary>
     private long _lastDiagTicks;
 
@@ -786,7 +800,6 @@ public sealed class AiVoiceEffect : IAudioEffect
         //   · 帧间隔明显 > 块长（如 1.5~2 倍）⇒ 宿主供给不足，就是它导致水位被抽干。
         var lastFrameMs = 0L;
         long frames = 0, frameSamples = 0, maxGapMs = 0, gapSumMs = 0;
-        var minAvailMs = int.MaxValue;
         var statClock = Environment.TickCount64;
 
         while (_running)
@@ -828,9 +841,9 @@ public sealed class AiVoiceEffect : IAudioEffect
                     avail--;
                 }
 
-                // 记下这 2 秒里水位的最低点 —— 它是"预填充够不够"的最直接证据。
-                var availMs = (int)(avail * 1000 / ChainRate);
-                if (availMs < minAvailMs) minAvailMs = availMs;
+                // ⚠ 这里**不再**测水位下限（2026-11-05 修正）：
+                // 此刻是"刚写完一整块"，水位必然最高，测出来毫无意义（实测显示 80ms，
+                // 而消费侧真正的最低点是 0ms）。水位最低点只能由消费侧（ReadCore）记录。
             }
 
             // 每 2 秒报一次"产出口径"，并把**实测最大间隔**存给 PadSamples 用。
@@ -855,7 +868,7 @@ public sealed class AiVoiceEffect : IAudioEffect
                              + $"｜最长间隔 {maxGapMs}ms"
                              + $"｜平均帧长 {frameSamples / frames * 1000 / ChainRate}ms"
                              + $"｜预填充 {PadSamples() * 1000 / ChainRate}ms"
-                             + $"｜水位下限 {minAvailMs}ms");
+                             + $"｜消费侧水位下限 {TakeMinOutAvailMs()}ms");
                 }
                 else
                 {
@@ -865,7 +878,6 @@ public sealed class AiVoiceEffect : IAudioEffect
                 frameSamples = 0;
                 gapSumMs = 0;
                 maxGapMs = 0;
-                minAvailMs = int.MaxValue;
             }
         }
     }
@@ -1187,6 +1199,11 @@ public sealed class AiVoiceEffect : IAudioEffect
         //    —— 这正是用户观察到"参数无关"的原因。
         var headroomMs = Math.Max(BacklogPadMs(), (int)Math.Ceiling(LastInferMs) + BacklogJitterMarginMs);
         var capSamples = Math.Min(PadSamples() + _blockSamples48, _outRing.Length / 2);
+
+        // **消费侧的水位最低点**（2026-11-05 修正：之前测在写侧，测出来永远偏高）。
+        // 只有这里才看得到"两次产出之间被消费到什么程度"。
+        var availMs = (int)(available * 1000 / ChainRate);
+        if (availMs < Volatile.Read(ref _minOutAvailMs)) Volatile.Write(ref _minOutAvailMs, availMs);
         if (available > capSamples)
         {
             var drop = available - capSamples;
@@ -1217,6 +1234,39 @@ public sealed class AiVoiceEffect : IAudioEffect
                 Log.Warn($"[AI 变声] 欠载：需要 {buffer.Length} 样本，实际只有 {take}"
                          + $"（输出环水位 {available * 1000 / ChainRate}ms，本次补静音 {(buffer.Length - take) * 1000 / ChainRate}ms）"
                          + $"｜cap {capSamples * 1000 / ChainRate}ms｜预填充 {PadSamples() * 1000 / ChainRate}ms");
+            }
+        }
+        else if (_hostClient != null)
+        {
+            // ---- 抗漂移：用极小的时间伸缩稳住水位（2026-11-05）----
+            //
+            // 实测：跨进程产出速率约 96%（每块 120ms 的节拍里要多花 4~5ms 等管道唤醒），
+            // 而消费严格 100% ⇒ 水位必然单调下降 ⇒ 迟早被吃穿 ⇒ 周期性补静音。
+            // 预填充只是延后，压开销也到不了 100%（唤醒延迟是结构性的）。
+            //
+            // 做法：按水位偏差**微调消费量**（只动读指针，不改音频内容）：
+            //   水位偏低 ⇒ 读指针**回退 1 个样本**（这一段少消费 1 个）；
+            //   水位偏高 ⇒ 读指针**前进 1 个样本**（多消费 1 个，丢掉一个）。
+            // 每次只动 1 个样本（10ms 一次 ⇒ 0.2% 的速率微调），人耳听不出，
+            // 但足以把水位稳在目标附近，消掉周期性爆音。
+            // 只在偏差超过一个块时才动手，避免常态抖动也去改。
+            var target = PadSamples();
+            var delta = target - available;
+            if (Math.Abs(delta) > _blockSamples48)
+            {
+                lock (_ringGate)
+                {
+                    if (delta > 0)
+                    {
+                        // 水位偏低：把读指针回退一个（相当于这次少消费一个样本）
+                        _outRead = (_outRead - 1 + _outRing.Length) % _outRing.Length;
+                    }
+                    else
+                    {
+                        // 水位偏高：把读指针再前进一个（多消费一个）
+                        _outRead = (_outRead + 1) % _outRing.Length;
+                    }
+                }
             }
         }
 

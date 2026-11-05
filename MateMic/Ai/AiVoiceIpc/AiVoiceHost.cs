@@ -121,10 +121,21 @@ internal static class AiVoiceHost
             ctl.SetState(AiVoiceHostState.Ready, 1.0);
 
             // ---- 两段流水 ----
-            using var ready = new BlockingCollection<float[]>(ReadyQueueDepth);
+            //
+            // ⚠ 用**固定双槽位 + SemaphoreSlim**，不用 BlockingCollection
+            //（2026-11-05 实测：每块产出间隔 126ms 而块长只有 120ms，多出的 6ms
+            //  就是"队列交接 + 线程唤醒"的固定开销；按 10 秒算会让产能只有 94.8%，
+            //  持续低于消费速度 ⇒ 水位必然被吃穿 ⇒ 周期性爆音。
+            //  BlockingCollection 内部有锁 + 队列 + 条件变量，比裸信号量重。
+            //  但**不能**退回单线程串行：那会让间隔变成 块长 + 推理，更糟。）
+            var slots = new float[2][];
+            var freeSlots = new SemaphoreSlim(2, 2);   // 可写槽位数
+            var filledSlots = new SemaphoreSlim(0, 2); // 可读槽位数
+            var slotWrite = 0;
+            var slotRead = 0;
             var running = true;
 
-            // 读线程：攒满一块就排进队列。攒块的时间与推理**重叠**，这是产能的关键。
+            // 读线程：攒满一块就放进下一个空槽位。
             var reader = new Thread(() =>
             {
                 var buffer = new float[processor.BlockSamples48];
@@ -141,9 +152,13 @@ internal static class AiVoiceHost
                             got += n;
                         }
 
-                        // 队列满时 TryAdd 会失败 —— 说明推理跟不上，直接把这块丢掉，
-                        // 保证实时性（宁可丢一块也不要越积越久）。
-                        if (!ready.TryAdd(buffer, 10)) { /* 丢本块 */ }
+                        // 等空槽位（最多 10ms，等到丢本块保实时）
+                        if (!freeSlots.Wait(10)) continue;
+
+                        slots[slotWrite] = buffer;
+                        slotWrite = (slotWrite + 1) % 2;
+                        filledSlots.Release();
+
                         buffer = new float[processor.BlockSamples48];
                     }
                 }
@@ -154,15 +169,19 @@ internal static class AiVoiceHost
             })
             { IsBackground = true, Name = "AiVoiceHost.Reader" };
 
-            // 推理线程：从队列取块，推理，写回。
+            // 推理线程：从槽位取块，推理，写回。
             var worker = new Thread(() =>
             {
                 var out48 = new float[processor.BlockSamples48 + 4096];
                 try
                 {
-                    foreach (var block in ready.GetConsumingEnumerable())
+                    while (running && !ctl.IsClosed)
                     {
-                        if (!running || ctl.IsClosed) break;
+                        if (!filledSlots.Wait(50)) continue;
+
+                        var block = slots[slotRead];
+                        slotRead = (slotRead + 1) % 2;
+                        freeSlots.Release();
 
                         // 热参数：每块读一次（变调/索引占比改了立刻生效，不重建引擎）
                         var (hotSemitones, hotRate) = ctl.GetHotParams();
@@ -171,16 +190,8 @@ internal static class AiVoiceHost
                         var produced = processor.Process(block, out48);
                         ctl.SetHostInferMs(processor.LastInferMs);
 
-                        // ⚠ **不要每块写日志**（2026-11-05 定位到的爆音真因）。
-                        //
-                        // 宿主的 stdout 被父进程重定向（RedirectStandardOutput = true）。
-                        // 每块写一行，父进程消费 stdio 稍慢，写操作就会**阻塞推理线程**
-                        // ⇒ 产出间隔从 80ms 拉到 160ms 以上 ⇒ 主进程输出环被抽干 ⇒ 周期性补静音。
-                        // 实测证据：欠载明细显示"水位 0ms"，而块长 80ms、推理 59ms，
-                        // 正常产出间隔应为 80ms —— 只有被阻塞才会 158ms 内毫无产出。
-                        //
-                        // 这正是"只在子进程出现"的原因：进程内路径没有任何每块日志。
-                        // 现在只保留极低频的采样（每 200 块一行，约几十秒一次）。
+                        // ⚠ 不要每块写日志：宿主的 stdout 被父进程重定向，
+                        // 每块写一行会**阻塞推理线程**（实测把产出间隔从 80ms 拉到 160ms）。
                         if (processor.Blocks % 200 == 0)
                         {
                             Console.WriteLine($"[宿主] 已处理 {processor.Blocks} 块，最近一次推理 {processor.LastInferMs:0}ms");
@@ -207,7 +218,6 @@ internal static class AiVoiceHost
             while (running && !ctl.IsClosed) Thread.Sleep(50);
 
             running = false;
-            try { ready.CompleteAdding(); } catch { }
             try { pipeIn.Dispose(); } catch { }      // 打断阻塞读
             try { pipeOut.Dispose(); } catch { }     // 打断阻塞写
 

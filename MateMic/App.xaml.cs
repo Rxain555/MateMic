@@ -176,6 +176,18 @@ public partial class App : Application
             return;
         }
 
+        // 实时链路模拟（自己复现欠载，不依赖用户试听）：--rtcheck [--ai <dir>]
+        if (HasFlag(args, "--rtcheck"))
+        {
+            var rtAi = "";
+            for (var i = 0; i < args.Length - 1; i++)
+                if (args[i] == "--ai") { rtAi = args[i + 1]; break; }
+            if (string.IsNullOrWhiteSpace(rtAi))
+                rtAi = Path.Combine(AppContext.BaseDirectory, "data", "components", "ai");
+            Shutdown(MateMic.Ai.AiVoiceIpc.RealtimeCheck.Run(rtAi));
+            return;
+        }
+
         // 同步往返耗时测量（验证"能否像官方那样在音频回调里同步推理"）：--synccheck
         if (HasFlag(args, "--synccheck"))
         {
