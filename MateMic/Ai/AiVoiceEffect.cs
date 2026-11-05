@@ -67,6 +67,9 @@ public sealed class AiVoiceEffect : IAudioEffect
     // 统计（供界面显示；全部用 Interlocked，避免音频线程与 UI 线程竞争）
     private long _blocks, _lateBlocks, _droppedSamples;
 
+    /// <summary>欠载诊断日志的节流时间戳（毫秒）。实时线程上不能频繁写日志。</summary>
+    private long _lastUnderrunLogMs;
+
     /// <summary>上次输出诊断日志的时间戳（Stopwatch ticks）。见 Read() 里的时间门控。</summary>
     private long _lastDiagTicks;
 
@@ -284,8 +287,14 @@ public sealed class AiVoiceEffect : IAudioEffect
     {
         // 输入环留 2 秒：下游偶尔卡一下也不至于丢数据
         var inCap = ChainRate * 2;
-        // 输出环留足"预填充静音 + 若干块"，启动时全部为零 = 初始延迟
-        var outCap = ChainRate * 2;
+        // 输出环留 4 秒（原来 2 秒）。
+        //
+        // ⚠ 为什么从 2 秒加到 4 秒（2026-11-05）：预填充与 capSamples 都取
+        // `min(..., 环容量/2)`，而块长一大，"预填充（块长 + 40ms）+ 一整块突发"
+        // 就会超过"容量/2" ⇒ capSamples 被容量卡住 ⇒ 宿主每产出一块就被削一次。
+        // 实测块长 500ms 时：预填充 540ms + 一块 500ms = 1040ms > 2 秒容量给的 1000ms 上限。
+        // 4 秒容量把这条上限抬到 2000ms，块长到 900ms 都不会再触发。
+        var outCap = ChainRate * 4;
         _inRing = new float[inCap];
         _outRing = new float[outCap];
         Array.Clear(_outRing);
@@ -1083,6 +1092,19 @@ public sealed class AiVoiceEffect : IAudioEffect
         {
             buffer[take..].Clear();
             Interlocked.Increment(ref _lateBlocks);
+
+            // **诊断**：欠载却"积压不为 0"是矛盾的（说明瞬时水位到过 0，
+            // 而 2 秒一次的诊断采样看不到）。把欠载当时的实际可用量与请求量记下来，
+            // 才能判断是"水位真的空了"还是"计算/同步有问题"。
+            // 节流到 5 秒一条，避免刷屏（实时线程上不能频繁写日志）。
+            var now = Environment.TickCount64;
+            if (now - _lastUnderrunLogMs >= 5000)
+            {
+                _lastUnderrunLogMs = now;
+                Log.Warn($"[AI 变声] 欠载：需要 {buffer.Length} 样本，实际只有 {take}"
+                         + $"（输出环水位 {available * 1000 / ChainRate}ms，本次补静音 {(buffer.Length - take) * 1000 / ChainRate}ms）"
+                         + $"｜cap {capSamples * 1000 / ChainRate}ms｜预填充 {PadSamples() * 1000 / ChainRate}ms");
+            }
         }
 
         // 诊断：积压量就是额外延迟。每隔一段时间记一次，用于判断"延迟到底是算法本身
