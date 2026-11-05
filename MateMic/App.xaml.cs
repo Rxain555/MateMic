@@ -176,6 +176,18 @@ public partial class App : Application
             return;
         }
 
+        // 同步往返耗时测量（验证"能否像官方那样在音频回调里同步推理"）：--synccheck
+        if (HasFlag(args, "--synccheck"))
+        {
+            var syncAi = "";
+            for (var i = 0; i < args.Length - 1; i++)
+                if (args[i] == "--ai") { syncAi = args[i + 1]; break; }
+            if (string.IsNullOrWhiteSpace(syncAi))
+                syncAi = Path.Combine(AppContext.BaseDirectory, "data", "components", "ai");
+            Shutdown(MateMic.Ai.AiVoiceIpc.SyncRoundTripCheck.Run(syncAi));
+            return;
+        }
+
         // 命名管道 relay 子进程（仅自检用）：MateMic.exe --pipe-relay <名字>
         if (HasFlag(args, "--pipe-relay"))
         {
