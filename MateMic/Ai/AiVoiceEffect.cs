@@ -103,21 +103,7 @@ public sealed class AiVoiceEffect : IAudioEffect
     /// （块长与余量都来自配置，可能被手改成超范围的值，必须保证读写指针不会碰头）。
     /// </summary>
     private int PadSamples()
-    {
-        // **跨进程时多留一整块。**
-        //
-        // 宿主是**块式突发**产出：攒满一块 → 推理（约 55 ms）→ 一次性写回整块；
-        // 而主进程每 20 ms 连续消费。若只预填充一块，水位就会在 [0 … 一块] 之间摆，
-        // 每个块边界的末尾都触底 ⇒ 周期性补静音。
-        // 用户实测听感正是"不说话时有节奏的底噪，但不是每个周期都响"
-        //（2026-11-05，额外缓冲设为 0 时）。
-        //
-        // 进程内没这个问题：它的 worker 与消费节奏一致，且预填充一块刚好够。
-        // 所以这份额外余量只在独立进程路径上加，不抬高进程内路径的延迟。
-        var extra = _hostClient != null ? _blockSamples48 : 0;
-        return Math.Min(_blockSamples48 + extra + ChainRate * BacklogPadMs() / 1000,
-                        _outRing.Length / 2);
-    }
+        => Math.Min(_blockSamples48 + ChainRate * BacklogPadMs() / 1000, _outRing.Length / 2);
     private double _lastInferMs;
 
     /// <summary>输出环积压（毫秒），audio 线程写、UI 线程读。</summary>

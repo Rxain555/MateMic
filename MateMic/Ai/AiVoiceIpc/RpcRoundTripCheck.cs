@@ -50,13 +50,33 @@ internal static class RpcRoundTripCheck
 
         Console.WriteLine($"工程：块 {blockMs}ms × {blocks} 块 = {input.Length / (double)ChainRate:0.00} 秒，音色 {Path.GetFileName(voice)}");
 
-        // ---- 路径 A：进程内 ----
-        Console.WriteLine("\n-- 路径 A：进程内 --");
+        // ---- 路径 A：进程内（第 1 次）----
+        Console.WriteLine("\n-- 路径 A1：进程内（第 1 次）--");
         var clock = Stopwatch.StartNew();
         var outputA = RunInProcess(cv, rmvpe, voice, blockMs, block, blocks, input);
         clock.Stop();
         if (outputA == null) { Console.WriteLine("✗ 进程内处理失败"); return 1; }
         Console.WriteLine($"进程内完成，{outputA.Length} 样本，用时 {clock.Elapsed.TotalSeconds:0.0} 秒");
+
+        // ---- 路径 A2：进程内（第 2 次，**对照组**）----
+        //
+        // 这一组是整个排查的关键：如果"进程内跑两次"自己也差 1~10%，
+        // 说明 RVC 推理本身就不确定性（多线程浮点归约顺序），
+        // 那么"跨进程输出不同"根本不是问题 —— 该换个方向查音色。
+        // 如果两次完全一致，才说明跨进程引入了真实差异。
+        Console.WriteLine("\n-- 路径 A2：进程内（第 2 次，对照组）--");
+        clock.Restart();
+        var outputA2 = RunInProcess(cv, rmvpe, voice, blockMs, block, blocks, input);
+        clock.Stop();
+        if (outputA2 != null)
+        {
+            Console.WriteLine($"进程内二次完成，{outputA2.Length} 样本，用时 {clock.Elapsed.TotalSeconds:0.0} 秒");
+            Report("A1 vs A2（进程内 vs 进程内）", outputA, outputA2);
+        }
+        else
+        {
+            Console.WriteLine("✗ 进程内二次处理失败");
+        }
 
         // ---- 路径 B：跨进程 ----
         Console.WriteLine("\n-- 路径 B：跨进程（宿主）--");
@@ -274,6 +294,34 @@ internal static class RpcRoundTripCheck
             client.Stop();
             client.Dispose();
         }
+    }
+
+    /// <summary>把两组输出做定量对比并打印（长度 / RMS / 相关系数 / 最大单点差）。</summary>
+    private static void Report(string title, float[] a, float[] b)
+    {
+        var n = Math.Min(a.Length, b.Length);
+        if (n == 0) { Console.WriteLine($"  {title}：没有可比对样本"); return; }
+
+        double sumA = 0, sumB = 0, sumAB = 0, sumAA = 0, sumBB = 0, maxDiff = 0;
+        for (var i = 0; i < n; i++)
+        {
+            double x = a[i], y = b[i];
+            sumA += x; sumB += y;
+            sumAB += x * y; sumAA += x * x; sumBB += y * y;
+            var d = Math.Abs(x - y);
+            if (d > maxDiff) maxDiff = d;
+        }
+
+        var rmsA = Math.Sqrt(sumAA / n);
+        var rmsB = Math.Sqrt(sumBB / n);
+        var corr = sumAA > 0 && sumBB > 0
+            ? (sumAB - sumA * sumB / n) / Math.Sqrt((sumAA - sumA * sumA / n) * (sumBB - sumB * sumB / n))
+            : 0;
+
+        Console.WriteLine($"  {title}");
+        Console.WriteLine($"    长度 {a.Length} / {b.Length}｜RMS {rmsA:0.0000} / {rmsB:0.0000}"
+                          + $"（差 {Math.Abs(rmsB - rmsA) / Math.Max(rmsA, 1e-9) * 100:0.0}%）");
+        Console.WriteLine($"    相关系数 {corr:0.0000}｜最大单点差 {maxDiff:0.0000}");
     }
 
     private static string? GetArg(string[] args, string name)
