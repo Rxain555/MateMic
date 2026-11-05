@@ -40,7 +40,16 @@ public partial class App : Application
         // 曾经这里是无参调用，于是 _preferredProvider 永远是 null、每次都走 auto（CUDA），
         // 用户在界面上切成 CPU / DirectML 后**重启也没用**
         //（2026-10-08 用户实测："我之前说的切换运算方式没用，就是重启后也没用"）。
-        Ai.AiComponent.InstallNativeResolver();
+        // ⚠ 纯粹做"搬运"的子进程（relay）**不能**初始化 ONNX 原生运行时：
+        // 父进程已经初始化过，子进程再初始化会卡在那里（实测：relay 进程起来了、
+        // 不退出也不打印任何东西，父进程等 15 秒报"没有对端连上来"，
+        // 而单独运行 relay 完全正常 —— 差异就是有没有父进程同时持有 ONNX）。
+        // 这类子进程只用共享内存/管道，不需要 ONNX。
+        var isPureRelay = HasFlag(args, "--pipe-relay") || HasFlag(args, "--shm-relay");
+        if (!isPureRelay)
+        {
+            Ai.AiComponent.InstallNativeResolver();
+        }
 
         // 单实例：重复启动时把已有窗口激活。
         //
@@ -59,6 +68,13 @@ public partial class App : Application
         // "MateMic 已经在运行中"的**模态对话框**并卡在那里 —— 表现为
         // "子进程起来了、不崩也不退出、一条日志都没有、永远不就绪"，极难排查。
         if (HasFlag(args, "--aivoice-host")) isolated = true;
+
+        // 纯粹做"搬运"的子进程（relay）**也不能**参与单实例检查：
+        // 父进程已经持有 Mutex，子进程抢不到就会弹「MateMic 已经在运行中」的**模态对话框**
+        // 并停在那里 —— 表现为"子进程起来了、不退出、不打任何日志、父进程等到超时"。
+        // （这个坑先在 --aivoice-host 上踩过一次，2026-11-05 又在 relay 上踩了第二次。）
+        // isPureRelay 已在上面（决定是否初始化 ONNX 的地方）定义过了。
+        if (isPureRelay) isolated = true;
 
         if (!isolated)
         {
@@ -157,6 +173,23 @@ public partial class App : Application
         {
             var code = MateMic.Ai.AiVoiceIpc.AiVoiceHost.Run(args);
             Shutdown(code);
+            return;
+        }
+
+        // 命名管道 relay 子进程（仅自检用）：MateMic.exe --pipe-relay <名字>
+        if (HasFlag(args, "--pipe-relay"))
+        {
+            var pipeName = "";
+            for (var i = 0; i < args.Length - 1; i++)
+                if (args[i] == "--pipe-relay") { pipeName = args[i + 1]; break; }
+            Shutdown(MateMic.Ai.AiVoiceIpc.PipeCheck.RunRelay(pipeName));
+            return;
+        }
+
+        // 命名管道跨进程校验：MateMic.exe --pipecheck
+        if (HasFlag(args, "--pipecheck"))
+        {
+            Shutdown(MateMic.Ai.AiVoiceIpc.PipeCheck.Run());
             return;
         }
 

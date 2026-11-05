@@ -609,15 +609,28 @@ public sealed class AiVoiceEffect : IAudioEffect
             }
         }
 
-        // 推理**总是**优先放进独立进程：关掉 AI 变声=结束子进程 ⇒ 模型内存 / CUDA context /
-        // 显存 / faiss 索引全部由操作系统回收（进程内 Dispose 做不到，ONNX 与 CUDA 的
-        // 内存池不还给系统，实测关闭后仍常驻约 900 MB）。
+        // ⚠ **独立进程暂时关闭**（2026-11-05）。
         //
-        // 没有开关：这对用户是透明的 —— 起不来就自动退回进程内（功能照样可用，只是内存
-        // 回收不干净），并记一条 WARN。让用户选"推理方式"没有意义，他只要"能用 + 能释放"。
-        if (!TryStartHostBackend(engineDir, out var hostError))
+        // 原因：跨进程后的音频与进程内不一致 —— 同一段音频、同样参数，
+        // 长度与 RMS 都对得上，波形相关系数却只有 0.87~0.96，听感是"机器人声 + 高频抖动"。
+        // 共享内存（加内存屏障无效）与命名管道（relay 能连通，但读写抛
+        // InvalidOperationException）两套都没调通，不能在没搞清前让它上生产。
+        //
+        // 现在一律走进程内：功能完全正常，代价是关掉 AI 变声后内存不归还系统。
+        // 独立进程的代码（AiVoiceIpc/*）与两个自检（--hostcheck / --pipecheck）都保留，
+        // 修好之后把这里改回 true 即可。
+        const bool hostProcessEnabled = false;
+
+        if (hostProcessEnabled)
         {
-            Log.Warn("[AI 变声] 独立进程不可用，已自动退回进程内推理：" + hostError);
+            if (!TryStartHostBackend(engineDir, out var hostError))
+            {
+                Log.Warn("[AI 变声] 独立进程不可用，已自动退回进程内推理：" + hostError);
+                CreateLocalEngine(engineDir, index, rate);
+            }
+        }
+        else
+        {
             CreateLocalEngine(engineDir, index, rate);
         }
 
