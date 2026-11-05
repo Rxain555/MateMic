@@ -1,3 +1,5 @@
+using MateMic.Core;
+
 namespace MateMic.Ai;
 
 /// <summary>
@@ -68,13 +70,24 @@ public sealed class StreamingRvc : IDisposable
         if (Index == null) IndexRate = 0f;
 
         // 三个模型逐个加载，按权重报进度（contentvec 约占一半体积、合成器次之、rmvpe 最小）
+        // 分阶段计时：那"1.5~2 秒加载"到底花在哪一环，只有量过才知道能不能压缩
+        //（2026-11-05 用户提到希望减少这段等待；先拿数据，不做猜测式优化）。
+        var loadClock = System.Diagnostics.Stopwatch.StartNew();
         onProgress?.Invoke(2);
         _encoder = new ContentEncoder(cvModel, useGpu);
+        var msEncoder = loadClock.ElapsedMilliseconds;
+
         onProgress?.Invoke(45);
         _rmvpe = new RmvpeF0(rmvpeModel, useGpu);
+        var msRmvpe = loadClock.ElapsedMilliseconds - msEncoder;
+
         onProgress?.Invoke(65);
         _synth = new RvcSynthesizer(voiceModel, useGpu);
+        var msSynth = loadClock.ElapsedMilliseconds - msEncoder - msRmvpe;
         onProgress?.Invoke(90);
+
+        Log.Info($"[AI 变声] 加载耗时：contentvec {msEncoder} ms ｜ rmvpe {msRmvpe} ms ｜ 音色 {msSynth} ms"
+                 + $" ｜ 合计 {loadClock.ElapsedMilliseconds} ms");
 
         static int ToSamples(int ms) => (int)Math.Round(ms / 1000.0 * OutputRate / Zc) * Zc;
         _block = ToSamples(blockMs);

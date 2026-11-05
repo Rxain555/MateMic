@@ -110,6 +110,8 @@ public sealed class AiVoiceControlBlock : IDisposable
     public static AiVoiceControlBlock? OpenHost(string name, int timeoutMs = 5000)
     {
         var deadline = Environment.TickCount64 + timeoutMs;
+        Exception? last = null;
+
         while (Environment.TickCount64 < deadline)
         {
             try
@@ -124,12 +126,19 @@ public sealed class AiVoiceControlBlock : IDisposable
                 var view = file.CreateViewAccessor(0, TotalBytes);
                 return new AiVoiceControlBlock(file, view, name, isHostSide: true, ownsFile: false);
             }
-            catch (FileNotFoundException)
+            catch (Exception ex)
             {
+                // ⚠ 这里原来只捕 FileNotFoundException，于是"映射还不存在"以外的任何异常
+                // （权限、句柄、名字冲突…）都会直接冒出去把宿主进程打崩，
+                // 而宿主崩了连一行日志都没有 —— 自检里表现为"子进程起来了但永远不就绪"。
+                // 现在一律重试到超时，并把最后一次异常交给调用方打印。
+                last = ex;
                 Thread.Sleep(20);
             }
         }
 
+        if (last != null)
+            Console.Error.WriteLine($"[宿主] 打开控制块失败（最后一次异常 {last.GetType().Name}：{last.Message}）");
         return null;
     }
 

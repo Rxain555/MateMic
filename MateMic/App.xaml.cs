@@ -54,6 +54,12 @@ public partial class App : Application
             if (args[i] is "--appdata" or "-a") { isolated = true; break; }
         }
 
+        // AI 变声宿主进程**天然豁免**单实例检查（2026-11-05 端到端自检实测踩到）。
+        // 它本来就是父进程启动的子进程；若不豁免，它会因为父进程已持有 Mutex 而弹出
+        // "MateMic 已经在运行中"的**模态对话框**并卡在那里 —— 表现为
+        // "子进程起来了、不崩也不退出、一条日志都没有、永远不就绪"，极难排查。
+        if (HasFlag(args, "--aivoice-host")) isolated = true;
+
         if (!isolated)
         {
             _singleInstance = new Mutex(true, @"Local\MateMic.SingleInstance", out _ownsMutex);
@@ -142,9 +148,34 @@ public partial class App : Application
             return;
         }
 
+        // AI 变声宿主进程：MateMic.exe --aivoice-host --shm-name <前缀>
+        //
+        // 这是**子进程**入口，与正常 UI 启动完全无关，所以放在最前面分流。
+        // 独立进程的意义：关掉 AI 变声 = 结束这个进程 ⇒ 模型内存 / CUDA context / 显存
+        // 全部由操作系统回收（进程内 Dispose 做不到，ONNX 与 CUDA 的内存池不还给系统）。
+        if (HasFlag(args, "--aivoice-host"))
+        {
+            var code = MateMic.Ai.AiVoiceIpc.AiVoiceHost.Run(args);
+            Shutdown(code);
+            return;
+        }
+
         // 共享内存环自检（AI 变声独立进程的基础件）：MateMic.exe --shmcheck
         if (HasFlag(args, "--shmcheck"))
         {
+            MateMic.Ai.AiVoiceIpc.ShmRingCheck.Run();
+            Shutdown();
+            return;
+        }
+
+        // 宿主进程端到端自检：MateMic.exe --hostcheck [--ai <组件目录>]
+        // 真的起子进程、真的加载模型、真的过一块音频再收回来，最后确认子进程能退出。
+        if (HasFlag(args, "--hostcheck"))
+        {
+            var hostCode = MateMic.Ai.AiVoiceIpc.HostCheck.Run(args);
+            Shutdown(hostCode);
+            return;
+        }        {
             MateMic.Ai.AiVoiceIpc.ShmRingCheck.Run();
             Shutdown();
             return;
