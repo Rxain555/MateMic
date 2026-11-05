@@ -103,7 +103,24 @@ public sealed class AiVoiceEffect : IAudioEffect
     /// （块长与余量都来自配置，可能被手改成超范围的值，必须保证读写指针不会碰头）。
     /// </summary>
     private int PadSamples()
-        => Math.Min(_blockSamples48 + ChainRate * BacklogPadMs() / 1000, _outRing.Length / 2);
+    {
+        // **跨进程时补一点点余量（20 ms），不需要一整块。**
+        //
+        // 机理（与 2026-10-07 / 2026-10-08 两次"周期性咔哒"同源，都是水位触底）：
+        // 宿主每 **一整块**一次性产出（块长 120ms、5760 样本），主进程每 20ms 消费 960，
+        // 所以输出环水位天然是**锯齿**，幅度正好等于一块。
+        // 预填充也正好一块 ⇒ 水位在 [0, 一块] 摆动，每个块末尾精确触底。
+        //
+        // 进程内能撑住，是因为它"产出 → 写环"是微秒级、几乎无延迟；
+        // 跨进程多了管道传输 + 两次线程调度（毫秒级且不确定），就会**穿破 0**
+        // ⇒ 补静音 ⇒ 周期性轻微爆音/底噪（用户实测）。
+        //
+        // 所以这里只补 20ms（约 0.02 秒的额外延迟，用户明确要求延迟要省着用），
+        // 足够吸收调度抖动，又不会像"补一整块"那样白送 120ms。
+        var hostPad = _hostClient != null ? ChainRate * 20 / 1000 : 0;
+        return Math.Min(_blockSamples48 + hostPad + ChainRate * BacklogPadMs() / 1000,
+                        _outRing.Length / 2);
+    }
     private double _lastInferMs;
 
     /// <summary>输出环积压（毫秒），audio 线程写、UI 线程读。</summary>
@@ -420,6 +437,17 @@ public sealed class AiVoiceEffect : IAudioEffect
             }
 
             _hostClient = client;
+
+            // **预热**：进度条走到 100% 时应该已经能听到效果。
+            //
+            // 宿主"就绪"只代表模型加载完；第一块还要等 worker 起来、推理一次才产出
+            //（实测约 200ms，用户明确反馈"进度条走完后仍有一小段时间不生效"）。
+            // 所以这里主动送一块进去、把它等回来并写进输出环 ——
+            // 等这段返回时，输出环里已经有真实音频，进度条一满就能听见。
+            _loadProgress = 95;
+            ProgressChanged?.Invoke(this, 95);
+            WarmUpHost(client);
+
             _loadProgress = 100;
             ProgressChanged?.Invoke(this, 100);
             Log.Info($"[AI 变声] 推理在独立进程（PID {client.HostPid}）：块 {_config.AiVoice.BlockMs}ms"
@@ -560,6 +588,49 @@ public sealed class AiVoiceEffect : IAudioEffect
                          + $"｜推理 {client.HostInferMs:0}ms");
                 fedSamples = gotSamples = droppedOut = starved = 0;
             }
+        }
+    }
+
+    /// <summary>
+    /// 宿主预热：送一块静音进去，等它处理完并**写进输出环**。
+    ///
+    /// 目的只有一个：让"进度条走满"与"已经能听到效果"这两件事对齐。
+    /// 代价是输出环里先有一段约一块长的静音，但那本来就是预填充要垫的，
+    /// 不额外增加延迟。超时只是放弃预热（不影响后续正常运行）。
+    /// </summary>
+    private void WarmUpHost(AiVoiceHostClient client)
+    {
+        try
+        {
+            var block = new float[_blockSamples48];
+            if (!client.WriteInput(block)) return;
+
+            var output = new float[_blockSamples48 * 2];
+            var deadline = Environment.TickCount64 + 10_000;
+            while (Environment.TickCount64 < deadline)
+            {
+                var got = client.ReadOutput(output);
+                if (got <= 0) { Thread.Sleep(5); continue; }
+
+                lock (_ringGate)
+                {
+                    for (var i = 0; i < got; i++)
+                    {
+                        var next = (_outWrite + 1) % _outRing.Length;
+                        if (next == _outRead) _outRead = (_outRead + 1) % _outRing.Length;
+                        _outRing[_outWrite] = output[i];
+                        _outWrite = next;
+                    }
+                }
+
+                return;
+            }
+
+            Log.Warn("[AI 变声] 预热超时（10 秒内没等到首块输出），继续正常流程");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("[AI 变声] 预热失败：" + ex.Message);
         }
     }
 
@@ -770,6 +841,24 @@ public sealed class AiVoiceEffect : IAudioEffect
         _running = false;
         _wake.Set();
 
+        // ⚠⚠ **必须先关管道，再 Join worker**（2026-11-05 用户实测"关闭时界面卡一会儿"）。
+        //
+        // 喂/取线程阻塞在管道的 Read/Write 上，而 worker 线程正在 Join 它们。
+        // 原先的顺序是"先 Join(3000) 再 ClosePipes" —— 于是 Join 必然白等满 3 秒，
+        // 而这段等待发生在 **UI 线程**上，表现就是"关掉 AI 变声时界面卡住"。
+        //
+        // 用户的观察正好印证：开启后马上关（worker 还没建，Join 立即返回）不卡；
+        // 稳定运行很久后关（数据流不断、循环走得快）也不卡；
+        // 偏偏"刚就绪、输出环还没填满"那段时间关会卡 —— 那时取线程正阻塞在等宿主产出。
+        //
+        // 关管道是毫秒级的，可以放在 UI 线程上；"等子进程退出"才需要挪到后台。
+        var client = _hostClient;
+        _hostClient = null;
+        if (client != null)
+        {
+            try { client.ClosePipes(); } catch { }
+        }
+
         // ⚠ 必须检查 Join 的结果：超时说明工作线程还在跑（可能正卡在一次推理里），
         // 这时若继续 Dispose 引擎并置 null，旧线程会踩到已释放的对象；
         // 而它还持有输出环的写入位置，与新线程并发写就会让音频"一颤一颤"
@@ -786,22 +875,11 @@ public sealed class AiVoiceEffect : IAudioEffect
         _toModel = null;
         _fromModel = null;
 
-        // 独立进程：Dispose 会先请求它自己退出（最多等 5 秒），超时才强杀整棵进程树。
-        // 这就是"关掉 AI 变声就能把内存还回去"的关键一步：进程一结束，
-        // 模型内存 / CUDA context / 显存 / faiss 索引全由操作系统回收。
-        //
-        // ⚠ **必须放到后台线程**（2026-11-05 用户实测"关掉 AI 变声时主界面卡住"）。
-        // StopWorker 是在 UI 线程上被调用的，而 Dispose 内部要等子进程退出（正常也要
-        // 几百毫秒，最坏 5 秒强杀）—— 同步做就会把整个界面冻住。
-        //
-        // 但**先同步关管道**：喂/取线程正阻塞在 Read/Write 上，不关管道它们不会退，
-        // 下面 _worker.Join(3000) 就要白等 3 秒。关管道是毫秒级的，可以放在 UI 线程上。
-        var client = _hostClient;
-        _hostClient = null;
+        // "等子进程自己退出"（正常几百毫秒，最坏 5 秒强杀）放后台，不占 UI 线程。
+        // 进程一结束，模型内存 / CUDA context / 显存 / faiss 索引全由操作系统回收 ——
+        // 这是进程内 Dispose 做不到的事。
         if (client != null)
         {
-            try { client.ClosePipes(); } catch { }
-
             Task.Run(() =>
             {
                 try { client.Dispose(); }
