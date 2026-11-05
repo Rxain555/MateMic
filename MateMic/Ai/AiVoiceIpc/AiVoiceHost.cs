@@ -171,6 +171,21 @@ internal static class AiVoiceHost
                         var produced = processor.Process(block, out48);
                         ctl.SetHostInferMs(processor.LastInferMs);
 
+                        // ⚠ **不要每块写日志**（2026-11-05 定位到的爆音真因）。
+                        //
+                        // 宿主的 stdout 被父进程重定向（RedirectStandardOutput = true）。
+                        // 每块写一行，父进程消费 stdio 稍慢，写操作就会**阻塞推理线程**
+                        // ⇒ 产出间隔从 80ms 拉到 160ms 以上 ⇒ 主进程输出环被抽干 ⇒ 周期性补静音。
+                        // 实测证据：欠载明细显示"水位 0ms"，而块长 80ms、推理 59ms，
+                        // 正常产出间隔应为 80ms —— 只有被阻塞才会 158ms 内毫无产出。
+                        //
+                        // 这正是"只在子进程出现"的原因：进程内路径没有任何每块日志。
+                        // 现在只保留极低频的采样（每 200 块一行，约几十秒一次）。
+                        if (processor.Blocks % 200 == 0)
+                        {
+                            Console.WriteLine($"[宿主] 已处理 {processor.Blocks} 块，最近一次推理 {processor.LastInferMs:0}ms");
+                        }
+
                         if (!pipeOut.Write(out48.AsSpan(0, produced)))
                         {
                             running = false;
