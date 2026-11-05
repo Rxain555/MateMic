@@ -113,6 +113,26 @@ internal static class RpcRoundTripCheck
         Console.WriteLine($"相关系数 = {corr:0.0000}   （1.0000 = 完全一致）");
         Console.WriteLine($"最大单点差 = {maxDiff:0.0000}");
 
+        // ---- 基频验证：输入 220 Hz + 12 半音 ⇒ 输出应在 440 Hz ----
+        //
+        // 用**过零率**估算基频（正弦/近似周期信号足够准，不需要 FFT）：
+        // 一个周期过两次零，所以 过零次数/2 / 时长 = 频率。
+        // 这是判断"变调链路是否真的生效"最直接的办法：
+        // 若输出基频不在 440 附近，说明 +12 半音没被正确应用 ——
+        // 那音色当然不对，而且与"调参数"无关（正如用户所述）。
+        Console.WriteLine("\n-- 基频验证（输入 220 Hz，设 +12 半音，期望输出 ≈ 440 Hz）--");
+        var fIn = EstimateFrequency(input, ChainRate);
+        var fA = EstimateFrequency(outputA, ChainRate);
+        var fB = EstimateFrequency(outputB, ChainRate);
+        Console.WriteLine($"  输入      ：{fIn,7:0.0} Hz");
+        Console.WriteLine($"  进程内输出：{fA,7:0.0} Hz（比值 {fA / fIn:0.000}，期望 2.000）");
+        Console.WriteLine($"  跨进程输出：{fB,7:0.0} Hz（比值 {fB / fIn:0.000}，期望 2.000）");
+
+        var pitchA = Math.Abs(fA / fIn - 2.0) < 0.15;
+        var pitchB = Math.Abs(fB / fIn - 2.0) < 0.15;
+        Console.WriteLine(pitchA ? "  ✓ 进程内变调正确（约 2 倍频）" : "  ✗ 进程内变调**不正确** —— 这才是音色不对的原因");
+        Console.WriteLine(pitchB ? "  ✓ 跨进程变调正确" : "  ✗ 跨进程变调**不正确**");
+
         var same = corr > 0.99 && Math.Abs(rmsA - rmsB) / Math.Max(rmsA, 1e-9) < 0.02;
         Console.WriteLine(same
             ? "✓ 两份输出基本一致 ⇒ 搬运路径没问题，问题出在主进程的环管理"
@@ -160,7 +180,9 @@ internal static class RpcRoundTripCheck
         {
             rvc = new StreamingRvc(cv, rmvpe, voice,
                 blockMs: blockMs, contextMs: 2000, crossfadeMs: 40,
-                semitones: 0, useGpu: false, index: null, indexRate: 0f);
+                // 用 **+12 半音**，与用户的实际设置一致：这样才能验证变调链路是否真的生效。
+                // 输入是 220 Hz 正弦 ⇒ 正确输出应在 440 Hz 附近（2.0×）。
+                semitones: 12, useGpu: false, index: null, indexRate: 0f);
 
             var toModel = new RateConverter(ChainRate, ModelRate, block + 64);
             var fromModel = new RateConverter(ModelRate, ChainRate, block * ModelRate / ChainRate + 64);
@@ -209,7 +231,7 @@ internal static class RpcRoundTripCheck
             BlockMs = blockMs,
             ContextMs = 2000,
             CrossfadeMs = 40,
-            Semitones = 0,
+            Semitones = 12,   // 与进程内路径一致（用户实际设置约 +12 半音）
             IndexRate = 0f,
             UseGpu = false,
         };
@@ -294,6 +316,27 @@ internal static class RpcRoundTripCheck
             client.Stop();
             client.Dispose();
         }
+    }
+
+    /// <summary>用过零率估算基频（Hz）。正弦/近似周期信号足够准，不需要 FFT。</summary>
+    private static double EstimateFrequency(float[] samples, int sampleRate)
+    {
+        if (samples.Length < 2) return 0;
+
+        // 取中段，避开首尾的淡入淡出/欠载区
+        var lo = samples.Length / 4;
+        var hi = samples.Length * 3 / 4;
+
+        var crossings = 0;
+        for (var i = lo + 1; i < hi; i++)
+        {
+            var prev = samples[i - 1];
+            var cur = samples[i];
+            if ((prev < 0 && cur >= 0) || (prev >= 0 && cur < 0)) crossings++;
+        }
+
+        var seconds = (hi - lo) / (double)sampleRate;
+        return seconds > 0 ? crossings / 2.0 / seconds : 0;
     }
 
     /// <summary>把两组输出做定量对比并打印（长度 / RMS / 相关系数 / 最大单点差）。</summary>

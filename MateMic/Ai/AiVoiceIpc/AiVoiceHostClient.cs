@@ -160,6 +160,15 @@ public sealed class AiVoiceHostClient : IDisposable
             var client = new AiVoiceHostClient(name, ctl, pipeIn, pipeOut);
             client._host = host;
             client._ctl.SetParams(parameters.ToJson());
+
+            // ⚠ **必须同时初始化"热参数"槽位**（2026-11-05 定位到的真 bug）。
+            //
+            // 宿主每处理一块都会 `GetHotParams()` 然后 `processor.SetHotParams(...)` 覆盖引擎的
+            // Semitones / IndexRate。而这两个槽位如果没人写，读出来就是 **0** ——
+            // 于是宿主把构造时传进去的 +12 半音**覆盖成 0**，变调彻底失效。
+            // 用户听到的"男变女偏粗、机器人味"就是这么来的（输出基频几乎没变）。
+            client._ctl.SetHotParams(parameters.Semitones, parameters.IndexRate);
+
             return client;
         }
         catch (Exception ex)
