@@ -117,7 +117,18 @@ public sealed class AiVoiceEffect : IAudioEffect
         //
         // 所以这里只补 20ms（约 0.02 秒的额外延迟，用户明确要求延迟要省着用），
         // 足够吸收调度抖动，又不会像"补一整块"那样白送 120ms。
-        var hostPad = _hostClient != null ? ChainRate * 20 / 1000 : 0;
+        // 余量取 **40ms**（2026-11-05 实测后从 20ms 上调）。
+        //
+        // 依据：用户的配置是"极限档"—— 块长 80ms，而 GPU 推理中位 69ms、最大 82ms，
+        // 占用率 86%，余量只有 11ms。实测 40 块里有 1 块推理 ≥80ms（超过块长），
+        // 正好对应每秒一次的欠载 ⇒ 周期性轻微爆音。
+        //
+        // 20ms 不够：此时水位最低点恰好等于一次读取量（20ms），等于没有余量，一抖就欠。
+        // 40ms 让水位落在 [40, 120]ms，足以吸收 69→82ms 的推理抖动。
+        //
+        // ⚠ 这是"80ms 块 + 1500ms 上下文"这个极限配置的固有代价，不是 bug。
+        // 想再压延迟，可以降上下文（每块计算量随之下降）或把块长加上去。
+        var hostPad = _hostClient != null ? ChainRate * 40 / 1000 : 0;
         return Math.Min(_blockSamples48 + hostPad + ChainRate * BacklogPadMs() / 1000,
                         _outRing.Length / 2);
     }
