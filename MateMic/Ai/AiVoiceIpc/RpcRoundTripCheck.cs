@@ -40,8 +40,7 @@ internal static class RpcRoundTripCheck
         if (voice == null) { Console.WriteLine($"✗ {voicesDir} 下没有音色"); return 1; }
 
         const int blockMs = 160;
-        // 先只跑**一块**：若一块就不同 ⇒ 单块处理有差异；若一块相同 ⇒ 差异来自块间累积。
-        const int blocks = 1;
+        const int blocks = 6;                        // 6 块，便于看差异分段分布
         var block = blockMs * ChainRate / 1000;      // 7680
 
         // 输入：220 Hz 正弦（低频，块边界错位会立刻变成刺耳的谐波噪声）
@@ -98,6 +97,38 @@ internal static class RpcRoundTripCheck
         Console.WriteLine(same
             ? "✓ 两份输出基本一致 ⇒ 搬运路径没问题，问题出在主进程的环管理"
             : "✗ 两份输出明显不同 ⇒ 宿主里的 DSP 与进程内不等价，问题在宿主");
+
+        // ---- 差异分布：按 1/10 分段 ----
+        // 用来区分两种成因：
+        //   · 差异集中在首尾某几段 ⇒ 块边界问题（SOLA / 交叉淡化 / 预填充）
+        //   · 差异均匀分布在全段   ⇒ 会话级差异（浮点/线程/优化级别），与边界无关
+        Console.WriteLine("\n-- 差异分布（每段 1/10）--");
+        var segLen = Math.Max(1, n / 10);
+        for (var s = 0; s < 10; s++)
+        {
+            var lo = s * segLen;
+            var hi = Math.Min(n, lo + segLen);
+            if (lo >= hi) break;
+
+            double sumA2 = 0, sumB2 = 0, maxDiff2 = 0;
+            var diffs = 0;
+            for (var i = lo; i < hi; i++)
+            {
+                sumA2 += (double)outputA[i] * outputA[i];
+                sumB2 += (double)outputB[i] * outputB[i];
+                var d = Math.Abs(outputA[i] - outputB[i]);
+                if (d > maxDiff2) maxDiff2 = d;
+                if (d > 0.01) diffs++;
+            }
+
+            var cnt = hi - lo;
+            var segRmsA = Math.Sqrt(sumA2 / cnt);
+            var segRmsB = Math.Sqrt(sumB2 / cnt);
+            var pct = segRmsA > 1e-9 ? Math.Abs(segRmsB - segRmsA) / segRmsA * 100 : 0;
+            Console.WriteLine($"  段 {s + 1,2}（{lo,6}~{hi,6}）：RMS {segRmsA:0.0000} vs {segRmsB:0.0000}"
+                              + $"（差 {pct,5:0.0}%）｜最大差 {maxDiff2:0.0000}｜差异样本 {diffs,6}/{cnt}");
+        }
+
         return same ? 0 : 1;
     }
 
