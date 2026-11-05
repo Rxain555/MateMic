@@ -500,6 +500,21 @@ public sealed class AudioEngine : IDisposable
             .WithSharedMode()
             .WithMmcssThreadPriority("Pro Audio");
 
+        // **AI 变声时抬高输出延迟到一个完整块**（2026-11-06）。
+        //
+        // 为什么：跨进程 AI 变声改成了"音频线程内同步往返"（AiVoiceEffect.ReadSyncHost），
+        // 要求底层回调**一次正好要一整块**；否则"攒块"要等 120ms 采集数据，
+        // 和推理耗时叠加成 180ms/块 > 块长 120ms ⇒ 供不上 ⇒ 声音卡。
+        // 官方的 sd.Stream(blocksize=block_frame) 就是这个结构（块长=回调粒度）。
+        //
+        // 代价：开 AI 变声时输出延迟增加约一个块长（用户已确认接受）；
+        // 关掉 AI 变声时用默认延迟，与原来完全一致。
+        if (_config.AiVoice.Enabled)
+        {
+            var blockMs = Math.Clamp(_config.AiVoice.BlockMs, 20, 1000);
+            builder = builder.WithLatency(blockMs);
+        }
+
         if (device != null) builder = builder.WithDevice(device);
         if (lowLatency) builder = builder.WithLowLatency();
         if (raw) builder = builder.WithRawMode();
