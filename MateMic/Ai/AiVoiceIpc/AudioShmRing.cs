@@ -123,11 +123,13 @@ public sealed class AudioShmRing : IDisposable
                 if (magic != Magic || capacity <= 0) return null;   // 不是我们的映射 / 布局不符
 
                 var bytes = HeaderBytes + (long)capacity * sizeof(float);
-                var view = file.CreateViewAccessor(0, bytes);
-                // 消费者不拥有映射文件本身（由生产者销毁），但这里为了生命周期简单，
-                // 仍然持有一份引用；关闭顺序由调用方保证（先停子进程、再释放主进程侧）。
-                return new AudioShmRing(name, MemoryMappedFile.CreateOrOpen(name, bytes),
-                    view, isProducer: false, capacity, ownsFile: false);
+
+                // ⚠ view 必须从**我们长期持有的那个** file 创建：
+                // 若用 `using var file` 里的临时句柄建 view，file 一释放 view 就悬空
+                // （自检时因为 GC 还没回收而侥幸通过，跨进程/长时间运行会随机失效）。
+                var owned = MemoryMappedFile.CreateOrOpen(name, bytes);
+                var view = owned.CreateViewAccessor(0, bytes);
+                return new AudioShmRing(name, owned, view, isProducer: false, capacity, ownsFile: false);
             }
             catch (FileNotFoundException)
             {

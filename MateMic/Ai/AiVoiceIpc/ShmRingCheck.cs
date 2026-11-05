@@ -17,6 +17,7 @@ namespace MateMic.Ai.AiVoiceIpc;
 public static class ShmRingCheck
 {
     private const string RingName = "MateMicShmCheckRing";
+    private const string ControlName = "MateMicShmCheckCtl";
     private const int Capacity = 48000;   // 1 秒 @ 48 kHz
 
     public static void Run()
@@ -93,6 +94,43 @@ public static class ShmRingCheck
                 Console.WriteLine($"{(ok ? "✓" : "✗")} {samples,6} 样本（{audioMs,6:0.0} ms 音频）："
                                   + $"往返 {perBlockUs,7:0.0} µs（占音频时长 {perBlockMs / audioMs * 100:0.00}%）");
                 if (!ok) failures++;
+            }
+
+            // ---- 4) 控制块（参数 + 状态）----
+            using var master = AiVoiceControlBlock.CreateMaster(ControlName);
+            using var host = AiVoiceControlBlock.OpenHost(ControlName, 2000);
+
+            if (host == null)
+            {
+                Console.WriteLine("✗ 控制块：宿主侧打不开");
+                failures++;
+            }
+            else
+            {
+                // 参数：带中文和空格的路径最能暴露编码问题
+                var json = "{\"blockMs\":160,\"contextMs\":320,\"crossfadeMs\":40,"
+                           + "\"pitch\":0,\"indexRate\":0.5,"
+                           + "\"voice\":\"D:\\\\音色 模型\\\\测试.onnx\",\"index\":null}";
+                var setVersion = master.SetParams(json);
+                var (getVersion, gotJson) = host.GetParams();
+                var paramOk = getVersion == setVersion && gotJson == json;
+                Console.WriteLine($"{(paramOk ? "✓" : "✗")} 控制块参数：版本 {setVersion}→{getVersion}｜"
+                                  + $"JSON 一致={gotJson == json}｜长度 {json.Length}");
+                if (!paramOk) failures++;
+
+                // 状态：宿主写、主控读
+                host.SetState(AiVoiceHostState.Ready, 1.0);
+                var (state, progress, error) = master.GetState();
+                var stateOk = state == AiVoiceHostState.Ready && Math.Abs(progress - 1.0) < 1e-9 && error.Length == 0;
+                Console.WriteLine($"{(stateOk ? "✓" : "✗")} 控制块状态：{state}｜进度 {progress:0.00}｜错误「{error}」");
+                if (!stateOk) failures++;
+
+                // 失败状态要能带回错误文本（宿主加载失败时主进程要靠它显示原因）
+                host.SetState(AiVoiceHostState.Failed, 0, "音色模型文件不存在");
+                var (failedState, _, failedError) = master.GetState();
+                var failOk = failedState == AiVoiceHostState.Failed && failedError == "音色模型文件不存在";
+                Console.WriteLine($"{(failOk ? "✓" : "✗")} 控制块错误传递：「{failedError}」");
+                if (!failOk) failures++;
             }
         }
         catch (Exception ex)
