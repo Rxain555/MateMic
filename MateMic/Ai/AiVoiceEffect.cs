@@ -1,4 +1,4 @@
-﻿using NAudio.Wave;
+using NAudio.Wave;
 using MateMic.Ai.AiVoiceIpc;
 using MateMic.Core;
 using MateMic.Denoise;
@@ -708,35 +708,25 @@ public sealed class AiVoiceEffect : IAudioEffect
     /// 代价是输出环里先有一段约一块长的静音，但那本来就是预填充要垫的，
     /// 不额外增加延迟。超时只是放弃预热（不影响后续正常运行）。
     /// </summary>
+    /// <summary>
+    /// 宿主预热。
+    ///
+    /// ⚠ **同步模式下不要在这里等输出**（2026-11-06 踩到的坑）：
+    /// 产品是由音频线程的 `Read` 驱动的 —— `Read` 调 `SyncRoundTrip` 送一块、等一块。
+    /// 而预热发生在引擎创建阶段，那时音频线程还没开始调 `Read`，
+    /// 所以宿主永远不会产出，这里就会白等满 10 秒（实测：用户看到"开启用很长时间"，
+    /// 期间子进程不占 CPU/GPU，因为它也在等输入）。
+    ///
+    /// 保留这个方法只为"启动时把 CUDA kernel / 内存池 预热一次"，
+    /// 发一块进去即可，**不等待结果** —— 那一块的结果会被第一次 `Read` 顺带取走
+    /// （帧是对齐的，多一块只影响最初 120ms，不会错位）。
+    /// </summary>
     private void WarmUpHost(AiVoiceHostClient client)
     {
         try
         {
             var block = new float[_blockSamples48];
-            if (!client.WriteInput(block)) return;
-
-            var output = new float[_blockSamples48 * 2];
-            var deadline = Environment.TickCount64 + 10_000;
-            while (Environment.TickCount64 < deadline)
-            {
-                var got = client.ReadOutput(output);
-                if (got <= 0) { Thread.Sleep(5); continue; }
-
-                lock (_ringGate)
-                {
-                    for (var i = 0; i < got; i++)
-                    {
-                        var next = (_outWrite + 1) % _outRing.Length;
-                        if (next == _outRead) _outRead = (_outRead + 1) % _outRing.Length;
-                        _outRing[_outWrite] = output[i];
-                        _outWrite = next;
-                    }
-                }
-
-                return;
-            }
-
-            Log.Warn("[AI 变声] 预热超时（10 秒内没等到首块输出），继续正常流程");
+            client.WriteInput(block);
         }
         catch (Exception ex)
         {
