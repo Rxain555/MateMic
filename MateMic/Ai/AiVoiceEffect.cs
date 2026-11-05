@@ -1,4 +1,4 @@
-using NAudio.Wave;
+﻿using NAudio.Wave;
 using MateMic.Ai.AiVoiceIpc;
 using MateMic.Core;
 using MateMic.Denoise;
@@ -979,7 +979,7 @@ public sealed class AiVoiceEffect : IAudioEffect
         // 代码与自检全部保留：Ai/AiVoiceIpc/*、--pipecheck / --hostcheck /
         // --rpc-check / --synccheck / --rtcheck。重做时先让 --rtcheck 在目标配置下
         // 通过（欠载 = 0），再上真机。
-        const bool hostProcessEnabled = true;
+        const bool hostProcessEnabled = false;
 
         if (hostProcessEnabled)
         {
