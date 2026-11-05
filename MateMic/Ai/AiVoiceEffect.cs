@@ -70,6 +70,16 @@ public sealed class AiVoiceEffect : IAudioEffect
     /// <summary>欠载诊断日志的节流时间戳（毫秒）。实时线程上不能频繁写日志。</summary>
     private long _lastUnderrunLogMs;
 
+    /// <summary>
+    /// **实测**的相邻产出帧最大间隔（毫秒）。
+    ///
+    /// 由取线程每 2 秒更新。它天然包含"推理 + 管道传输 + 线程调度"的全部延迟，
+    /// 所以预填充直接拿它当余量，不再需要任何估算常数 ——
+    /// 这正是 2026-11-05 反复爆音的根源：我一直在猜这个数。
+    /// 0 表示还没有测量值（宿主刚就绪），此时按两块保底。
+    /// </summary>
+    private long _measuredProduceGapMs;
+
     /// <summary>上次输出诊断日志的时间戳（Stopwatch ticks）。见 Read() 里的时间门控。</summary>
     private long _lastDiagTicks;
 
@@ -149,11 +159,34 @@ public sealed class AiVoiceEffect : IAudioEffect
         // 预填充（155ms = 块长 80 + 推理约 75）< 需要的（块长 + 产出延迟）。
         // 其中产出延迟 = 推理 + 管道 + 线程调度，实测约 155ms，明显大于单看推理的 75ms。
         //
-        // 所以预填充 ≥ 块长 + 产出延迟。之前只给 推理+20，少掉"块长"那一段，
-        // 于是每块都被削到 0 ⇒ 周期性补静音。
-        // 这里按 推理×1.5+40 估算产出延迟（含管道与调度抖动），保底 60ms。
-        var inferPad = (int)Math.Ceiling(LastInferMs * 1.5) + 40;
-        var hostPad = _hostClient != null ? ChainRate * Math.Max(60, inferPad) / 1000 : 0;
+        // **预填充完全按实测数据算，不再有任何估算常数**（2026-11-05 最终版）。
+        //
+        // 之前这里一路猜：写死 40ms → 推理+20 → 推理×1.5+40，每改一次都是"再大一点"，
+        // 然后又被吃穿。用户明确指出"预估的数字造成了大量 bug"—— 他是对的。
+        //
+        // 现在只有两个来源：
+        //   · `_measuredProduceGapMs`：取线程**实测**的相邻产出帧最大间隔（每 2 秒更新）。
+        //     它天然包含推理 + 管道 + 线程调度的全部延迟，不需要我再估；
+        //   · 块长：输出环要容纳"一次一整块的突发写入"。
+        // 所以预填充 = 块长 + 实测最大产出间隔 + 20ms（测量窗口内的抖动）。
+        //
+        // 启动初期还没有测量值（宿主刚就绪），此时按 2×块长保底 —— 最保守的起点，
+        // 第一次产出测量出来后就自动收敛到真实值。
+        var measuredGap = Volatile.Read(ref _measuredProduceGapMs);
+        int hostPad;
+        if (_hostClient == null)
+        {
+            hostPad = 0;
+        }
+        else if (measuredGap > 0)
+        {
+            hostPad = ChainRate * (int)(measuredGap + 20) / 1000;
+        }
+        else
+        {
+            hostPad = _blockSamples48 * 2;   // 尚无实测：按两块保底
+        }
+
         return Math.Min(_blockSamples48 + hostPad + ChainRate * BacklogPadMs() / 1000,
                         _outRing.Length / 2);
     }
@@ -753,6 +786,7 @@ public sealed class AiVoiceEffect : IAudioEffect
         //   · 帧间隔明显 > 块长（如 1.5~2 倍）⇒ 宿主供给不足，就是它导致水位被抽干。
         var lastFrameMs = 0L;
         long frames = 0, frameSamples = 0, maxGapMs = 0, gapSumMs = 0;
+        var minAvailMs = int.MaxValue;
         var statClock = Environment.TickCount64;
 
         while (_running)
@@ -793,18 +827,35 @@ public sealed class AiVoiceEffect : IAudioEffect
                     _outRead = (_outRead + 1) % _outRing.Length;
                     avail--;
                 }
+
+                // 记下这 2 秒里水位的最低点 —— 它是"预填充够不够"的最直接证据。
+                var availMs = (int)(avail * 1000 / ChainRate);
+                if (availMs < minAvailMs) minAvailMs = availMs;
             }
 
-            // 每 2 秒报一次"产出口径"：帧间隔是判断产能的唯一硬指标。
+            // 每 2 秒报一次"产出口径"，并把**实测最大间隔**存给 PadSamples 用。
             if (now - statClock >= 2000)
             {
                 statClock = now;
                 if (frames > 0)
                 {
+                    // 实测值直接决定预填充：maxGap 就是"最长多久没有新数据进来"，
+                    // 输出环必须能撑过这段。不再做任何估算。
+                    //
+                    // 但**不能直接取单次 max**：那样预填充会随每次抖动跳变，延迟忽大忽小，
+                    // 用户能明显感觉到。所以做成"快升慢降"：
+                    //   · 遇到更大的间隔立刻跟上（安全第一）；
+                    //   · 否则每 2 秒衰减 10%（缓慢收敛回去，几十秒后回到正常水平）。
+                    var previous = Volatile.Read(ref _measuredProduceGapMs);
+                    var decayed = (long)(previous * 0.9);
+                    Volatile.Write(ref _measuredProduceGapMs, Math.Max(maxGapMs, decayed));
+
                     Log.Info($"[AI 变声] 产出测量：{frames} 帧 / 2s"
                              + $"｜平均间隔 {gapSumMs / frames}ms（块长 {_blockSamples48 * 1000 / ChainRate}ms）"
                              + $"｜最长间隔 {maxGapMs}ms"
-                             + $"｜平均帧长 {frameSamples / frames * 1000 / ChainRate}ms");
+                             + $"｜平均帧长 {frameSamples / frames * 1000 / ChainRate}ms"
+                             + $"｜预填充 {PadSamples() * 1000 / ChainRate}ms"
+                             + $"｜水位下限 {minAvailMs}ms");
                 }
                 else
                 {
@@ -814,6 +865,7 @@ public sealed class AiVoiceEffect : IAudioEffect
                 frameSamples = 0;
                 gapSumMs = 0;
                 maxGapMs = 0;
+                minAvailMs = int.MaxValue;
             }
         }
     }
