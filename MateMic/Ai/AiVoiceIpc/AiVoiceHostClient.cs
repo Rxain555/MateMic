@@ -179,6 +179,16 @@ public sealed class AiVoiceHostClient : IDisposable
     public bool WaitForInputRoom(int timeoutMs) => _inRing.WaitForRoom(timeoutMs);
 
     /// <summary>
+    /// 下发**热参数**（变调、索引占比）。只影响每块计算，不重建引擎 ——
+    /// 对应进程内路径里直接改 <c>StreamingRvc.Semitones / IndexRate</c>。
+    /// </summary>
+    public void SetHotParams(int semitones, float indexRate)
+        => _ctl.SetHotParams(semitones, Math.Clamp(indexRate, 0f, 1f));
+
+    /// <summary>宿主报告的最近一块推理耗时（毫秒）。用于界面显示"负载"。</summary>
+    public double HostInferMs => _ctl.GetHostInferMs();
+
+    /// <summary>
     /// 读输出音频（48 kHz）。返回实际读到的样本数；0 表示还没产出。
     ///
     /// 输出环由宿主创建，所以第一次调用时才尝试打开（带重试）；打不开就一直返回 0。

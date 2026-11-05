@@ -149,7 +149,8 @@ public sealed class AiVoiceEffect : IAudioEffect
     public long LateBlocks => Interlocked.Read(ref _lateBlocks);
 
     /// <summary>最近一次推理耗时（ms）。</summary>
-    public double LastInferMs => _lastInferMs;
+    /// <summary>最近一块的推理耗时（毫秒）。跨进程时读宿主写回来的值，否则读本地引擎的。</summary>
+    public double LastInferMs => _hostClient?.HostInferMs ?? _lastInferMs;
 
     /// <summary>当前配置下的算法延迟（ms），= 2 × block，官方口径。</summary>
     public int LatencyMs => 2 * _config.AiVoice.BlockMs;
@@ -192,6 +193,16 @@ public sealed class AiVoiceEffect : IAudioEffect
                 _engine.IndexRate = _config.AiVoice.IndexFile is { Length: > 0 }
                     ? Math.Clamp(_config.AiVoice.IndexRate / 100f, 0f, 1f)
                     : 0f;
+            }
+            else if (_hostClient != null)
+            {
+                // 跨进程：走控制块的热参数通道（宿主每块读一次），同样不重建引擎。
+                // 漏了这条，跨进程时变调/索引占比的滑条会完全空转。
+                _hostClient.SetHotParams(
+                    (int)Math.Round(_config.AiVoice.Semitones),
+                    _config.AiVoice.IndexFile is { Length: > 0 }
+                        ? Math.Clamp(_config.AiVoice.IndexRate / 100f, 0f, 1f)
+                        : 0f);
             }
 
             var signature = string.Join('|',
@@ -495,7 +506,9 @@ public sealed class AiVoiceEffect : IAudioEffect
 
     private void StartWorker()
     {
-        if (_engine != null || _starting) return;
+        // ⚠ 必须把 _hostClient 也算进"已经在跑"：跨进程时 _engine 永远是 null
+        // （引擎在子进程里），只看 _engine 会导致每次 Sync 都重新起一个子进程。
+        if (_engine != null || _hostClient != null || _starting) return;
         if (!Ready(out var reason))
         {
             Log.Warn($"[AI 变声] 暂不可用：{reason}");
@@ -663,7 +676,11 @@ public sealed class AiVoiceEffect : IAudioEffect
         // 产出，那一次产出把水位顶到上限，而水位一旦被顶上去就**不会自然回落**，
         // 于是又回到"上限 − 块长"的老位置（实测就是这么来的）。全丢掉之后，worker 要等
         // 实时输入重新攒够一块才首次产出，水位正好落在设计值上。
-        if (_engine == null)
+        // ⚠ 判断"引擎未就绪"必须同时看两条路径：跨进程时 _engine 恒为 null
+        // （引擎在子进程里），只判 _engine 会让跨进程路径**永远**走这个分支 ——
+        // 输入环被一直丢空、输出环没人消费，表现为"有输入没输出、负载 0"
+        //（2026-11-05 用户实测踩到）。
+        if (_engine == null && _hostClient == null)
         {
             var dropped = Available(_inRing, _inRead, _inWrite);
             if (dropped > 0) Interlocked.Add(ref _droppedSamples, dropped);
@@ -695,7 +712,9 @@ public sealed class AiVoiceEffect : IAudioEffect
         // 稳态水位就落到 [0 … 块长] —— 每批产出的末尾恰好触底，任何抖动都会欠载
         //（补静音 ⇒ 咔哒）。等于把"永久高延迟"换成了"周期性咔哒"，更糟。
         // 加载期间消费与不消费，输出都是静音，听感没有区别。
-        if (_engine == null)
+        // 同上：跨进程时 _engine 恒为 null，必须把 _hostClient 也视为"就绪"，
+        // 否则这里会一直输出静音、且不消费输出环（用户实测"有输入没输出"）。
+        if (_engine == null && _hostClient == null)
         {
             buffer.Clear();
             Volatile.Write(ref _lastBacklogMs, 0);

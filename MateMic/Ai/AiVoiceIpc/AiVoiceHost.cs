@@ -132,6 +132,12 @@ internal static class AiVoiceHost
                 int produced;
                 try
                 {
+                    // 热参数：每块读一次。变调 / 索引占比只影响本块计算，
+                    // 所以主进程改了立刻生效，**不需要重建引擎**（对应进程内路径
+                    // 直接改 StreamingRvc.Semitones / IndexRate 的效果）。
+                    var (hotSemitones, hotRate) = ctl.GetHotParams();
+                    processor.SetHotParams(hotSemitones, hotRate);
+
                     produced = processor.Process(buffer48, out48);
                 }
                 catch (Exception ex)
@@ -140,6 +146,8 @@ internal static class AiVoiceHost
                     ctl.SetState(AiVoiceHostState.Failed, 0, "推理失败：" + ex.Message);
                     return 5;
                 }
+
+                ctl.SetHostInferMs(processor.LastInferMs);
 
                 // 输出环满时**丢最旧的**（保证实时性）：这与主进程侧的水位策略一致
                 var written = 0;

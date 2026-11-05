@@ -64,6 +64,16 @@ public sealed class AiVoiceControlBlock : IDisposable
     private const int OffsetError = 4200;
 
     private const int OffsetClosed = 6200;
+
+    /// <summary>热参数：变调（半音）。宿主每块读一次，改了立刻生效，不重建引擎。</summary>
+    private const int OffsetHotSemitones = 6208;
+
+    /// <summary>热参数：索引占比 0~1。</summary>
+    private const int OffsetHotIndexRate = 6212;
+
+    /// <summary>反向：宿主把最近一块的推理耗时（毫秒）写回来，供主进程显示负载。</summary>
+    private const int OffsetHostInferMs = 6216;
+
     private const int TotalBytes = 8192;
 
     private readonly MemoryMappedFile _file;
@@ -242,6 +252,40 @@ public sealed class AiVoiceControlBlock : IDisposable
             _view.Read(OffsetClosed, out int flag);
             return flag != 0;
         }
+    }
+
+    /// <summary>
+    /// 主控侧：写**热参数**（变调、索引占比）。这两个只影响每块计算、不动缓冲几何，
+    /// 所以宿主改了立刻生效，**不需要重建引擎** —— 对应进程内路径里直接改
+    /// <c>StreamingRvc.Semitones / IndexRate</c> 的行为。
+    /// </summary>
+    public void SetHotParams(int semitones, float indexRate)
+    {
+        if (IsHostSide) throw new InvalidOperationException("热参数只能由主控侧写。");
+        _view.Write(OffsetHotSemitones, semitones);
+        _view.Write(OffsetHotIndexRate, indexRate);
+    }
+
+    /// <summary>宿主侧：读热参数。</summary>
+    public (int Semitones, float IndexRate) GetHotParams()
+    {
+        _view.Read(OffsetHotSemitones, out int semitones);
+        _view.Read(OffsetHotIndexRate, out float rate);
+        return (semitones, rate);
+    }
+
+    /// <summary>宿主侧：把最近一块的推理耗时写回去（主进程用来显示"负载"）。</summary>
+    public void SetHostInferMs(double ms)
+    {
+        if (!IsHostSide) throw new InvalidOperationException("推理耗时只能由宿主侧写。");
+        _view.Write(OffsetHostInferMs, ms);
+    }
+
+    /// <summary>主控侧：读宿主报告的推理耗时。</summary>
+    public double GetHostInferMs()
+    {
+        _view.Read(OffsetHostInferMs, out double ms);
+        return ms;
     }
 
     /// <summary>请求关闭并唤醒对端，避免它一直等在事件上。</summary>

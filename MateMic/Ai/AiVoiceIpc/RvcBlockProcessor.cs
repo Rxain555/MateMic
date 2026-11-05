@@ -26,6 +26,16 @@ public sealed class RvcBlockProcessor : IDisposable
     /// <summary>一块的 48 kHz 样本数。</summary>
     public int BlockSamples48 { get; }
 
+    /// <summary>
+    /// 更新**热参数**（变调、索引占比）。只影响每块计算，不动缓冲几何 ——
+    /// 等同进程内路径直接改 <c>StreamingRvc.Semitones / IndexRate</c>，无需重建。
+    /// </summary>
+    public void SetHotParams(int semitones, float indexRate)
+    {
+        _rvc.Semitones = semitones;
+        _rvc.IndexRate = _rvc.Index != null ? Math.Clamp(indexRate, 0f, 1f) : 0f;
+    }
+
     /// <summary>最近一块的推理耗时（毫秒）。</summary>
     public double LastInferMs { get; private set; }
 
