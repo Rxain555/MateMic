@@ -1545,9 +1545,9 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         }
 
         StatsLatencyText.Text = string.Join(" + ", parts);
-        // 总延迟超过 100 ms 时加一个警示符号：正常（无积压、无 AI 变声）只有 20~40 ms，
-        // 到这个量级说明链路上确实堆了东西，比盯着一串数字更容易发现。
-        StatsLatencyTotal.Text = total > 100 ? $"≈ {total} ms ⚠" : $"≈ {total} ms";
+        // 只报数字，不加警示符号（2026-11-05 用户要求去掉 ⚠）——
+        // 实时值本身已经能看出"堆东西了"，再加符号反而干扰。
+        StatsLatencyTotal.Text = $"≈ {total} ms";
     }
 
     /// <summary>
@@ -3142,8 +3142,9 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         // "配置已是「沉稳」、界面却没有任何 chip 被勾选"。一行代价换掉这类不一致。
         SelectToneChip(style);
 
-        // 用户主动选了预设即视为要使用该模块
-        if (ToggleTone.IsChecked != true) ToggleTone.IsChecked = true;
+        // **不自动打开模块开关**（2026-11-05 用户要求）。
+        // 选预设只是"改参数"，不该顺手把模块打开 —— 那会让"我只想调一下看看"
+        // 变成"悄悄地开始处理"。要启用请用户自己点开关。
 
         ApplyEqGainsToSliders();
         RefreshEqVisuals();
@@ -3210,7 +3211,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             SelectToneChip(null);
         }
 
-        if (ToggleTone.IsChecked != true) ToggleTone.IsChecked = true;
+        // 同上：拖 EQ 推子也不自动打开模块开关（2026-11-05 用户要求）。
 
         RefreshEqVisuals();
         _engine.UpdateAllParameters();
@@ -3440,7 +3441,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         if (_config.Effect.Kind == kind) return;
 
         _config.Effect.Kind = kind;
-        if (ToggleEffect.IsChecked != true) ToggleEffect.IsChecked = true;
+        // 同上：选效果也不自动打开模块开关（2026-11-05 用户要求）。
 
         _engine.UpdateAllParameters();
         SaveConfig();
