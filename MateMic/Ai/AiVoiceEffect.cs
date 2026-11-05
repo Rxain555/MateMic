@@ -380,17 +380,41 @@ public sealed class AiVoiceEffect : IAudioEffect
                 return false;
             }
 
-            // 给足时间：GPU 首次加载 + CUDA context + kernel 编译
-            if (!client.WaitReady(180_000, out var readyError))
+            // 等就绪，并**持续上报加载进度**（界面上那条进度条要动）。
+            // 不能用 client.WaitReady —— 它是阻塞的，期间界面进度条纹丝不动，
+            // 用户看到的就是"点了开关什么都没发生"。
+            var deadline = Environment.TickCount64 + 180_000;
+            while (Environment.TickCount64 < deadline)
             {
-                error = "子进程未就绪：" + readyError;
-                client.Dispose();
-                return false;
+                var state = client.State;
+                var progress = client.Progress;
+                var err = client.LastError;
+
+                if (state == AiVoiceHostState.Ready) break;
+                if (state == AiVoiceHostState.Failed)
+                {
+                    error = "子进程加载失败：" + err;
+                    client.Dispose();
+                    return false;
+                }
+                if (!client.IsAlive)
+                {
+                    error = "子进程在加载过程中退出：" + err;
+                    client.Dispose();
+                    return false;
+                }
+
+                // 宿主给的进度是 0~1，映射到 15~95（前 15% 留给"起进程/连管道"）
+                _loadProgress = 15 + (int)Math.Round(progress * 80);
+                ProgressChanged?.Invoke(this, _loadProgress);
+                Thread.Sleep(80);
             }
 
-            if (!client.IsAlive)
+            if (client.State != AiVoiceHostState.Ready)
             {
-                error = "子进程启动后已退出：" + client.LastError;
+                error = client.State == AiVoiceHostState.Failed
+                    ? "子进程加载失败：" + client.LastError
+                    : $"子进程在 180 秒内未就绪（当前状态 {client.State}）";
                 client.Dispose();
                 return false;
             }
@@ -765,8 +789,25 @@ public sealed class AiVoiceEffect : IAudioEffect
         // 独立进程：Dispose 会先请求它自己退出（最多等 5 秒），超时才强杀整棵进程树。
         // 这就是"关掉 AI 变声就能把内存还回去"的关键一步：进程一结束，
         // 模型内存 / CUDA context / 显存 / faiss 索引全由操作系统回收。
-        try { _hostClient?.Dispose(); } catch { /* 忽略 */ }
+        //
+        // ⚠ **必须放到后台线程**（2026-11-05 用户实测"关掉 AI 变声时主界面卡住"）。
+        // StopWorker 是在 UI 线程上被调用的，而 Dispose 内部要等子进程退出（正常也要
+        // 几百毫秒，最坏 5 秒强杀）—— 同步做就会把整个界面冻住。
+        //
+        // 但**先同步关管道**：喂/取线程正阻塞在 Read/Write 上，不关管道它们不会退，
+        // 下面 _worker.Join(3000) 就要白等 3 秒。关管道是毫秒级的，可以放在 UI 线程上。
+        var client = _hostClient;
         _hostClient = null;
+        if (client != null)
+        {
+            try { client.ClosePipes(); } catch { }
+
+            Task.Run(() =>
+            {
+                try { client.Dispose(); }
+                catch (Exception ex) { Log.Warn("[AI 变声] 回收宿主进程时出错：" + ex.Message); }
+            });
+        }
 
         // 关键：清掉"正在加载"标记。否则上一次后台加载还没结束时，
         // StartWorker 会因为 _starting == true 直接 return，引擎永远建不起来。

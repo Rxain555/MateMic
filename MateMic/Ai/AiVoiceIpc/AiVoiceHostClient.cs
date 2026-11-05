@@ -208,6 +208,20 @@ public sealed class AiVoiceHostClient : IDisposable
     public void SetHotParams(int semitones, float indexRate)
         => _ctl.SetHotParams(semitones, Math.Clamp(indexRate, 0f, 1f));
 
+    /// <summary>
+    /// **立刻关闭管道**（同步、毫秒级）。这是打断阻塞读写的手段：
+    /// 喂/取线程正卡在 Read/Write 上，关掉管道它们立刻抛 IOException 返回。
+    ///
+    /// 单独暴露出来，是为了让"停止"能分两段做：
+    /// 先同步关管道（让工作线程马上退出，界面不卡），
+    /// 再异步等子进程退出（那可能要几百毫秒到 5 秒，不该占着 UI 线程）。
+    /// </summary>
+    public void ClosePipes()
+    {
+        try { _pipeIn.Dispose(); } catch { }
+        try { _pipeOut.Dispose(); } catch { }
+    }
+
     /// <summary>优雅关闭：置关闭标志 → 关管道（打断阻塞读写）→ 等它自己退 → 超时才强杀。</summary>
     public bool Stop()
     {
@@ -215,10 +229,7 @@ public sealed class AiVoiceHostClient : IDisposable
         if (host == null) return true;
 
         try { _ctl.RequestClose(); } catch { }
-
-        // 先关管道：喂/取线程可能正阻塞在 Read/Write 上，关掉才能让它们返回
-        try { _pipeIn.Dispose(); } catch { }
-        try { _pipeOut.Dispose(); } catch { }
+        ClosePipes();
 
         bool exited;
         try { exited = host.WaitForExit(StopWaitMs); }
