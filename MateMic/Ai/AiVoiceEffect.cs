@@ -738,6 +738,14 @@ public sealed class AiVoiceEffect : IAudioEffect
     {
         var scratch = new float[_blockSamples48 * 2];
 
+        // **产出口径的测量**（2026-11-05）：记录每帧到达的间隔与帧长。
+        // 判据很直接：
+        //   · 帧间隔 ≈ 块长 ⇒ 宿主产能正常，问题在别处；
+        //   · 帧间隔明显 > 块长（如 1.5~2 倍）⇒ 宿主供给不足，就是它导致水位被抽干。
+        var lastFrameMs = 0L;
+        long frames = 0, frameSamples = 0, maxGapMs = 0, gapSumMs = 0;
+        var statClock = Environment.TickCount64;
+
         while (_running)
         {
             var client = _hostClient;
@@ -746,6 +754,17 @@ public sealed class AiVoiceEffect : IAudioEffect
             // 阻塞读：管道对端有专门的写线程
             var got = client.ReadOutput(scratch);
             if (got <= 0) break;
+
+            var now = Environment.TickCount64;
+            if (lastFrameMs != 0)
+            {
+                var gap = now - lastFrameMs;
+                frames++;
+                frameSamples += got;
+                gapSumMs += gap;
+                if (gap > maxGapMs) maxGapMs = gap;
+            }
+            lastFrameMs = now;
 
             var cap = PadSamples();
             lock (_ringGate)
@@ -765,6 +784,27 @@ public sealed class AiVoiceEffect : IAudioEffect
                     _outRead = (_outRead + 1) % _outRing.Length;
                     avail--;
                 }
+            }
+
+            // 每 2 秒报一次"产出口径"：帧间隔是判断产能的唯一硬指标。
+            if (now - statClock >= 2000)
+            {
+                statClock = now;
+                if (frames > 0)
+                {
+                    Log.Info($"[AI 变声] 产出测量：{frames} 帧 / 2s"
+                             + $"｜平均间隔 {gapSumMs / frames}ms（块长 {_blockSamples48 * 1000 / ChainRate}ms）"
+                             + $"｜最长间隔 {maxGapMs}ms"
+                             + $"｜平均帧长 {frameSamples / frames * 1000 / ChainRate}ms");
+                }
+                else
+                {
+                    Log.Warn("[AI 变声] 产出测量：2 秒内一帧都没收到（宿主可能卡死）");
+                }
+                frames = 0;
+                frameSamples = 0;
+                gapSumMs = 0;
+                maxGapMs = 0;
             }
         }
     }
