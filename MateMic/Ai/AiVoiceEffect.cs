@@ -88,6 +88,9 @@ public sealed class AiVoiceEffect : IAudioEffect
     private int _syncLength;
     private int _syncRead;
 
+    /// <summary>同步往返的诊断计数（只打头几次，避免刷屏）。</summary>
+    private int _syncDiagCount;
+
     /// <summary>
     /// 消费侧观测到的输出环水位最低点（毫秒）。由 `ReadCore` 写、诊断日志读后清零。
     /// 它才是"预填充够不够"的判据：> 0 说明一直有余量，= 0 说明每次都被吃光。
@@ -1116,6 +1119,29 @@ public sealed class AiVoiceEffect : IAudioEffect
     /// </summary>
     private int ReadSyncHost(AiVoiceHostClient client, Span<float> buffer)
     {
+        // ⚠⚠ **必须先把本次采集到的音频写进输入环**（2026-11-06 修"没声音"）。
+        //
+        // 这段逻辑原本在 `ReadCore` 里。我在 `Read` 开头就 return 到同步分支，
+        // 于是输入环**永远收不到任何样本** ⇒ 送进宿主的全是静音 ⇒ 输出静音。
+        // 表现：宿主 CPU/GPU 都在跑（它确实在推理），但一点声音都没有，
+        // 日志显示"输入攒 0/5760（RMS 0.0000）"。
+        //
+        // 这里只做"搬进环"这一件事；攒块与往返交给 SyncRoundTrip。
+        lock (_ringGate)
+        {
+            for (var i = 0; i < buffer.Length; i++)
+            {
+                var next = (_inWrite + 1) % _inRing.Length;
+                if (next == _inRead)
+                {
+                    _inRead = (_inRead + 1) % _inRing.Length;
+                    Interlocked.Increment(ref _lateBlocks);
+                }
+                _inRing[_inWrite] = buffer[i];
+                _inWrite = next;
+            }
+        }
+
         var taken = 0;
 
         while (taken < buffer.Length)
@@ -1168,7 +1194,13 @@ public sealed class AiVoiceEffect : IAudioEffect
         }
 
         // ---- 2) 同步送 ----
-        if (!client.WriteInput(_syncIn)) return false;
+        var wrote = client.WriteInput(_syncIn);
+        if (!wrote)
+        {
+            if (Interlocked.Increment(ref _syncDiagCount) <= 5)
+                Log.Warn("[AI 变声] 同步往返：写输入失败（对端已关闭）");
+            return false;
+        }
 
         // ---- 3) 同步收（等够一整块）----
         var read = 0;
@@ -1183,6 +1215,21 @@ public sealed class AiVoiceEffect : IAudioEffect
         {
             Array.Clear(_syncOut, read, _blockSamples48 - read);
             Interlocked.Increment(ref _lateBlocks);
+        }
+
+        // 头几次往返打详细信息：输入攒到多少、写成功与否、收回多少、输出是否全静音
+        if (Interlocked.Increment(ref _syncDiagCount) <= 5)
+        {
+            double inRms = 0, outRms = 0;
+            for (var i = 0; i < _blockSamples48; i++)
+            {
+                inRms += (double)_syncIn[i] * _syncIn[i];
+                outRms += (double)_syncOut[i] * _syncOut[i];
+            }
+            inRms = Math.Sqrt(inRms / _blockSamples48);
+            outRms = Math.Sqrt(outRms / _blockSamples48);
+            Log.Info($"[AI 变声] 同步往返：输入攒 {got}/{_blockSamples48}（RMS {inRms:0.0000}）"
+                     + $"｜写 {wrote}｜收回 {read}/{_blockSamples48}（RMS {outRms:0.0000}）");
         }
 
         _syncLength = _blockSamples48;
