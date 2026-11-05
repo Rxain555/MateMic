@@ -425,6 +425,12 @@ public sealed class AiVoiceEffect : IAudioEffect
         var scratch = new float[_blockSamples48];
         var outScratch = new float[_blockSamples48 * 2];
 
+        // 跨进程路径的独立统计（**不能复用 _lateBlocks**：它的语义是"输出环读不满=欠载"，
+        // 而这里要分别看"喂出去多少/取回来多少/输出环满丢了多少/输出环空了多久"，
+        // 混在一个计数器里就看不出问题在哪）。
+        long fedSamples = 0, gotSamples = 0, droppedOut = 0, starved = 0;
+        var statClock = Environment.TickCount64;
+
         while (_running)
         {
             var client = _hostClient;
@@ -468,19 +474,24 @@ public sealed class AiVoiceEffect : IAudioEffect
                     var n = client.WriteInput(scratch.AsSpan(sent, take - sent));
                     if (n <= 0)
                     {
-                        if (!client.WaitForInputRoom(20)) break;   // 宿主那边堵住了：丢掉剩余
-                        continue;
+                        // 宿主输入环满：**不要再阻塞 20ms**（那会让本轮取输出也被拖住）。
+                        // 剩余部分直接放弃，环里的数据下一轮再送，实时性优先。
+                        break;
                     }
                     sent += n;
                 }
 
-                didWork = true;
+                fedSamples += sent;
+                didWork = sent > 0;
             }
 
-            // ---- 2) 取：把宿主的输出写进输出环（受 capSamples 限制，超了丢最老）----
+            // ---- 2) 取：把宿主的输出写进输出环（受水位上限限制，超了丢最老）----
             var got = client.ReadOutput(outScratch);
             if (got > 0)
             {
+                // 与进程内路径一致：水位上限就是预填充量（一个块 + 额外缓冲），
+                // 超过就丢最老的，防止积压变成永久延迟。
+                var cap = PadSamples();
                 lock (_ringGate)
                 {
                     for (var i = 0; i < got; i++)
@@ -488,19 +499,53 @@ public sealed class AiVoiceEffect : IAudioEffect
                         var next = (_outWrite + 1) % _outRing.Length;
                         if (next == _outRead)
                         {
-                            _outRead = (_outRead + 1) % _outRing.Length;   // 丢最老
-                            Interlocked.Increment(ref _lateBlocks);
+                            _outRead = (_outRead + 1) % _outRing.Length;
+                            droppedOut++;
                         }
 
                         _outRing[_outWrite] = outScratch[i];
                         _outWrite = next;
                     }
+
+                    // 与进程内路径一致：一旦超过水位上限就丢最老的，防止积压变成永久延迟
+                    var avail = Available(_outRing, _outRead, _outWrite);
+                    while (avail > cap)
+                    {
+                        _outRead = (_outRead + 1) % _outRing.Length;
+                        droppedOut++;
+                        avail--;
+                    }
                 }
 
+                gotSamples += got;
                 didWork = true;
+            }
+            else if (Available(_outRing, _outRead, _outWrite) < _blockSamples48)
+            {
+                starved++;   // 输出环空到不够一块：这是真正的"欠载"信号
             }
 
             if (!didWork) Thread.Sleep(2);   // 两头都没事干，让出 CPU
+
+            // ---- 3) 每 2 秒打一条跨进程统计，用来定位"音色不对"到底是不是断流/丢块 ----
+            var now = Environment.TickCount64;
+            if (now - statClock >= 2000)
+            {
+                statClock = now;
+                long outAvail;
+                long inAvail;
+                lock (_ringGate)
+                {
+                    outAvail = Available(_outRing, _outRead, _outWrite);
+                    inAvail = Available(_inRing, _inRead, _inWrite);
+                }
+
+                Log.Info($"[AI 变声] 跨进程统计：喂 {fedSamples * 1000 / ChainRate}ms｜取 {gotSamples * 1000 / ChainRate}ms"
+                         + $"｜输出环 {outAvail * 1000 / ChainRate}ms｜输入环 {inAvail * 1000 / ChainRate}ms"
+                         + $"｜输出环丢 {droppedOut}｜空转 {starved}｜宿主活 {client.IsAlive}"
+                         + $"｜推理 {client.HostInferMs:0}ms");
+                fedSamples = gotSamples = droppedOut = starved = 0;
+            }
         }
     }
 
