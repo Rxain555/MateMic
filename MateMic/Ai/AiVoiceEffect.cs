@@ -373,7 +373,7 @@ public sealed class AiVoiceEffect : IAudioEffect
                 UseGpu = true,
             };
 
-            client = AiVoiceHostClient.Start(parameters, ChainRate * 2, out var startError);
+            client = AiVoiceHostClient.Start(parameters, out var startError);
             if (client == null)
             {
                 error = "子进程启动失败：" + startError;
@@ -468,21 +468,11 @@ public sealed class AiVoiceEffect : IAudioEffect
 
             if (take > 0)
             {
-                var sent = 0;
-                while (sent < take)
-                {
-                    var n = client.WriteInput(scratch.AsSpan(sent, take - sent));
-                    if (n <= 0)
-                    {
-                        // 宿主输入环满：**不要再阻塞 20ms**（那会让本轮取输出也被拖住）。
-                        // 剩余部分直接放弃，环里的数据下一轮再送，实时性优先。
-                        break;
-                    }
-                    sent += n;
-                }
-
-                fedSamples += sent;
-                didWork = sent > 0;
+                // ⚠ 这一段属于**旧的单线程实现**，已不再被调用（管道版改用 HostWorkerLoopV2
+                // 的两个线程）。保留它只是为了留个对照，所以只要保证能编译即可。
+                client.WriteInput(scratch.AsSpan(0, take));
+                fedSamples += take;
+                didWork = true;
             }
 
             // ---- 2) 取：把宿主的输出写进输出环（受水位上限限制，超了丢最老）----
@@ -545,6 +535,108 @@ public sealed class AiVoiceEffect : IAudioEffect
                          + $"｜输出环丢 {droppedOut}｜空转 {starved}｜宿主活 {client.IsAlive}"
                          + $"｜推理 {client.HostInferMs:0}ms");
                 fedSamples = gotSamples = droppedOut = starved = 0;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 跨进程工作循环（管道版）：**两个线程**分别负责喂与取。
+    ///
+    /// 为什么必须两个线程：管道是全同步阻塞的。
+    /// 在一条线程上轮流做必然死锁 ——
+    /// 写管道时若缓冲满就要等人来读，而"读"也在同一条线程上（正卡在写）；
+    /// 反过来读的时候若没数据就要等人来写，而"写"同样卡在同一条线程上。
+    ///
+    /// 停止流程：<c>StopWorker</c> 会把 <c>_running</c> 置 false 并 Dispose 客户端，
+    /// 关闭管道会让阻塞的读写抛 IOException 后返回，两个线程随即退出。
+    /// </summary>
+    private void HostWorkerLoopV2()
+    {
+        var feeder = new Thread(HostFeederLoop)
+        {
+            IsBackground = true,
+            Name = "MateMic.AiVoice.Feed",
+            Priority = ThreadPriority.BelowNormal,
+        };
+        var fetcher = new Thread(HostFetcherLoop)
+        {
+            IsBackground = true,
+            Name = "MateMic.AiVoice.Fetch",
+            Priority = ThreadPriority.BelowNormal,
+        };
+
+        feeder.Start();
+        fetcher.Start();
+
+        feeder.Join();
+        fetcher.Join();
+    }
+
+    /// <summary>喂线程：把输入环里的数据成块写进管道（阻塞写）。</summary>
+    private void HostFeederLoop()
+    {
+        var scratch = new float[_blockSamples48];
+
+        while (_running)
+        {
+            var client = _hostClient;
+            if (client == null) break;
+
+            int take;
+            lock (_ringGate)
+            {
+                var available = Available(_inRing, _inRead, _inWrite);
+                take = (int)Math.Min(available, _blockSamples48);
+                for (var i = 0; i < take; i++)
+                {
+                    scratch[i] = _inRing[_inRead];
+                    _inRead = (_inRead + 1) % _inRing.Length;
+                }
+            }
+
+            if (take <= 0)
+            {
+                Thread.Sleep(2);
+                continue;
+            }
+
+            // 阻塞写：管道对端有专门的读线程，写完是安全的
+            if (!client.WriteInput(scratch.AsSpan(0, take))) break;
+        }
+    }
+
+    /// <summary>取线程：从管道读回处理结果，写进输出环（受水位上限约束，超了丢最老）。</summary>
+    private void HostFetcherLoop()
+    {
+        var scratch = new float[_blockSamples48 * 2];
+
+        while (_running)
+        {
+            var client = _hostClient;
+            if (client == null) break;
+
+            // 阻塞读：管道对端有专门的写线程
+            var got = client.ReadOutput(scratch);
+            if (got <= 0) break;
+
+            var cap = PadSamples();
+            lock (_ringGate)
+            {
+                for (var i = 0; i < got; i++)
+                {
+                    var next = (_outWrite + 1) % _outRing.Length;
+                    if (next == _outRead) _outRead = (_outRead + 1) % _outRing.Length;
+                    _outRing[_outWrite] = scratch[i];
+                    _outWrite = next;
+                }
+
+                // 与进程内路径一致：超过水位上限就丢最老的，防止积压变成永久延迟
+                var avail = Available(_outRing, _outRead, _outWrite);
+                while (avail > cap)
+                {
+                    _outRead = (_outRead + 1) % _outRing.Length;
+                    avail--;
+                }
             }
         }
     }
@@ -885,7 +977,7 @@ public sealed class AiVoiceEffect : IAudioEffect
         // 独立进程路径走另一套循环（跨进程是异步的，不能复用下面"一块进一块出"的逻辑）
         if (_hostClient != null)
         {
-            HostWorkerLoop();
+            HostWorkerLoopV2();
             return;
         }
         while (_running)

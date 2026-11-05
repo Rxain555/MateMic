@@ -51,16 +51,26 @@ internal static class AiVoiceHost
             return 3;
         }
 
-        // 输入环由主进程创建，输出环由宿主创建（谁创建谁负责，避免竞态）
-        var inputRing = AudioShmRing.OpenConsumer(name + "-in", timeoutMs: 10000);
-        if (inputRing == null)
+        // 音频走命名管道（全同步阻塞）：主进程写 in、读 out，宿主反向。
+        // 顺序与主进程对应：主进程先起本进程，再 CreateServer(in)、CreateServer(out)，
+        // 所以这里先连 in、再连 out。
+        var pipeIn = AudioPipeLink.ConnectClient(name + "-in", isWriter: false, timeoutMs: 20_000);
+        if (pipeIn == null)
         {
-            Console.Error.WriteLine("[宿主] 10 秒内未等到输入环，退出");
-            ctl.SetState(AiVoiceHostState.Failed, 0, "输入共享内存未就绪");
+            Console.Error.WriteLine("[宿主] 连不上输入管道，退出");
+            ctl.SetState(AiVoiceHostState.Failed, 0, "输入管道未连通");
             return 4;
         }
 
-        using var outputRing = AudioShmRing.CreateProducer(name + "-out", capacitySamples: ChainRate * 2);
+        var pipeOut = AudioPipeLink.ConnectClient(name + "-out", isWriter: true, timeoutMs: 20_000);
+        if (pipeOut == null)
+        {
+            Console.Error.WriteLine("[宿主] 连不上输出管道，退出");
+            ctl.SetState(AiVoiceHostState.Failed, 0, "输出管道未连通");
+            pipeIn.Dispose();
+            return 4;
+        }
+
         ctl.SetState(AiVoiceHostState.Loading, 0.02);
 
         RvcBlockProcessor? processor = null;
@@ -71,7 +81,7 @@ internal static class AiVoiceHost
 
         try
         {
-            while (!ctl.IsClosed && !inputRing.IsClosed)
+            while (!ctl.IsClosed)
             {
                 // ---- 1) 参数变了就（重）建处理器 ----
                 var (version, json) = ctl.GetParams();
@@ -106,32 +116,24 @@ internal static class AiVoiceHost
 
                 if (processor == null)
                 {
-                    // 参数还没来 / 上次失败：把输入读掉丢弃，避免主进程侧积压
-                    while (inputRing.Read(scratch48) > 0) { }
-                    inputRing.WaitForData(20);
+                    // 参数还没来 / 上次失败：把收到的帧读掉丢弃，避免主进程侧积压。
+                    // （管道是阻塞读，所以这里等价于"等下一帧"。）
+                    while (pipeIn.Read(scratch48) > 0) { }
                     continue;
                 }
 
                 // ---- 2) 攒够一块就处理 ----
+                // 主进程喂的帧长度不保证等于一块（它按输入环里现有的数据喂），
+                // 所以这里要攒，攒满一块才交给 StreamingRvc（它要求长度精确匹配）。
                 var got = 0;
                 while (got < buffer48.Length)
                 {
                     var need = buffer48.Length - got;
-                    // 从环里分次读（环可能一次给不满）
-                    var chunk = inputRing.Read(scratch48.AsSpan(0, Math.Min(need, scratch48.Length)));
+                    var chunk = pipeIn.Read(scratch48.AsSpan(0, Math.Min(need, scratch48.Length)));
                     if (chunk <= 0)
                     {
-                        if (ctl.IsClosed) return 0;
-                        // 数据不够一块：等一小会儿。**不能等太久**，否则输入环会积压成延迟
-                        if (!inputRing.WaitForData(2))
-                        {
-                            // 每等约 200 次（≈400ms）打一条，用来定位"卡在等输入"的情况
-                            if (++_starveTicks % 200 == 0)
-                                Console.WriteLine($"[宿主] 等输入：还需 {need} 样本"
-                                                  + $"｜输入环余 {inputRing.AvailableSamples}"
-                                                  + $"｜已处理 {processor.Blocks} 块");
-                        }
-                        continue;
+                        Console.WriteLine("[宿主] 输入管道已关闭，退出");
+                        return 0;
                     }
 
                     scratch48.AsSpan(0, chunk).CopyTo(buffer48.AsSpan(got));
@@ -159,20 +161,14 @@ internal static class AiVoiceHost
 
                 ctl.SetHostInferMs(processor.LastInferMs);
                 Console.WriteLine($"[宿主] 处理完第 {processor.Blocks} 块："
-                                  + $"产出 {produced} 样本｜推理 {processor.LastInferMs:0}ms"
-                                  + $"｜输入环余 {inputRing.AvailableSamples}");
-                // 输出环满时**丢最旧的**（保证实时性）：这与主进程侧的水位策略一致
-                var written = 0;
-                while (written < produced)
+                                  + $"产出 {produced} 样本｜推理 {processor.LastInferMs:0}ms");
+
+                // 整帧写出：管道是阻塞的，主进程那边有专门的读线程，
+                // 所以这里写不完就等（不需要自己丢帧 —— 丢帧由主进程按水位上限决定）。
+                if (!pipeOut.Write(out48.AsSpan(0, produced)))
                 {
-                    var n = outputRing.Write(out48.AsSpan(written, produced - written));
-                    if (n <= 0)
-                    {
-                        // 环满：等主进程取走（最多 20 ms，避免死等）
-                        if (!outputRing.WaitForRoom(20)) { /* 真满了就丢本块剩余 */ break; }
-                        continue;
-                    }
-                    written += n;
+                    Console.WriteLine("[宿主] 输出管道已关闭，退出");
+                    return 0;
                 }
             }
         }
@@ -180,7 +176,8 @@ internal static class AiVoiceHost
         {
             ctl.SetState(AiVoiceHostState.Stopping, 1.0);
             processor?.Dispose();
-            inputRing.Dispose();
+            try { pipeOut.Dispose(); } catch { }
+            try { pipeIn.Dispose(); } catch { }
             Console.WriteLine("[宿主] 已退出");
         }
 

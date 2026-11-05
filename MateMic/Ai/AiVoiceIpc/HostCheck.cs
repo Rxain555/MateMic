@@ -55,7 +55,7 @@ internal static class HostCheck
             UseGpu = false,   // 自检走 CPU，避免与用户正在用的 GPU 抢资源
         };
 
-        var client = AiVoiceHostClient.Start(parameters, ChainRate * 2, out var startError);
+        var client = AiVoiceHostClient.Start(parameters, out var startError);
         if (client == null)
         {
             Console.WriteLine("✗ 启动宿主失败：" + startError);
@@ -86,12 +86,12 @@ internal static class HostCheck
             var sendClock = Stopwatch.StartNew();
             for (var b = 0; b < 3; b++)
             {
-                var written = 0;
-                while (written < src.Length)
+                // WriteInput 现在是"阻塞写完、返回 bool"（管道是全同步的）
+                if (!client.WriteInput(src))
                 {
-                    var n = client.WriteInput(src.AsSpan(written));
-                    if (n <= 0) { Thread.Sleep(2); continue; }
-                    written += n;
+                    Console.WriteLine("✗ 写输入失败（对端已关闭）");
+                    failures++;
+                    break;
                 }
             }
             Console.WriteLine($"已送入 {3 * block} 样本（{3 * block / 48.0:0} ms 音频，3 块）");

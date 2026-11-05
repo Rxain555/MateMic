@@ -21,20 +21,18 @@ public sealed class AiVoiceHostParams
 }
 
 /// <summary>
-/// 主进程侧的**宿主进程客户端**：负责起子进程、下发参数、收发音频、优雅关闭。
+/// 主进程侧的**宿主进程客户端**：起子进程、下发参数、收发音频、优雅关闭。
 ///
-/// 设计上的几处刻意选择：
+/// 音频走 <see cref="AudioPipeLink"/>（命名管道、全同步阻塞）。
+/// 之所以不用共享内存：实测那套跨进程后波形与进程内不一致（相关系数 0.87~0.96），
+/// 而管道在 <c>--pipecheck</c> 里是 **46080 样本 0 不一致**。
 ///
-/// · **命名带 GUID**：每次启动都用新名字，避免上一次异常退出留下的映射/事件被复用。
-/// · **输出环由宿主创建**：谁创建谁负责销毁，主进程只是延迟打开（带重试），
-///   这样不存在"两边都以为自己是创建者"的竞态。
-/// · **关闭三步走**：先置关闭标志并等它自己退（<see cref="StopWaitMs"/>），
-///   超时才强杀整棵进程树。正常路径下子进程会自己释放 CUDA 与模型，
-///   强杀只是因为"卡死了也得收掉，不能留孤儿占显存"。
-/// · **IsAlive 只做观察**：崩溃检测由调用方决定怎么处理（第一期先记录并降级为直通）。
+/// ⚠ 收发都是**阻塞**的。调用方必须用**两个线程**分别负责写和读
+/// （见 <c>AiVoiceEffect.HostWorkerLoop</c>）—— 在一条线程上轮流做会死锁：
+/// 管道写满时你在写，没人读；管道空时你在读，没人写。
 ///
-/// 这个类**不做水位管理** —— 输入/输出环的积压策略仍由 <c>AiVoiceEffect</c> 负责，
-/// 保持与进程内实现完全一致的缓冲深度，这样"跨进程"才不会引入额外延迟。
+/// 关闭三步走：置控制块关闭标志 → 等它自己退（5 秒）→ 超时才强杀整棵进程树。
+/// 正常路径下子进程会自己释放 CUDA 与模型，强杀只是因为"卡死了也得收掉，不能留孤儿占显存"。
 /// </summary>
 public sealed class AiVoiceHostClient : IDisposable
 {
@@ -43,16 +41,19 @@ public sealed class AiVoiceHostClient : IDisposable
     /// <summary>正常关闭时等子进程自己退出的时间。超过就强杀。</summary>
     private const int StopWaitMs = 5000;
 
+    /// <summary>等子进程连上管道的时长。</summary>
+    private const int ConnectWaitMs = 20_000;
+
     private readonly string _name;
     private readonly AiVoiceControlBlock _ctl;
-    private readonly AudioShmRing _inRing;
+    private readonly AudioPipeLink _pipeIn;
+    private readonly AudioPipeLink _pipeOut;
     private readonly object _gate = new();
 
     private Process? _host;
-    private AudioShmRing? _outRing;
     private bool _disposed;
 
-    /// <summary>本次会话的共享内存前缀（诊断用）。</summary>
+    /// <summary>本次会话的共享内存/管道前缀（诊断用）。</summary>
     public string Name => _name;
 
     /// <summary>子进程 PID（未启动时为 0）。</summary>
@@ -79,64 +80,64 @@ public sealed class AiVoiceHostClient : IDisposable
     /// <summary>最近一次失败原因（没有则为空）。</summary>
     public string LastError => _ctl.GetState().Error;
 
-    private AiVoiceHostClient(string name, AiVoiceControlBlock ctl, AudioShmRing inRing)
+    /// <summary>宿主报告的最近一块推理耗时（毫秒）。用于界面显示"负载"。</summary>
+    public double HostInferMs => _ctl.GetHostInferMs();
+
+    private AiVoiceHostClient(string name, AiVoiceControlBlock ctl, AudioPipeLink pipeIn, AudioPipeLink pipeOut)
     {
         _name = name;
         _ctl = ctl;
-        _inRing = inRing;
+        _pipeIn = pipeIn;
+        _pipeOut = pipeOut;
     }
 
     /// <summary>
-    /// 启动宿主并下发参数。<paramref name="error"/> 非空表示启动失败。
-    /// 注意：返回 true 只代表"进程起来了、参数发出去了"，**不代表模型已加载完**
-    ///（那要等 <see cref="WaitReady"/>）。
+    /// 启动宿主、等它连上管道、下发参数。
+    /// 返回 true 只代表"进程起来了、管道通了、参数发了"，**不代表模型已加载完**（那要等 <see cref="WaitReady"/>）。
     /// </summary>
-    public static AiVoiceHostClient? Start(AiVoiceHostParams parameters, int inputCapacitySamples, out string error)
+    public static AiVoiceHostClient? Start(AiVoiceHostParams parameters, out string error)
     {
         error = string.Empty;
         var name = "MateMicAI-" + Guid.NewGuid().ToString("N")[..12];
 
         AiVoiceControlBlock? ctl = null;
-        AudioShmRing? inRing = null;
+        AudioPipeLink? pipeIn = null;
+        AudioPipeLink? pipeOut = null;
+        Process? host = null;
+
         try
         {
             ctl = AiVoiceControlBlock.CreateMaster(name + "-ctl");
-            inRing = AudioShmRing.CreateProducer(name + "-in",
-                inputCapacitySamples > 0 ? inputCapacitySamples : ChainRate * 2);
 
             var exe = Environment.ProcessPath;
             if (string.IsNullOrEmpty(exe))
             {
                 error = "取不到自身可执行文件路径";
                 ctl.Dispose();
-                inRing.Dispose();
                 return null;
             }
 
+            // ⚠ 顺序：**先起子进程，再建 server**（CreateServer 会阻塞等对端连接）
             var psi = new ProcessStartInfo(exe)
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
-                // 数据目录跟着主进程走：宿主只读模型文件，但日志/配置路径要与主进程一致，
-                // 免得它去碰"真正的"用户目录。--aivoice-host 本身会豁免单实例检查。
                 WorkingDirectory = AppContext.BaseDirectory,
             };
             psi.ArgumentList.Add("--aivoice-host");
             psi.ArgumentList.Add("--shm-name");
             psi.ArgumentList.Add(name);
 
-            var host = Process.Start(psi);
+            host = Process.Start(psi);
             if (host == null)
             {
                 error = "子进程启动失败";
                 ctl.Dispose();
-                inRing.Dispose();
                 return null;
             }
 
-            // 把宿主输出转发到主进程日志：宿主那边出问题，主进程日志里要能看见
             host.OutputDataReceived += (_, e) =>
             {
                 if (!string.IsNullOrEmpty(e.Data)) Core.Log.Info("[宿主] " + e.Data);
@@ -148,16 +149,26 @@ public sealed class AiVoiceHostClient : IDisposable
             host.BeginOutputReadLine();
             host.BeginErrorReadLine();
 
-            var client = new AiVoiceHostClient(name, ctl, inRing);
-            client._host = host;   // 同类内可访问私有字段（对象初始化器做不到）
+            // 主→宿主：我们写
+            pipeIn = AudioPipeLink.CreateServer(name + "-in", isWriter: true, connectTimeoutMs: ConnectWaitMs);
+            if (pipeIn == null) { error = "输入管道未连通"; ctl.RequestClose(); host.Kill(true); ctl.Dispose(); return null; }
+
+            // 宿主→主：我们读
+            pipeOut = AudioPipeLink.CreateServer(name + "-out", isWriter: false, connectTimeoutMs: ConnectWaitMs);
+            if (pipeOut == null) { error = "输出管道未连通"; pipeIn.Dispose(); ctl.RequestClose(); host.Kill(true); ctl.Dispose(); return null; }
+
+            var client = new AiVoiceHostClient(name, ctl, pipeIn, pipeOut);
+            client._host = host;
             client._ctl.SetParams(parameters.ToJson());
             return client;
         }
         catch (Exception ex)
         {
             error = ex.Message;
+            try { host?.Kill(true); } catch { }
+            pipeOut?.Dispose();
+            pipeIn?.Dispose();
             ctl?.Dispose();
-            inRing?.Dispose();
             return null;
         }
     }
@@ -171,61 +182,34 @@ public sealed class AiVoiceHostClient : IDisposable
     }
 
     /// <summary>
-    /// 写输入音频（48 kHz）。返回实际写入的样本数；0 表示环满（调用方决定丢旧还是等）。
+    /// 写输入音频（48 kHz）。**阻塞**直到写完或对端关闭。
+    /// 只允许在**喂线程**上调用。返回 false 表示对端已关闭。
     /// </summary>
-    public int WriteInput(ReadOnlySpan<float> samples) => _inRing.Write(samples);
-
-    /// <summary>输入环满时等一会儿（宿主读得慢）。返回 true 表示有空间了。</summary>
-    public bool WaitForInputRoom(int timeoutMs) => _inRing.WaitForRoom(timeoutMs);
+    public bool WriteInput(ReadOnlySpan<float> samples) => _pipeIn.Write(samples);
 
     /// <summary>
-    /// 下发**热参数**（变调、索引占比）。只影响每块计算，不重建引擎 ——
-    /// 对应进程内路径里直接改 <c>StreamingRvc.Semitones / IndexRate</c>。
+    /// 读输出音频（48 kHz）。**阻塞**直到读到一帧或对端关闭。
+    /// 只允许在**取线程**上调用。返回实读样本数；0 = 对端关闭。
+    /// </summary>
+    public int ReadOutput(Span<float> samples) => _pipeOut.Read(samples);
+
+    /// <summary>
+    /// 下发**热参数**（变调、索引占比）。只影响每块计算，不重建引擎。
     /// </summary>
     public void SetHotParams(int semitones, float indexRate)
         => _ctl.SetHotParams(semitones, Math.Clamp(indexRate, 0f, 1f));
 
-    /// <summary>宿主报告的最近一块推理耗时（毫秒）。用于界面显示"负载"。</summary>
-    public double HostInferMs => _ctl.GetHostInferMs();
-
-    /// <summary>
-    /// 读输出音频（48 kHz）。返回实际读到的样本数；0 表示还没产出。
-    ///
-    /// 输出环由宿主创建，所以第一次调用时才尝试打开（带重试）；打不开就一直返回 0。
-    /// </summary>
-    public int ReadOutput(Span<float> samples)
-    {
-        var ring = _outRing;
-        if (ring == null)
-        {
-            lock (_gate)
-            {
-                ring = _outRing;
-                if (ring == null)
-                {
-                    ring = AudioShmRing.OpenConsumer(_name + "-out", timeoutMs: 1000);
-                    if (ring == null) return 0;
-                    _outRing = ring;
-                }
-            }
-        }
-
-        return ring.Read(samples);
-    }
-
-    /// <summary>输入环当前的可用样本数（诊断用）。</summary>
-    public long InputAvailable => _inRing.AvailableSamples;
-
-    /// <summary>
-    /// 优雅关闭：置关闭标志 → 等它自己退（最多 <see cref="StopWaitMs"/>）→ 超时强杀整棵树。
-    /// 返回 true 表示是"自己退出的"（正常路径，CUDA/模型都由它自己释放）。
-    /// </summary>
+    /// <summary>优雅关闭：置关闭标志 → 关管道（打断阻塞读写）→ 等它自己退 → 超时才强杀。</summary>
     public bool Stop()
     {
         var host = _host;
         if (host == null) return true;
 
         try { _ctl.RequestClose(); } catch { }
+
+        // 先关管道：喂/取线程可能正阻塞在 Read/Write 上，关掉才能让它们返回
+        try { _pipeIn.Dispose(); } catch { }
+        try { _pipeOut.Dispose(); } catch { }
 
         bool exited;
         try { exited = host.WaitForExit(StopWaitMs); }
@@ -250,22 +234,17 @@ public sealed class AiVoiceHostClient : IDisposable
 
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true;
+        lock (_gate)
+        {
+            if (_disposed) return;
+            _disposed = true;
+        }
 
         try { Stop(); } catch { }
 
         var host = _host;
         _host = null;
         try { host?.Dispose(); } catch { }
-
-        lock (_gate)
-        {
-            try { _outRing?.Dispose(); } catch { }
-            _outRing = null;
-        }
-
-        try { _inRing.Dispose(); } catch { }
         try { _ctl.Dispose(); } catch { }
     }
 }

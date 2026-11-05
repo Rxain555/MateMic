@@ -40,7 +40,8 @@ internal static class RpcRoundTripCheck
         if (voice == null) { Console.WriteLine($"✗ {voicesDir} 下没有音色"); return 1; }
 
         const int blockMs = 160;
-        const int blocks = 6;                        // 6 块 = 0.96 秒，够比对且 CPU 上跑得快
+        // 先只跑**一块**：若一块就不同 ⇒ 单块处理有差异；若一块相同 ⇒ 差异来自块间累积。
+        const int blocks = 1;
         var block = blockMs * ChainRate / 1000;      // 7680
 
         // 输入：220 Hz 正弦（低频，块边界错位会立刻变成刺耳的谐波噪声）
@@ -162,7 +163,7 @@ internal static class RpcRoundTripCheck
             UseGpu = false,
         };
 
-        var client = AiVoiceHostClient.Start(parameters, ChainRate * 4, out var startError);
+        var client = AiVoiceHostClient.Start(parameters, out var startError);
         if (client == null) { Console.WriteLine("  启动失败：" + startError); return null; }
 
         try
@@ -181,19 +182,22 @@ internal static class RpcRoundTripCheck
             // 一开始写成"喂一块→等这块输出→再喂下一块"，结果死锁：
             // 宿主每块产出 7679 样本（`_fromModel` 重采样尾部差 1 个，正常现象），
             // 而测试在等 7680，于是永远等不到、也不再喂下一块，宿主就一直"等输入"。
-            for (var b = 0; b < blocks; b++)
+            // ⚠ 必须**边写边读**：管道是全同步阻塞的，若先写完 6 块再读，
+            // 管道缓冲（64 KB）装不下 180 KB，写线程会阻塞；而宿主那边写输出也阻塞，
+            // 于是双方互等 —— 死锁。所以用后台线程写、主线程读。
+            var writer = Task.Run(() =>
             {
-                var written = 0;
-                while (written < block)
+                for (var b = 0; b < blocks; b++)
                 {
-                    var w = client.WriteInput(input.AsSpan(b * block + written, block - written));
-                    if (w <= 0) { Thread.Sleep(1); continue; }
-                    written += w;
+                    if (!client.WriteInput(input.AsSpan(b * block, block)))
+                    {
+                        Console.WriteLine($"  ✗ 写第 {b + 1} 块失败（对端已关闭）");
+                        break;
+                    }
                 }
-                sent += written;
-            }
+            });
 
-            Console.WriteLine($"  已全部喂入 {sent} 样本，开始接收输出…");
+            Console.WriteLine($"  已启动写入线程（{blocks} 块 × {block}），开始接收输出…");
 
             // 收输出：等到"至少 blocks-1 块"或者没动静了为止（每块少 1 个样本是正常的）
             var want = (long)block * blocks * 99 / 100;
