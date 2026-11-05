@@ -129,9 +129,22 @@ public sealed class AiVoiceEffect : IAudioEffect
         // 20ms 不够：此时水位最低点恰好等于一次读取量（20ms），等于没有余量，一抖就欠。
         // 40ms 让水位落在 [40, 120]ms，足以吸收 69→82ms 的推理抖动。
         //
-        // ⚠ 这是"80ms 块 + 1500ms 上下文"这个极限配置的固有代价，不是 bug。
-        // 想再压延迟，可以降上下文（每块计算量随之下降）或把块长加上去。
-        var hostPad = _hostClient != null ? ChainRate * 40 / 1000 : 0;
+        // ⚠⚠ **余量必须大于"每块的推理耗时"** —— 这是 2026-11-05 排查多轮的最终根因。
+        //
+        // 算一笔账：每产出一块的周期里，输出环要同时供两件事 ——
+        //   · 推理期间主进程照常消费（推理多慢就消费多久）；
+        //   · 以及一整块本身的消费。
+        // 所以预填充至少要 = 块长 + 推理耗时 + 一点抖动余量。
+        //
+        // 原先这里写死 40ms：块长 500、推理 75 时，预填充 540 < 消耗 575 ⇒ **每块净亏 35ms**
+        // ⇒ 几十块后被抽干（日志实测："需要 480 样本，实际只有 0，水位 0ms"）⇒ 爆音。
+        //
+        // 而差值恒为「40 − 推理耗时」，**与块长无关** ——
+        // 这正是用户看到的"改块长只能减少、不能消除，看起来与参数无关"。
+        //
+        // 现在按宿主回传的**实测推理耗时**动态给余量（+20ms 抖动余量），保底 40ms。
+        var inferPad = (int)Math.Ceiling(LastInferMs) + 20;
+        var hostPad = _hostClient != null ? ChainRate * Math.Max(40, inferPad) / 1000 : 0;
         return Math.Min(_blockSamples48 + hostPad + ChainRate * BacklogPadMs() / 1000,
                         _outRing.Length / 2);
     }
