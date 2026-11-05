@@ -70,6 +70,36 @@ public sealed class StreamingRvc : IDisposable
         if (Index == null) IndexRate = 0f;
 
         // 三个模型逐个加载，按权重报进度（contentvec 约占一半体积、合成器次之、rmvpe 最小）
+        // 并行预读三个模型文件，只为把它们塞进**系统文件缓存**。
+        //
+        // 依据（2026-11-05 实测）：同样模型、同样 CPU 模式，
+        // 首次加载 7501 ms、缓存命中后 1600 ms —— 差的 5.9 秒几乎全是磁盘读取。
+        // 所以把 I/O 并行起来是压缩"开 AI 变声要等 1.5~2 秒"最直接的办法。
+        //
+        // 为什么不用 byte[] 建 session（那能彻底免掉二次读取）：
+        // 那要改 ContentEncoder / RmvpeF0 / RvcSynthesizer 三个构造函数的签名，风险大；
+        // 而这里 CopyTo(Stream.Null) 只用 8 KB 缓冲、读完即丢，**不占内存**，
+        // 后面的 InferenceSession 从缓存取，效果几乎一样。
+        var warmClock = System.Diagnostics.Stopwatch.StartNew();
+        var warmups = new[] { cvModel, rmvpeModel, voiceModel }
+            .Where(File.Exists)
+            .Select(path => Task.Run(() =>
+            {
+                try
+                {
+                    using var fs = new FileStream(path, FileMode.Open, FileAccess.Read,
+                        FileShare.Read, 1 << 16, FileOptions.SequentialScan);
+                    fs.CopyTo(Stream.Null);
+                }
+                catch
+                {
+                    // 预读失败不影响加载：后面会正常报错
+                }
+            }))
+            .ToArray();
+        if (warmups.Length > 0) Task.WaitAll(warmups);
+        var msWarm = warmClock.ElapsedMilliseconds;
+
         // 分阶段计时：那"1.5~2 秒加载"到底花在哪一环，只有量过才知道能不能压缩
         //（2026-11-05 用户提到希望减少这段等待；先拿数据，不做猜测式优化）。
         var loadClock = System.Diagnostics.Stopwatch.StartNew();
@@ -86,8 +116,9 @@ public sealed class StreamingRvc : IDisposable
         var msSynth = loadClock.ElapsedMilliseconds - msEncoder - msRmvpe;
         onProgress?.Invoke(90);
 
-        Log.Info($"[AI 变声] 加载耗时：contentvec {msEncoder} ms ｜ rmvpe {msRmvpe} ms ｜ 音色 {msSynth} ms"
-                 + $" ｜ 合计 {loadClock.ElapsedMilliseconds} ms");
+        Log.Info($"[AI 变声] 加载耗时：预读 {msWarm} ms（并行）｜"
+                 + $"contentvec {msEncoder} ms ｜ rmvpe {msRmvpe} ms ｜ 音色 {msSynth} ms"
+                 + $" ｜ 合计 {msWarm + loadClock.ElapsedMilliseconds} ms");
 
         static int ToSamples(int ms) => (int)Math.Round(ms / 1000.0 * OutputRate / Zc) * Zc;
         _block = ToSamples(blockMs);
