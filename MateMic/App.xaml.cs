@@ -142,6 +142,14 @@ public partial class App : Application
             return;
         }
 
+        // 共享内存环自检（AI 变声独立进程的基础件）：MateMic.exe --shmcheck
+        if (HasFlag(args, "--shmcheck"))
+        {
+            MateMic.Ai.AiVoiceIpc.ShmRingCheck.Run();
+            Shutdown();
+            return;
+        }
+
         // 音频链路诊断：MateMic.exe --audiocheck [秒数] [输出设备关键字] [输入设备关键字]
         if (HasFlag(args, "--audiocheck"))
         {
