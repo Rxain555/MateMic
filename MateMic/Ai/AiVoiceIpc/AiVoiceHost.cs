@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 
 namespace MateMic.Ai.AiVoiceIpc;
@@ -9,27 +10,36 @@ namespace MateMic.Ai.AiVoiceIpc;
 /// **全部由操作系统回收**。进程内的 <c>Dispose</c> 做不到这一点 ——
 /// ONNX Runtime 与 CUDA 的内存池本来就不还给系统（实测关闭后仍常驻约 900 MB）。
 ///
+/// ## 为什么是"读线程 + 推理线程"两段流水（2026-11-05 关键修正）
+///
+/// 第一版是**单线程串行**：`攒满一块 → 推理 → 写回 → 再攒`。
+/// 于是每块耗时 = 块长（等输入）+ 推理耗时，而音频是**实时**送来的
+/// ⇒ 产能 = 块长 / (块长 + 推理) < 100%，结构性供不上。
+/// 实测（块长 200ms、推理 60ms）产能仅 200/260 = 77%，
+/// 表现为主进程输出环持续被抽干、周期性补静音（用户听到的爆音）。
+///
+/// 现在拆成两段流水，**"攒块"与"推理"重叠**：
+/// <code>
+///   读线程：管道 ──► 攒满一块 ──► ready 队列
+///   推理线程：ready 队列 ──► 推理 ──► 写回管道
+/// </code>
+/// 这样每块的稳态耗时降到 **max(块长, 推理耗时)**，只要推理快于块长就能实时。
+/// 队列容量 2 块：够吸收抖动，又不会积压成延迟。
+///
 /// ## 与主进程的约定
 ///
 /// · 参数/状态：<see cref="AiVoiceControlBlock"/>（主进程写参数、宿主写状态）；
-/// · 音频：两个 <see cref="AudioShmRing"/>（in = 主→宿主，out = 宿主→主）。
-///   两边都是 48 kHz 单声道 float；
-/// · 缓冲区几何（块长等）由参数决定，**改了参数就重建处理器**（主进程那边的 UI
-///   本来就要求"先关 AI 变声再改"，所以这里不做热切换）。
-///
-/// ## 为什么延迟不会变差
-///
-/// 宿主只是原样调用 <see cref="StreamingRvc"/>：窗口、SOLA、交叉淡化、上下文长度全都不变。
-/// 多出来的只有"共享内存拷贝 + 事件唤醒"，实测每块往返 13~108 µs
-/// （占音频时长 0.02%~0.07%，见 <see cref="ShmRingCheck"/>）。
-/// 输出环的水位管理仍由主进程负责，深度也没变。
+/// · 音频：两条单向 <see cref="AudioPipeLink"/>（in = 主→宿主，out = 宿主→主），
+///   均为 48 kHz 单声道 float，全同步阻塞（所以必须分线程，见上）；
+/// · 缓冲几何（块长等）由参数决定，**改了参数就重建处理器**（主进程 UI 本来就要求
+///   先关 AI 变声再改，所以不做热切换）。
 /// </summary>
 internal static class AiVoiceHost
 {
     private const int ChainRate = 48000;
 
-    /// <summary>等待输入的轮询计数（仅用于节流日志）。</summary>
-    private static int _starveTicks;
+    /// <summary>待推理队列的容量（块）。2 块够吸收抖动，又不至于积压成延迟。</summary>
+    private const int ReadyQueueDepth = 2;
 
     /// <summary>宿主主循环。返回进程退出码（0 = 正常）。</summary>
     public static int Run(string[] args)
@@ -43,8 +53,7 @@ internal static class AiVoiceHost
 
         Console.WriteLine($"[宿主] 启动，共享内存前缀 = {name}");
 
-        // 控制块：主进程负责创建，这里等它出现
-        using var ctl = AiVoiceControlBlock.OpenHost(name + "-ctl", timeoutMs: 10000);
+        using var ctl = AiVoiceControlBlock.OpenHost(name + "-ctl", timeoutMs: 10_000);
         if (ctl == null)
         {
             Console.Error.WriteLine("[宿主] 10 秒内未等到控制块，退出");
@@ -75,102 +84,122 @@ internal static class AiVoiceHost
 
         RvcBlockProcessor? processor = null;
         var appliedVersion = -1;
-        var buffer48 = Array.Empty<float>();
-        var out48 = Array.Empty<float>();
-        var scratch48 = new float[ChainRate];
 
         try
         {
+            // ---- 等参数并加载 ----
             while (!ctl.IsClosed)
             {
-                // ---- 1) 参数变了就（重）建处理器 ----
                 var (version, json) = ctl.GetParams();
-                if (version != appliedVersion)
+                if (version == appliedVersion) { ctl.ParamsChanged.WaitOne(100); continue; }
+
+                appliedVersion = version;
+                if (string.IsNullOrEmpty(json)) { ctl.ParamsChanged.WaitOne(100); continue; }
+
+                processor?.Dispose();
+                processor = null;
+
+                var (ok, error) = Build(ctl, json, out processor);
+                if (!ok)
                 {
-                    appliedVersion = version;
-                    if (string.IsNullOrEmpty(json))
-                    {
-                        // 还没收到参数：等一下，别把"没配置"当成"配置错误"
-                        ctl.ParamsChanged.WaitOne(100);
-                        continue;
-                    }
-
-                    processor?.Dispose();
-                    processor = null;
-
-                    var (ok, error) = Build(ctl, json, out processor);
-                    if (!ok)
-                    {
-                        ctl.SetState(AiVoiceHostState.Failed, 0, error);
-                        Console.Error.WriteLine("[宿主] 加载失败：" + error);
-                        // 不退出：主进程可能马上改参数再试（换音色/换索引）
-                        appliedVersion = version;
-                        continue;
-                    }
-
-                    buffer48 = new float[processor.BlockSamples48];
-                    out48 = new float[processor.BlockSamples48 + 4096];
-                    ctl.SetState(AiVoiceHostState.Ready, 1.0);
-                    Console.WriteLine($"[宿主] 就绪：块 {processor.BlockSamples48} 样本（{processor.BlockSamples48 / 48.0:0.#} ms）");
-                }
-
-                if (processor == null)
-                {
-                    // 参数还没来 / 上次失败：把收到的帧读掉丢弃，避免主进程侧积压。
-                    // （管道是阻塞读，所以这里等价于"等下一帧"。）
-                    while (pipeIn.Read(scratch48) > 0) { }
+                    ctl.SetState(AiVoiceHostState.Failed, 0, error);
+                    Console.Error.WriteLine("[宿主] 加载失败：" + error);
+                    // 不退出：主进程可能马上改参数再试（换音色/换索引）
                     continue;
                 }
 
-                // ---- 2) 攒够一块就处理 ----
-                // 主进程喂的帧长度不保证等于一块（它按输入环里现有的数据喂），
-                // 所以这里要攒，攒满一块才交给 StreamingRvc（它要求长度精确匹配）。
-                var got = 0;
-                while (got < buffer48.Length)
-                {
-                    var need = buffer48.Length - got;
-                    var chunk = pipeIn.Read(scratch48.AsSpan(0, Math.Min(need, scratch48.Length)));
-                    if (chunk <= 0)
-                    {
-                        Console.WriteLine("[宿主] 输入管道已关闭，退出");
-                        return 0;
-                    }
+                Console.WriteLine($"[宿主] 就绪：块 {processor.BlockSamples48} 样本（{processor.BlockSamples48 / 48.0:0.#} ms）");
+                break;
+            }
 
-                    scratch48.AsSpan(0, chunk).CopyTo(buffer48.AsSpan(got));
-                    got += chunk;
-                }
+            if (processor == null)
+            {
+                Console.Error.WriteLine("[宿主] 没拿到可用参数，退出");
+                return 5;
+            }
 
-                // ---- 3) 处理并写回 ----
-                int produced;
+            ctl.SetState(AiVoiceHostState.Ready, 1.0);
+
+            // ---- 两段流水 ----
+            using var ready = new BlockingCollection<float[]>(ReadyQueueDepth);
+            var running = true;
+
+            // 读线程：攒满一块就排进队列。攒块的时间与推理**重叠**，这是产能的关键。
+            var reader = new Thread(() =>
+            {
+                var buffer = new float[processor.BlockSamples48];
                 try
                 {
-                    // 热参数：每块读一次。变调 / 索引占比只影响本块计算，
-                    // 所以主进程改了立刻生效，**不需要重建引擎**（对应进程内路径
-                    // 直接改 StreamingRvc.Semitones / IndexRate 的效果）。
-                    var (hotSemitones, hotRate) = ctl.GetHotParams();
-                    processor.SetHotParams(hotSemitones, hotRate);
+                    while (running && !ctl.IsClosed)
+                    {
+                        var got = 0;
+                        while (got < buffer.Length)
+                        {
+                            var need = buffer.Length - got;
+                            var n = pipeIn.Read(buffer.AsSpan(got, need));
+                            if (n <= 0) { running = false; return; }
+                            got += n;
+                        }
 
-                    produced = processor.Process(buffer48, out48);
+                        // 队列满时 TryAdd 会失败 —— 说明推理跟不上，直接把这块丢掉，
+                        // 保证实时性（宁可丢一块也不要越积越久）。
+                        if (!ready.TryAdd(buffer, 10)) { /* 丢本块 */ }
+                        buffer = new float[processor.BlockSamples48];
+                    }
                 }
                 catch (Exception ex)
                 {
-                    Console.Error.WriteLine("[宿主] 推理失败：" + ex.Message);
-                    ctl.SetState(AiVoiceHostState.Failed, 0, "推理失败：" + ex.Message);
-                    return 5;
+                    Console.Error.WriteLine("[宿主] 读取线程异常：" + ex.Message);
                 }
+            })
+            { IsBackground = true, Name = "AiVoiceHost.Reader" };
 
-                ctl.SetHostInferMs(processor.LastInferMs);
-                Console.WriteLine($"[宿主] 处理完第 {processor.Blocks} 块："
-                                  + $"产出 {produced} 样本｜推理 {processor.LastInferMs:0}ms");
-
-                // 整帧写出：管道是阻塞的，主进程那边有专门的读线程，
-                // 所以这里写不完就等（不需要自己丢帧 —— 丢帧由主进程按水位上限决定）。
-                if (!pipeOut.Write(out48.AsSpan(0, produced)))
+            // 推理线程：从队列取块，推理，写回。
+            var worker = new Thread(() =>
+            {
+                var out48 = new float[processor.BlockSamples48 + 4096];
+                try
                 {
-                    Console.WriteLine("[宿主] 输出管道已关闭，退出");
-                    return 0;
+                    foreach (var block in ready.GetConsumingEnumerable())
+                    {
+                        if (!running || ctl.IsClosed) break;
+
+                        // 热参数：每块读一次（变调/索引占比改了立刻生效，不重建引擎）
+                        var (hotSemitones, hotRate) = ctl.GetHotParams();
+                        processor.SetHotParams(hotSemitones, hotRate);
+
+                        var produced = processor.Process(block, out48);
+                        ctl.SetHostInferMs(processor.LastInferMs);
+
+                        if (!pipeOut.Write(out48.AsSpan(0, produced)))
+                        {
+                            running = false;
+                            break;
+                        }
+                    }
                 }
-            }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine("[宿主] 推理线程异常：" + ex.Message);
+                }
+            })
+            { IsBackground = true, Name = "AiVoiceHost.Worker" };
+
+            reader.Start();
+            worker.Start();
+
+            // 主线程只负责"等结束信号"
+            while (running && !ctl.IsClosed) Thread.Sleep(50);
+
+            running = false;
+            try { ready.CompleteAdding(); } catch { }
+            try { pipeIn.Dispose(); } catch { }      // 打断阻塞读
+            try { pipeOut.Dispose(); } catch { }     // 打断阻塞写
+
+            reader.Join(2000);
+            worker.Join(2000);
+
+            return 0;
         }
         finally
         {
@@ -180,8 +209,6 @@ internal static class AiVoiceHost
             try { pipeIn.Dispose(); } catch { }
             Console.WriteLine("[宿主] 已退出");
         }
-
-        return 0;
     }
 
     /// <summary>按参数 JSON 构建处理器（含分阶段加载计时，用于判断那 1.5~2 秒能否压缩）。</summary>
