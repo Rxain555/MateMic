@@ -155,6 +155,156 @@ public static class ShmRingCheck
         return buffer;
     }
 
+    // ================================================================ 跨进程校验
+    //
+    // 单进程自检（上面的 Run）只能证明"同一进程内读写一致"，**证明不了跨进程**。
+    // 而实测发现：同一段音频走跨进程后，与进程内的输出长度、RMS 都对得上，
+    // 相关系数却只有 0.87~0.96 —— 这必须用确定性数据区分"搬运错了"还是"DSP 不同"。
+    //
+    // 做法：子进程跑 `--shm-relay <名字>` 只做"从 in 原样搬到 out"，不放任何 DSP。
+    // 父进程喂一个**递增计数器序列**（每个样本都不同，错一个立刻能发现），逐样本比对。
+
+    /// <summary>子进程侧：把输入环的数据原样转发到输出环（仅供校验，无 DSP）。</summary>
+    public static int RunRelayHost(string name)
+    {
+        using var input = AudioShmRing.OpenConsumer(name + "-in", timeoutMs: 10_000);
+        if (input == null) { Console.Error.WriteLine("[relay] 打不开输入环"); return 3; }
+
+        using var output = AudioShmRing.CreateProducer(name + "-out", capacitySamples: 48000 * 4);
+        Console.WriteLine("[relay] 就绪");
+
+        var buffer = new float[8192];
+        while (!input.IsClosed)
+        {
+            var n = input.Read(buffer);
+            if (n <= 0)
+            {
+                input.WaitForData(5);
+                continue;
+            }
+
+            var written = 0;
+            while (written < n)
+            {
+                var w = output.Write(buffer.AsSpan(written, n - written));
+                if (w <= 0) { output.WaitForRoom(10); continue; }
+                written += w;
+            }
+        }
+
+        Console.WriteLine("[relay] 退出");
+        return 0;
+    }
+
+    /// <summary>父进程侧：用确定性序列跨进程校验环。</summary>
+    public static int RunCrossProcess()
+    {
+        Console.WriteLine("==== 共享内存环 · 跨进程校验 ====");
+
+        var name = "MateMicShmX-" + Guid.NewGuid().ToString("N")[..8];
+        var exe = Environment.ProcessPath;
+        if (exe == null) { Console.WriteLine("✗ 取不到自身路径"); return 1; }
+
+        const int total = 48000;   // 1 秒样本
+        var sent = new float[total];
+        for (var i = 0; i < total; i++) sent[i] = i;   // 递增计数器：错一个立刻可见
+
+        System.Diagnostics.Process? relay = null;
+        var failures = 0;
+
+        try
+        {
+            using var input = AudioShmRing.CreateProducer(name + "-in", capacitySamples: 48000 * 2);
+
+            var psi = new System.Diagnostics.ProcessStartInfo(exe)
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+            psi.ArgumentList.Add("--shm-relay");
+            psi.ArgumentList.Add(name);
+            relay = System.Diagnostics.Process.Start(psi);
+            if (relay == null) { Console.WriteLine("✗ relay 进程启动失败"); return 1; }
+            relay.OutputDataReceived += (_, e) => { if (e.Data != null) Console.WriteLine("  [relay] " + e.Data); };
+            relay.ErrorDataReceived += (_, e) => { if (e.Data != null) Console.WriteLine("  [relay!] " + e.Data); };
+            relay.BeginOutputReadLine();
+            relay.BeginErrorReadLine();
+            Console.WriteLine($"relay 进程 PID={relay.Id}");
+
+            // 输出环由 relay 创建，等它出现
+            var output = AudioShmRing.OpenConsumer(name + "-out", timeoutMs: 10_000);
+            if (output == null) { Console.WriteLine("✗ 打不开输出环"); return 1; }
+
+            using (output)
+            {
+                // 全喂
+                var fed = 0;
+                while (fed < total)
+                {
+                    var w = input.Write(sent.AsSpan(fed, total - fed));
+                    if (w <= 0) { input.WaitForRoom(10); continue; }
+                    fed += w;
+                }
+                Console.WriteLine($"已喂 {fed} 样本（递增序列）");
+
+                // 全收
+                var got = new float[total + 8192];
+                var received = 0;
+                var deadline = Environment.TickCount64 + 30_000;
+                while (received < total && Environment.TickCount64 < deadline)
+                {
+                    var n = output.Read(got.AsSpan(received, Math.Min(8192, got.Length - received)));
+                    if (n > 0) { received += n; continue; }
+                    Thread.Sleep(2);
+                }
+                Console.WriteLine($"已收 {received} 样本");
+
+                // 逐样本比对
+                var n2 = Math.Min(received, total);
+                var firstBad = -1;
+                var badCount = 0;
+                for (var i = 0; i < n2; i++)
+                {
+                    if (got[i] != sent[i])
+                    {
+                        badCount++;
+                        if (firstBad < 0) firstBad = i;
+                    }
+                }
+
+                var ok = received == total && badCount == 0;
+                Console.WriteLine($"{(ok ? "✓" : "✗")} 跨进程搬运：发 {total} / 收 {received}｜不一致 {badCount} 个"
+                                  + (firstBad >= 0 ? $"｜首个错位于 {firstBad}（期望 {sent[firstBad]}，实得 {got[firstBad]}）" : ""));
+                if (!ok) failures++;
+
+                input.RequestClose();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("✗ 校验抛异常：" + ex);
+            failures++;
+        }
+        finally
+        {
+            try
+            {
+                if (relay is { HasExited: false })
+                {
+                    relay.WaitForExit(3000);
+                    if (!relay.HasExited) relay.Kill(entireProcessTree: true);
+                }
+            }
+            catch { }
+            relay?.Dispose();
+        }
+
+        Console.WriteLine(failures == 0 ? "==== 跨进程校验通过 ====" : $"==== 跨进程校验失败（{failures} 项）====");
+        return failures == 0 ? 0 : 1;
+    }
+
     private static bool Same(ReadOnlySpan<float> a, ReadOnlySpan<float> b)
     {
         if (a.Length != b.Length) return false;

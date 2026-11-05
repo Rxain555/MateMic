@@ -28,6 +28,9 @@ internal static class AiVoiceHost
 {
     private const int ChainRate = 48000;
 
+    /// <summary>等待输入的轮询计数（仅用于节流日志）。</summary>
+    private static int _starveTicks;
+
     /// <summary>宿主主循环。返回进程退出码（0 = 正常）。</summary>
     public static int Run(string[] args)
     {
@@ -120,7 +123,14 @@ internal static class AiVoiceHost
                     {
                         if (ctl.IsClosed) return 0;
                         // 数据不够一块：等一小会儿。**不能等太久**，否则输入环会积压成延迟
-                        inputRing.WaitForData(2);
+                        if (!inputRing.WaitForData(2))
+                        {
+                            // 每等约 200 次（≈400ms）打一条，用来定位"卡在等输入"的情况
+                            if (++_starveTicks % 200 == 0)
+                                Console.WriteLine($"[宿主] 等输入：还需 {need} 样本"
+                                                  + $"｜输入环余 {inputRing.AvailableSamples}"
+                                                  + $"｜已处理 {processor.Blocks} 块");
+                        }
                         continue;
                     }
 
@@ -148,7 +158,9 @@ internal static class AiVoiceHost
                 }
 
                 ctl.SetHostInferMs(processor.LastInferMs);
-
+                Console.WriteLine($"[宿主] 处理完第 {processor.Blocks} 块："
+                                  + $"产出 {produced} 样本｜推理 {processor.LastInferMs:0}ms"
+                                  + $"｜输入环余 {inputRing.AvailableSamples}");
                 // 输出环满时**丢最旧的**（保证实时性）：这与主进程侧的水位策略一致
                 var written = 0;
                 while (written < produced)

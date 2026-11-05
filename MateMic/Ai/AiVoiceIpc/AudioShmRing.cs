@@ -205,6 +205,12 @@ public sealed class AudioShmRing : IDisposable
 
         var count = (int)Math.Min(samples.Length, free);
         WriteAt(w, samples[..count]);
+
+        // ⚠ 内存屏障：必须先让"样本数据"对另一进程可见，再发布新的写指针。
+        // 没有它，CPU/编译器可以重排成"指针先更新"，消费者就可能读到**还没写完**的音频 ——
+        // 单进程自检察觉不到（同一份缓存），跨进程才暴露：实测同一段音频走跨进程后
+        // 与进程内输出的相关系数只有 0.9595（长度、RMS 都对，波形就是不一样）。
+        Thread.MemoryBarrier();
         _view.Write(OffsetWrite, w + count);
 
         _dataReady.Set();
@@ -226,7 +232,12 @@ public sealed class AudioShmRing : IDisposable
         if (available <= 0) return 0;
 
         var count = (int)Math.Min(samples.Length, available);
+
+        // ⚠ 对应 Write 侧的屏障：拿到写指针之后，先确保样本数据已经可见，再去读。
+        // 否则可能读到生产者刚写上指针、数据还没落地的半截内容。
+        Thread.MemoryBarrier();
         ReadAt(r, samples[..count]);
+        Thread.MemoryBarrier();
         _view.Write(OffsetRead, r + count);
 
         _roomFree.Set();

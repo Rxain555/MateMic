@@ -160,9 +160,28 @@ public partial class App : Application
             return;
         }
 
-        // 共享内存环自检（AI 变声独立进程的基础件）：MateMic.exe --shmcheck
-        if (HasFlag(args, "--shmcheck"))
+        // 共享内存环 relay 子进程（仅自检用）：MateMic.exe --shm-relay <名字>
+        // 只做"从输入环原样搬到输出环"，用来单独验证跨进程搬运的正确性（不碰 DSP）。
+        if (HasFlag(args, "--shm-relay"))
         {
+            var shmName = "";
+            for (var i = 0; i < args.Length - 1; i++)
+                if (args[i] == "--shm-relay") { shmName = args[i + 1]; break; }
+            var relayCode = MateMic.Ai.AiVoiceIpc.ShmRingCheck.RunRelayHost(shmName);
+            Shutdown(relayCode);
+            return;
+        }
+
+        // 共享内存环跨进程校验：MateMic.exe --shm-xcheck
+        if (HasFlag(args, "--shm-xcheck"))
+        {
+            var xCode = MateMic.Ai.AiVoiceIpc.ShmRingCheck.RunCrossProcess();
+            Shutdown(xCode);
+            return;
+        }
+
+        // 共享内存环自检（AI 变声独立进程的基础件）：MateMic.exe --shmcheck
+        if (HasFlag(args, "--shmcheck"))        {
             MateMic.Ai.AiVoiceIpc.ShmRingCheck.Run();
             Shutdown();
             return;
@@ -174,6 +193,15 @@ public partial class App : Application
         {
             var hostCode = MateMic.Ai.AiVoiceIpc.HostCheck.Run(args);
             Shutdown(hostCode);
+            return;
+        }
+
+        // 跨进程往返一致性自检：MateMic.exe --rpc-check [--ai <组件目录>]
+        // 同一段音频分别走进程内与跨进程，逐样本比对 —— 用来判断"音色不对"是搬运问题还是宿主 DSP 问题。
+        if (HasFlag(args, "--rpc-check"))
+        {
+            var rpcCode = MateMic.Ai.AiVoiceIpc.RpcRoundTripCheck.Run(args);
+            Shutdown(rpcCode);
             return;
         }
 
