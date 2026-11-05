@@ -304,52 +304,99 @@ public sealed class AiVoiceEffect : IAudioEffect
     private AiVoiceHostClient? _hostClient;
 
     /// <summary>
-    /// 独立进程路径（实验性）：起子进程并把参数发过去，等它加载完。
+    /// 进程内引擎（回退路径）：三个 ONNX 全部在本进程里加载。
     ///
-    /// 只做"起 + 等"，**不碰** <c>_toModel/_fromModel</c>：跨进程时采样率转换在宿主里
-    /// （<see cref="RvcBlockProcessor"/>），主进程收发的一直是 48 kHz。
+    /// 它是独立进程起不来时的兜底 —— 功能完全可用，只是**关掉 AI 变声后内存回收不干净**
+    ///（ONNX 与 CUDA 的内存池不还给系统）。
     /// </summary>
-    private void StartHostBackend(string engineDir)
+    private void CreateLocalEngine(string engineDir, FaissIndex? index, float rate)
     {
-        var parameters = new AiVoiceHostParams
-        {
-            Cv = Path.Combine(engineDir, "contentvec.onnx"),
-            Rmvpe = Path.Combine(engineDir, "rmvpe.onnx"),
-            Voice = Path.Combine(ConfigStore.AiVoicesDirectory, _config.AiVoice.VoiceModel!),
-            Index = string.IsNullOrWhiteSpace(_config.AiVoice.IndexFile)
-                ? null
-                : Path.Combine(ConfigStore.AiIndexDirectory, _config.AiVoice.IndexFile),
-            BlockMs = _config.AiVoice.BlockMs,
-            ContextMs = _config.AiVoice.ContextMs,
-            CrossfadeMs = _config.AiVoice.CrossfadeMs,
-            Semitones = (int)Math.Round(_config.AiVoice.Semitones),
-            IndexRate = _config.AiVoice.IndexRate / 100f,
-            UseGpu = true,
-        };
+        _engine = new StreamingRvc(
+            Path.Combine(engineDir, "contentvec.onnx"),
+            Path.Combine(engineDir, "rmvpe.onnx"),
+            Path.Combine(ConfigStore.AiVoicesDirectory, _config.AiVoice.VoiceModel!),
+            _config.AiVoice.BlockMs,
+            _config.AiVoice.ContextMs,
+            _config.AiVoice.CrossfadeMs,
+            (int)Math.Round(_config.AiVoice.Semitones),
+            useGpu: true,
+            index: index,
+            indexRate: rate,
+            onProgress: p =>
+            {
+                _loadProgress = p;
+                ProgressChanged?.Invoke(this, p);
+            });
 
-        var client = AiVoiceHostClient.Start(parameters, ChainRate * 2, out var startError);
-        if (client == null)
-            throw new InvalidOperationException("宿主进程启动失败：" + startError);
+        _toModel = new RateConverter(ChainRate, ModelRate, _blockSamples48 + 64);
+        _fromModel = new RateConverter(ModelRate, ChainRate, _blockSamples48 * ModelRate / ChainRate + 64);
+    }
+
+    /// <summary>
+    /// 尝试起独立进程并等它就绪。**失败不抛异常**，而是返回 false 并给出原因，
+    /// 让调用方自动退回 <see cref="CreateLocalEngine"/>。
+    ///
+    /// 跨进程时采样率转换在宿主里（<see cref="RvcBlockProcessor"/>），所以这里**不碰**
+    /// <c>_toModel/_fromModel</c> —— 主进程收发的一直是 48 kHz。
+    /// </summary>
+    private bool TryStartHostBackend(string engineDir, out string error)
+    {
+        error = string.Empty;
+        AiVoiceHostClient? client = null;
 
         try
         {
+            var parameters = new AiVoiceHostParams
+            {
+                Cv = Path.Combine(engineDir, "contentvec.onnx"),
+                Rmvpe = Path.Combine(engineDir, "rmvpe.onnx"),
+                Voice = Path.Combine(ConfigStore.AiVoicesDirectory, _config.AiVoice.VoiceModel!),
+                Index = string.IsNullOrWhiteSpace(_config.AiVoice.IndexFile)
+                    ? null
+                    : Path.Combine(ConfigStore.AiIndexDirectory, _config.AiVoice.IndexFile),
+                BlockMs = _config.AiVoice.BlockMs,
+                ContextMs = _config.AiVoice.ContextMs,
+                CrossfadeMs = _config.AiVoice.CrossfadeMs,
+                Semitones = (int)Math.Round(_config.AiVoice.Semitones),
+                IndexRate = _config.AiVoice.IndexRate / 100f,
+                UseGpu = true,
+            };
+
+            client = AiVoiceHostClient.Start(parameters, ChainRate * 2, out var startError);
+            if (client == null)
+            {
+                error = "子进程启动失败：" + startError;
+                return false;
+            }
+
             // 给足时间：GPU 首次加载 + CUDA context + kernel 编译
             if (!client.WaitReady(180_000, out var readyError))
-                throw new InvalidOperationException("宿主进程未就绪：" + readyError);
-            if (!client.IsAlive)
-                throw new InvalidOperationException("宿主进程已退出：" + client.LastError);
-        }
-        catch
-        {
-            client.Dispose();
-            throw;
-        }
+            {
+                error = "子进程未就绪：" + readyError;
+                client.Dispose();
+                return false;
+            }
 
-        _hostClient = client;
-        _loadProgress = 100;
-        ProgressChanged?.Invoke(this, 100);
-        Log.Info($"[AI 变声] 已切换到独立进程（PID {client.HostPid}）：块 {_config.AiVoice.BlockMs}ms"
-                 + $" / 上下文 {_config.AiVoice.ContextMs}ms / 音色 {_config.AiVoice.VoiceModel}");
+            if (!client.IsAlive)
+            {
+                error = "子进程启动后已退出：" + client.LastError;
+                client.Dispose();
+                return false;
+            }
+
+            _hostClient = client;
+            _loadProgress = 100;
+            ProgressChanged?.Invoke(this, 100);
+            Log.Info($"[AI 变声] 推理在独立进程（PID {client.HostPid}）：块 {_config.AiVoice.BlockMs}ms"
+                     + $" / 上下文 {_config.AiVoice.ContextMs}ms / 音色 {_config.AiVoice.VoiceModel}");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            try { client?.Dispose(); } catch { }
+            return false;
+        }
     }
 
     /// <summary>
@@ -504,32 +551,16 @@ public sealed class AiVoiceEffect : IAudioEffect
             }
         }
 
-        if (_config.AiVoice.EnableHostProcess)
+        // 推理**总是**优先放进独立进程：关掉 AI 变声=结束子进程 ⇒ 模型内存 / CUDA context /
+        // 显存 / faiss 索引全部由操作系统回收（进程内 Dispose 做不到，ONNX 与 CUDA 的
+        // 内存池不还给系统，实测关闭后仍常驻约 900 MB）。
+        //
+        // 没有开关：这对用户是透明的 —— 起不来就自动退回进程内（功能照样可用，只是内存
+        // 回收不干净），并记一条 WARN。让用户选"推理方式"没有意义，他只要"能用 + 能释放"。
+        if (!TryStartHostBackend(engineDir, out var hostError))
         {
-            // 独立进程路径（实验性）：起子进程、等它就绪。**不动下面的进程内路径**。
-            StartHostBackend(engineDir);
-        }
-        else
-        {
-            _engine = new StreamingRvc(
-                Path.Combine(engineDir, "contentvec.onnx"),
-                Path.Combine(engineDir, "rmvpe.onnx"),
-                Path.Combine(ConfigStore.AiVoicesDirectory, _config.AiVoice.VoiceModel!),
-                _config.AiVoice.BlockMs,
-                _config.AiVoice.ContextMs,
-                _config.AiVoice.CrossfadeMs,
-                (int)Math.Round(_config.AiVoice.Semitones),
-                useGpu: true,
-                index: index,
-                indexRate: rate,
-                onProgress: p =>
-                {
-                    _loadProgress = p;
-                    ProgressChanged?.Invoke(this, p);
-                });
-
-            _toModel = new RateConverter(ChainRate, ModelRate, _blockSamples48 + 64);
-            _fromModel = new RateConverter(ModelRate, ChainRate, _blockSamples48 * ModelRate / ChainRate + 64);
+            Log.Warn("[AI 变声] 独立进程不可用，已自动退回进程内推理：" + hostError);
+            CreateLocalEngine(engineDir, index, rate);
         }
 
         _running = true;
