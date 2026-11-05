@@ -1,4 +1,4 @@
-using NAudio.Wave;
+﻿using NAudio.Wave;
 using MateMic.Ai.AiVoiceIpc;
 using MateMic.Core;
 using MateMic.Denoise;
@@ -79,6 +79,14 @@ public sealed class AiVoiceEffect : IAudioEffect
     /// 0 表示还没有测量值（宿主刚就绪），此时按两块保底。
     /// </summary>
     private long _measuredProduceGapMs;
+
+    // ---- 跨进程**同步**直连用的缓冲（2026-11-06 重做，方案 A）----
+    // 只有"一整块"这一个概念：`_syncIn` 送出去、`_syncOut` 收回来，
+    // `_syncOut[0.._syncLength]` 是本次可交付的数据。没有任何水位/余量/漂移逻辑。
+    private float[] _syncIn = Array.Empty<float>();
+    private float[] _syncOut = Array.Empty<float>();
+    private int _syncLength;
+    private int _syncRead;
 
     /// <summary>
     /// 消费侧观测到的输出环水位最低点（毫秒）。由 `ReadCore` 写、诊断日志读后清零。
@@ -377,6 +385,19 @@ public sealed class AiVoiceEffect : IAudioEffect
 
         _blockSamples48 = ExpectedBlockSamples();
         _inScratch = new float[_blockSamples48];
+
+        // 跨进程同步直连的两块缓冲（送出一块、收回一块）
+        _syncIn = new float[_blockSamples48];
+        _syncOut = new float[_blockSamples48];
+        _syncLength = 0;
+        _syncRead = 0;
+
+        // 预填一块静音到输入环：同步模式首次 Read 就要"攒满一整块"，
+        // 而启动瞬间采集还没送来任何数据，不预填的话第一块会是静音补位。
+        // 预填一块后，第一次往返就有真实输入可用。
+        var prefill = (int)Math.Min(_blockSamples48, _inRing.Length - 1);
+        _inWrite = prefill;
+        _inRead = 0;
         _outScratch = new float[_blockSamples48];
 
         // 预填充 = 一个块 + 余量（见 StartupPadMs）。
@@ -962,7 +983,7 @@ public sealed class AiVoiceEffect : IAudioEffect
         // 代码与自检全部保留：Ai/AiVoiceIpc/*、--pipecheck / --hostcheck /
         // --rpc-check / --synccheck / --rtcheck。重做时先让 --rtcheck 在目标配置下
         // 通过（欠载 = 0），再上真机。
-        const bool hostProcessEnabled = false;
+        const bool hostProcessEnabled = true;
 
         if (hostProcessEnabled)
         {
@@ -1068,10 +1089,115 @@ public sealed class AiVoiceEffect : IAudioEffect
     {
         if (buffer.Length == 0) return 0;
 
+        // ================================================================
+        // 跨进程：**同步直连**（2026-11-06 重做，方案 A）
+        //
+        // 之前是异步：主进程喂 → 宿主算 → 取线程再写进输出环，音频线程从环里取。
+        // 那条路必然漂移 —— 宿主每块要多花 4~5ms 等管道唤醒，产出只有 96%，
+        // 而消费严格 100% ⇒ 水位单调下降 ⇒ 周期性补静音（用户听到的切断）。
+        //
+        // 现在改成**同步**：音频线程自己把一整块交给宿主、等它算完、直接拿走结果。
+        // "送出"与"收回"严格 1:1 ⇒ **不存在速率差，也就不可能漂移**。
+        // 这与官方 realtime_gui 在 `sd.Stream` 回调里同步推理是同一个结构。
+        //
+        // 代价（必须说清）：音频线程会被阻塞一个推理耗时（约 60~100ms），
+        // 靠播放器的设备缓冲吸收。若某次推理超出缓冲余量，会整块补静音 ——
+        // 这与官方行为一致，是同步方案的固有代价，不是 bug。
+        // ================================================================
+        var hostClient = _hostClient;
+        if (hostClient != null)
+        {
+            return ReadSyncHost(hostClient, buffer);
+        }
+
         lock (_ringGate)
         {
             return ReadCore(buffer);
         }
+    }
+
+    /// <summary>
+    /// 跨进程**同步**读取：按块与宿主往返。
+    ///
+    /// 只做三件事，没有任何水位/余量/漂移的概念：
+    ///   1. 缓冲里的数据用完 ⇒ 从输入环攒满一整块（不足就补静音）；
+    ///   2. **同步**把这块交给宿主（阻塞写），再**同步**等回同样长度（阻塞读）；
+    ///   3. 把结果放进缓冲，按调用方要的长度交出去。
+    /// </summary>
+    private int ReadSyncHost(AiVoiceHostClient client, Span<float> buffer)
+    {
+        var taken = 0;
+
+        while (taken < buffer.Length)
+        {
+            if (_syncRead >= _syncLength)
+            {
+                if (!SyncRoundTrip(client)) break;
+            }
+
+            var n = Math.Min(buffer.Length - taken, _syncLength - _syncRead);
+            _syncOut.AsSpan(_syncRead, n).CopyTo(buffer[taken..]);
+            _syncRead += n;
+            taken += n;
+        }
+
+        if (taken < buffer.Length)
+        {
+            buffer[taken..].Clear();
+            Interlocked.Increment(ref _lateBlocks);
+        }
+
+        return taken;
+    }
+
+    /// <summary>
+    /// 与宿主做一次**同步往返**：喂一整块，取回一整块。
+    /// 返回 false 表示对端已关闭（此时调用方会补静音）。
+    /// </summary>
+    private bool SyncRoundTrip(AiVoiceHostClient client)
+    {
+        // ---- 1) 攒满一整块输入 ----
+        var got = 0;
+        lock (_ringGate)
+        {
+            var available = Available(_inRing, _inRead, _inWrite);
+            var n = (int)Math.Min(available, _blockSamples48);
+            for (var i = 0; i < n; i++)
+            {
+                _syncIn[i] = _inRing[_inRead];
+                _inRead = (_inRead + 1) % _inRing.Length;
+            }
+            got = n;
+        }
+
+        // 输入不够一块（启动初期 / 采集抖动）：后半补静音。
+        // 这不会造成漂移 —— 送出去多少、收回来多少，始终 1:1。
+        if (got < _blockSamples48)
+        {
+            Array.Clear(_syncIn, got, _blockSamples48 - got);
+        }
+
+        // ---- 2) 同步送 ----
+        if (!client.WriteInput(_syncIn)) return false;
+
+        // ---- 3) 同步收（等够一整块）----
+        var read = 0;
+        while (read < _blockSamples48)
+        {
+            var n = client.ReadOutput(_syncOut.AsSpan(read, _blockSamples48 - read));
+            if (n <= 0) break;
+            read += n;
+        }
+
+        if (read < _blockSamples48)
+        {
+            Array.Clear(_syncOut, read, _blockSamples48 - read);
+            Interlocked.Increment(ref _lateBlocks);
+        }
+
+        _syncLength = _blockSamples48;
+        _syncRead = 0;
+        return true;
     }
 
     private int ReadCore(Span<float> buffer)
@@ -1313,12 +1439,13 @@ public sealed class AiVoiceEffect : IAudioEffect
 
     private void WorkerLoop()
     {
-        // 独立进程路径走另一套循环（跨进程是异步的，不能复用下面"一块进一块出"的逻辑）
+        // 独立进程走同步直连（见 ReadSyncHost / SyncRoundTrip），这里什么都不做。
+        // 旧的异步流水 HostWorkerLoopV2 仍保留在代码里，但不再启用。
         if (_hostClient != null)
         {
-            HostWorkerLoopV2();
             return;
         }
+
         while (_running)
         {
             _wake.Wait(20);
