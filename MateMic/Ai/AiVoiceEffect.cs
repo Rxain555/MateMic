@@ -91,6 +91,9 @@ public sealed class AiVoiceEffect : IAudioEffect
     /// <summary>同步往返的诊断计数（只打头几次，避免刷屏）。</summary>
     private int _syncDiagCount;
 
+    /// <summary>音频层单次请求量的诊断计数（只打头几次）。</summary>
+    private int _readSizeDiagCount;
+
     /// <summary>
     /// 消费侧观测到的输出环水位最低点（毫秒）。由 `ReadCore` 写、诊断日志读后清零。
     /// 它才是"预填充够不够"的判据：> 0 说明一直有余量，= 0 说明每次都被吃光。
@@ -1081,6 +1084,19 @@ public sealed class AiVoiceEffect : IAudioEffect
     public int Read(Span<float> buffer)
     {
         if (buffer.Length == 0) return 0;
+
+        // **诊断：音频层一次到底要多少样本**（2026-11-06）。
+        // 这是判断"能不能像官方那样同步推理"的唯一硬指标：
+        //   · 若一次就要一整块（5760）⇒ 同步方案成立，攒块不额外耗时；
+        //   · 若仍只要 480（10ms）⇒ WithLatency 只改了缓冲深度、没改回调粒度，
+        //     同步方案在 NAudio 下不可行，必须回异步。
+        // 只打前几次，避免刷屏。
+        if (Interlocked.Increment(ref _readSizeDiagCount) <= 8)
+        {
+            Log.Info($"[AI 变声] 音频层单次请求 {buffer.Length} 样本"
+                     + $"（{buffer.Length * 1000.0 / ChainRate:0.0}ms，块长 {_blockSamples48} 样本）"
+                     + $"｜跨进程 {(_hostClient != null ? "是" : "否")}");
+        }
 
         // ================================================================
         // 跨进程：**同步直连**（2026-11-06 重做，方案 A）
