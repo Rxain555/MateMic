@@ -3766,68 +3766,69 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             Margin = new Thickness(0),
         };
 
-        // 版式与「使用指南」保持一致：字号 12、行高 19（DialogHost 里指南正文就是这两个值）。
-        // 行距不统一是上一版显得"丑"的原因 —— 字段行、更新内容各用了不同的行距。
+        // 版式与「使用指南」一致：字号 12、行高 19。
+        //
+        // ⚠ **整块内容用一个 RichTextBox 承载**（2026-11-15 用户反馈"行距不统一"）：
+        // 上一版每个字段一个 TextBox —— 单行靠内边距凑行距、多行的更新内容却只能吃
+        // 字体默认行距，于是"字段行距偏大、更新内容行距偏小"。
+        // RichTextBox 有真正的 LineHeight，且天然支持选中复制，一次性解决两个问题。
         const double FontSize = 12;
         const double LineHeight = 19;
 
         var primary = TryFindResource("TextBrush") as Brush;
-        var subtle = TryFindResource("SubtleTextBrush") as Brush;
 
-        // **所有文字都用只读 TextBox**（2026-11-15 用户要求）：
-        // 自动复制受系统剪贴板竞争影响会时灵时不灵，与其反复兜底，
-        // 不如让用户能**选中任意内容手动 Ctrl+C** —— 这是最可靠的兜底手段。
-        // 外观上要看起来完全像普通文字：无边框、透明背景、只读、不可聚焦出光标以外的东西。
-        TextBox ReadOnlyText(string text, Brush? foreground, double height)
+        var document = new FlowDocument
         {
-            return new TextBox
+            FontSize = FontSize,
+            // 整个文档统一行高，字段行与更新内容完全一致
+            LineHeight = LineHeight,
+            LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+            PagePadding = new Thickness(0),
+        };
+        if (primary != null) document.Foreground = primary;
+
+        void AddParagraph(string text)
+        {
+            var paragraph = new Paragraph
             {
-                Text = text,
-                IsReadOnly = true,
-                IsReadOnlyCaretVisible = false,
-                BorderThickness = new Thickness(0),
-                Background = Brushes.Transparent,
-                // ⚠ TextBox 没有 LineHeight 属性，靠上下内边距凑出与使用指南相近的行距
-                //（FontSize 12 + 上下各 3px ≈ 行高 19）。行距过小正是之前"丑"的原因。
-                Padding = new Thickness(0, 3, 0, 3),
                 Margin = new Thickness(0),
-                FontSize = FontSize,
-                Foreground = foreground,
-                TextWrapping = TextWrapping.Wrap,
-                // 让键盘 Tab 不落到这些框上，界面焦点行为保持原样
-                IsTabStop = false,
-                MinHeight = height + 6,
+                LineHeight = LineHeight,
+                LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+                TextIndent = 0,
             };
-        }
-
-        // 一行字段（"版本号：0.4.3"）：整体一个只读框，所以标签与值都能一起选中
-        void AddField(string label, string value)
-        {
-            panel.Children.Add(ReadOnlyText(label + value, primary, LineHeight));
+            paragraph.Inlines.Add(new Run(text));
+            document.Blocks.Add(paragraph);
         }
 
         // 前四个字段（按用户给的示例顺序）
-        AddField("版本号：", string.IsNullOrWhiteSpace(info.Version) ? "—" : info.Version);
-        AddField("更新时间：", string.IsNullOrWhiteSpace(info.PublishedAt) ? "—" : info.PublishedAt);
-        AddField("下载链接：", info.DownloadUrl);
-        AddField("提取码：", string.IsNullOrWhiteSpace(info.ExtractCode) ? "—" : info.ExtractCode);
+        AddParagraph("版本号：" + (string.IsNullOrWhiteSpace(info.Version) ? "—" : info.Version));
+        AddParagraph("更新时间：" + (string.IsNullOrWhiteSpace(info.PublishedAt) ? "—" : info.PublishedAt));
+        AddParagraph("下载链接：" + info.DownloadUrl);
+        AddParagraph("提取码：" + (string.IsNullOrWhiteSpace(info.ExtractCode) ? "—" : info.ExtractCode));
 
         // 空一行（用户示例里更新内容前面就空一行）
-        panel.Children.Add(new Border { Height = LineHeight });
+        AddParagraph(string.Empty);
 
-        // 更新内容：与上面同字号同行距，超长时可滚动
-        panel.Children.Add(ReadOnlyText("更新内容：", subtle, LineHeight));
+        // "更新内容："用**正文同色**（上一版误用了次要色，用户指出和其他字不统一）
+        AddParagraph("更新内容：");
+        AddParagraph(string.IsNullOrWhiteSpace(info.Notes) ? "（无说明）" : info.Notes);
 
-        panel.Children.Add(new ScrollViewer
+        var viewer = new RichTextBox
         {
-            Content = ReadOnlyText(
-                string.IsNullOrWhiteSpace(info.Notes) ? "（无说明）" : info.Notes,
-                primary,
-                LineHeight),
+            Document = document,
+            IsReadOnly = true,
+            IsReadOnlyCaretVisible = false,
+            BorderThickness = new Thickness(0),
+            Background = Brushes.Transparent,
+            Padding = new Thickness(0),
+            Margin = new Thickness(0),
+            IsTabStop = false,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            MaxHeight = 152,
-        });
+            // 右键菜单：默认那个是系统原生菜单（方角、旧配色），与本程序风格完全不符。
+            ContextMenu = BuildCopyContextMenu(),
+        };
+        panel.Children.Add(viewer);
 
         var accepted = DialogHost.ShowCustom(
             this,
@@ -3838,13 +3839,12 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
         if (!accepted) return;
 
-        // ---- 主按钮：**先开浏览器，再处理剪贴板**（2026-11-15 修"点完要等三四秒"）----
+        // ---- 主按钮：先开浏览器，再尝试复制提取码 ----
         //
-        // 顺序很关键。原先先复制再打开，而 Clipboard.SetDataObject 在剪贴板被别的程序占用时
-        // **每次会阻塞约 1 秒**，重试 3 次就是 3 秒左右 —— 用户点完要干等三四秒才看到浏览器。
-        // 现在把"打开浏览器"提到最前（一次 ShellExecute，毫秒级），
-        // 剪贴板放到最后并丢到后台线程去重试，绝不阻塞界面。
-        var opened = false;
+        // ⚠ 打开浏览器**只能做一次**（2026-11-15 用户实测"链接被打开两次"）：
+        // 上一版编辑残留了一段重复的 Process.Start，导致点了按钮弹出两个标签页。
+        // 顺序也要注意：Clipboard.SetDataObject 在剪贴板被占用时每次会阻塞约 1 秒，
+        // 放在前面会让用户干等才看到浏览器，所以浏览器先开。
         if (!UpdateChecker.IsDownloadUrlAllowed(info.DownloadUrl, info.AllowedHosts))
         {
             // 理论上 Parse 阶段已经拦下，这里只是双保险
@@ -3855,7 +3855,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             try
             {
                 Process.Start(new ProcessStartInfo(info.DownloadUrl) { UseShellExecute = true });
-                opened = true;
             }
             catch (Exception ex)
             {
@@ -3863,30 +3862,14 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             }
         }
 
-        // ---- 主按钮：先开浏览器，再尝试复制提取码 ----
+        // 复制提取码：**只尝试一次、失败静默**（2026-11-15 修"粘贴被卡住"）。
         //
-        // 顺序很关键。Clipboard.SetDataObject 在剪贴板被占用时每次会阻塞约 1 秒，
-        // 放在前面会让用户干等三四秒才看到浏览器。所以打开浏览器提到最前。
-        if (!UpdateChecker.IsDownloadUrlAllowed(info.DownloadUrl, info.AllowedHosts))
-        {
-            Log.Warn("[检查更新] 下载链接未通过校验，未打开浏览器：" + info.DownloadUrl);
-        }
-        else
-        {
-            try
-            {
-                Process.Start(new ProcessStartInfo(info.DownloadUrl) { UseShellExecute = true });
-                opened = true;
-            }
-            catch (Exception ex)
-            {
-                Log.Warn("[检查更新] 打开浏览器失败：" + ex.Message);
-            }
-        }
-
-        // 复制提取码：尽力而为，**无论成败都不再弹提示**（2026-11-15 用户要求）。
-        // 对话框里的文字全部是只读 TextBox，可选中手动复制 —— 那才是可靠的兜底，
-        // 所以这里失败也没必要再打扰用户，只在日志里留痕便于排查。
+        // 用户实测：点完按钮后两三秒内粘贴不出来，之后一次性"补吐"出累积的粘贴操作。
+        // 原因是 Clipboard.SetDataObject 在剪贴板被占用时**每次调用会阻塞约 1 秒**，
+        // 而我之前重试 3 次 ⇒ 界面线程被占住约 3 秒 ⇒ 用户在这期间的粘贴全部排队。
+        //
+        // 现在只试一次（最多阻塞约 1 秒），失败就算了 —— 对话框内容是可选中复制的，
+        // 那才是可靠兜底，不值得为了自动复制把界面卡住好几秒。
         var code = info.ExtractCode;
         if (!string.IsNullOrWhiteSpace(code))
         {
@@ -3894,19 +3877,91 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             if (!copied && copyError != null)
             {
                 Log.Warn("[检查更新] 复制提取码失败（剪贴板被其他程序占用）：" + copyError
-                         + "；对话框内容可手动选中复制。");
+                         + "；对话框内容可选中后用右键「复制」。");
             }
         }
         else
         {
             Log.Debug("[检查更新] 没有提取码，跳过复制");
         }
+    }
 
-        // 链接打开失败也**不弹提示**（用户要求）；仅日志留痕。
-        if (!opened)
+    /// <summary>
+    /// 给对话框里的只读文本做一个"只有一个复制项"的右键菜单。
+    ///
+    /// 为什么自己搭：WPF 默认的 ContextMenu 是系统原生菜单（方角、系统配色），
+    /// 与本程序的自绘风格完全不符。这里用与托盘右键菜单（Ui\TrayMenuWindow）
+    /// 相同的主题画刷与圆角，宽度也不铺开（用户要求"无须太宽"）。
+    /// </summary>
+    private ContextMenu BuildCopyContextMenu()
+    {
+        var menu = new ContextMenu
         {
-            Log.Warn("[检查更新] 未能自动打开下载链接，用户可在对话框中手动选中复制链接。");
-        }
+            Padding = new Thickness(0),
+            HasDropShadow = false,
+            Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint,
+        };
+
+        // 圆角 + 描边 + 主题背景；ContextMenu 本身画不出圆角，所以内容包一层 Border
+        var surface = new Border
+        {
+            Background = TryFindResource("PopupSurfaceBrush") as Brush ?? Brushes.White,
+            BorderBrush = TryFindResource("DialogBorderBrush") as Brush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(7),
+            Padding = new Thickness(3),
+        };
+
+        var item = new Button
+        {
+            Content = new TextBlock { Text = "复制", VerticalAlignment = VerticalAlignment.Center },
+            Height = 28,
+            MinWidth = 64,            // 只需放得下两个字，不做满宽菜单
+            Padding = new Thickness(14, 0, 14, 0),
+            HorizontalContentAlignment = HorizontalAlignment.Left,
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            Cursor = Cursors.Arrow,
+            Foreground = TryFindResource("TextBrush") as Brush,
+        };
+
+        // 悬停高亮：用主题里的 ControlHoverBrush，与托盘菜单一致
+        var template = new ControlTemplate(typeof(Button));
+        var border = new FrameworkElementFactory(typeof(Border), "Bd");
+        border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(BackgroundProperty));
+        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(4));
+        border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(PaddingProperty));
+        var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
+        presenter.SetValue(HorizontalAlignmentProperty, HorizontalAlignment.Left);
+        presenter.SetValue(VerticalAlignmentProperty, VerticalAlignment.Center);
+        border.AppendChild(presenter);
+        template.VisualTree = border;
+
+        var hover = new Trigger { Property = IsMouseOverProperty, Value = true };
+        hover.Setters.Add(new Setter(Border.BackgroundProperty,
+            TryFindResource("ControlHoverBrush") ?? Brushes.LightGray, "Bd"));
+        template.Triggers.Add(hover);
+        item.Template = template;
+
+        item.Click += (_, _) =>
+        {
+            menu.IsOpen = false;
+            // 复制当前选中的文字（焦点在 RichTextBox 上时即为其选中内容）
+            if (Keyboard.FocusedElement is RichTextBox box && !box.Selection.IsEmpty)
+            {
+                var selected = box.Selection.Text;
+                if (!string.IsNullOrEmpty(selected)) TryCopyToClipboard(selected, out _);
+            }
+            else
+            {
+                // 兜底：没有选中就用系统默认的复制命令
+                ApplicationCommands.Copy.Execute(null, Keyboard.FocusedElement);
+            }
+        };
+
+        surface.Child = item;
+        menu.Items.Add(surface);
+        return menu;
     }
 
     /// <summary>
@@ -3922,33 +3977,30 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     {
         error = null;
 
-        for (var attempt = 0; attempt < 3; attempt++)
+        // **只尝试一次**（2026-11-15）：SetDataObject 被占用时单次就会阻塞约 1 秒，
+        // 重试会让界面冻结好几秒、还会把用户的粘贴操作排到后面一起"补吐"。
+        try
         {
-            try
-            {
-                Clipboard.SetDataObject(text, copy: true);
-            }
-            catch (Exception ex)
-            {
-                error = ex.Message;
-                // 抛了异常也不要立刻认定失败 —— 下面照样回读校验一次
-            }
+            Clipboard.SetDataObject(text, copy: true);
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            // 抛了异常也不要立刻认定失败 —— 下面照样回读校验一次
+        }
 
-            // 回读校验（抛异常的情况下也要校验，这是关键）
-            try
+        // 回读校验（抛异常的情况下也要校验，这是关键）
+        try
+        {
+            if (Clipboard.ContainsText() && Clipboard.GetText() == text)
             {
-                if (Clipboard.ContainsText() && Clipboard.GetText() == text)
-                {
-                    error = null;
-                    return true;
-                }
+                error = null;
+                return true;
             }
-            catch (Exception ex)
-            {
-                error = ex.Message;
-            }
-
-            if (attempt < 2) Thread.Sleep(30);
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
         }
 
         return false;
