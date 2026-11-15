@@ -3774,25 +3774,36 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         var primary = TryFindResource("TextBrush") as Brush;
         var subtle = TryFindResource("SubtleTextBrush") as Brush;
 
-        // 一行字段（"版本号：0.4.3"）：标签次要色、值主色，行高统一
+        // **所有文字都用只读 TextBox**（2026-11-15 用户要求）：
+        // 自动复制受系统剪贴板竞争影响会时灵时不灵，与其反复兜底，
+        // 不如让用户能**选中任意内容手动 Ctrl+C** —— 这是最可靠的兜底手段。
+        // 外观上要看起来完全像普通文字：无边框、透明背景、只读、不可聚焦出光标以外的东西。
+        TextBox ReadOnlyText(string text, Brush? foreground, double height)
+        {
+            return new TextBox
+            {
+                Text = text,
+                IsReadOnly = true,
+                IsReadOnlyCaretVisible = false,
+                BorderThickness = new Thickness(0),
+                Background = Brushes.Transparent,
+                // ⚠ TextBox 没有 LineHeight 属性，靠上下内边距凑出与使用指南相近的行距
+                //（FontSize 12 + 上下各 3px ≈ 行高 19）。行距过小正是之前"丑"的原因。
+                Padding = new Thickness(0, 3, 0, 3),
+                Margin = new Thickness(0),
+                FontSize = FontSize,
+                Foreground = foreground,
+                TextWrapping = TextWrapping.Wrap,
+                // 让键盘 Tab 不落到这些框上，界面焦点行为保持原样
+                IsTabStop = false,
+                MinHeight = height + 6,
+            };
+        }
+
+        // 一行字段（"版本号：0.4.3"）：整体一个只读框，所以标签与值都能一起选中
         void AddField(string label, string value)
         {
-            var line = new TextBlock
-            {
-                Margin = new Thickness(0),
-                TextWrapping = TextWrapping.Wrap,
-                FontSize = FontSize,
-                LineHeight = LineHeight,
-                LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
-            };
-            var labelRun = new Run { Text = label };
-            if (subtle != null) labelRun.Foreground = subtle;
-            var valueRun = new Run { Text = value };
-            if (primary != null) valueRun.Foreground = primary;
-
-            line.Inlines.Add(labelRun);
-            line.Inlines.Add(valueRun);
-            panel.Children.Add(line);
+            panel.Children.Add(ReadOnlyText(label + value, primary, LineHeight));
         }
 
         // 前四个字段（按用户给的示例顺序）
@@ -3804,33 +3815,15 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         // 空一行（用户示例里更新内容前面就空一行）
         panel.Children.Add(new Border { Height = LineHeight });
 
-        // 更新内容：不再套底色框，改为与上面同字号同正文风格；
-        // 超长时用滚动条，保证固定尺寸的对话框不会被撑破。
-        var notesLabel = new TextBlock
-        {
-            Text = "更新内容：",
-            Margin = new Thickness(0),
-            FontSize = FontSize,
-            LineHeight = LineHeight,
-            LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
-        };
-        if (subtle != null) notesLabel.Foreground = subtle;
-        panel.Children.Add(notesLabel);
-
-        var notesText = new TextBlock
-        {
-            Text = string.IsNullOrWhiteSpace(info.Notes) ? "（无说明）" : info.Notes,
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0),
-            FontSize = FontSize,
-            LineHeight = LineHeight,
-            LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
-        };
-        if (primary != null) notesText.Foreground = primary;
+        // 更新内容：与上面同字号同行距，超长时可滚动
+        panel.Children.Add(ReadOnlyText("更新内容：", subtle, LineHeight));
 
         panel.Children.Add(new ScrollViewer
         {
-            Content = notesText,
+            Content = ReadOnlyText(
+                string.IsNullOrWhiteSpace(info.Notes) ? "（无说明）" : info.Notes,
+                primary,
+                LineHeight),
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             MaxHeight = 152,
@@ -3870,52 +3863,49 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             }
         }
 
-        // 剪贴板：后台重试，不阻塞界面。
+        // ---- 主按钮：先开浏览器，再尝试复制提取码 ----
         //
-        // ⚠ **不能只信 SetDataObject 的返回值**（2026-11-15 用户实测）：
-        // 他先复制了别的内容，点按钮后**等几秒再粘贴，确实是提取码** —— 也就是说剪贴板
-        // 最终是写成功的，但 SetDataObject 在 CLIPBRD_E_CANT_OPEN 的竞争条件下仍抛了异常，
-        // 于是我们误报"复制失败"。
-        // 因此改为**回读校验**：真正写没写进去，以"读回来是否等于目标文本"为准。
-        var code = info.ExtractCode;
-        var copied = false;
-        if (string.IsNullOrWhiteSpace(code))
+        // 顺序很关键。Clipboard.SetDataObject 在剪贴板被占用时每次会阻塞约 1 秒，
+        // 放在前面会让用户干等三四秒才看到浏览器。所以打开浏览器提到最前。
+        if (!UpdateChecker.IsDownloadUrlAllowed(info.DownloadUrl, info.AllowedHosts))
         {
-            copied = true;   // 没有提取码 ⇒ 无需复制，不算失败
+            Log.Warn("[检查更新] 下载链接未通过校验，未打开浏览器：" + info.DownloadUrl);
         }
         else
         {
-            copied = TryCopyToClipboard(code, out var copyError);
-            if (!copied && copyError != null)
+            try
             {
-                Log.Warn("[检查更新] 复制提取码失败（剪贴板被其他程序占用）：" + copyError);
+                Process.Start(new ProcessStartInfo(info.DownloadUrl) { UseShellExecute = true });
+                opened = true;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("[检查更新] 打开浏览器失败：" + ex.Message);
             }
         }
 
-        // ---- 按实际结果给反馈（成功的部分不打扰用户）----
-        if (opened && copied)
+        // 复制提取码：尽力而为，**无论成败都不再弹提示**（2026-11-15 用户要求）。
+        // 对话框里的文字全部是只读 TextBox，可选中手动复制 —— 那才是可靠的兜底，
+        // 所以这里失败也没必要再打扰用户，只在日志里留痕便于排查。
+        var code = info.ExtractCode;
+        if (!string.IsNullOrWhiteSpace(code))
         {
-            // 两者都成功：不弹任何提示，用户已经在浏览器里了
+            var copied = TryCopyToClipboard(code, out var copyError);
+            if (!copied && copyError != null)
+            {
+                Log.Warn("[检查更新] 复制提取码失败（剪贴板被其他程序占用）：" + copyError
+                         + "；对话框内容可手动选中复制。");
+            }
         }
-        else if (!opened && copied)
+        else
         {
-            DialogHost.Info(this, "提取码已复制",
-                "提取码已复制到剪贴板，但自动打开下载链接失败。\n"
-                + "请手动在浏览器中打开：\n" + info.DownloadUrl);
+            Log.Debug("[检查更新] 没有提取码，跳过复制");
         }
-        else if (opened && !copied && !string.IsNullOrWhiteSpace(code))
+
+        // 链接打开失败也**不弹提示**（用户要求）；仅日志留痕。
+        if (!opened)
         {
-            DialogHost.Info(this, "已打开下载页面，提取码需手动复制",
-                "已在浏览器中打开下载页面。\n"
-                + "但提取码**自动复制失败**（剪贴板正被其他程序占用），请手动抄下：\n\n"
-                + code);
-        }
-        else if (!opened && !copied)
-        {
-            DialogHost.Info(this, "操作未完成",
-                "既没能打开下载链接，也没能复制提取码。\n"
-                + "请手动访问：\n" + info.DownloadUrl
-                + (string.IsNullOrWhiteSpace(code) ? string.Empty : "\n提取码：" + code));
+            Log.Warn("[检查更新] 未能自动打开下载链接，用户可在对话框中手动选中复制链接。");
         }
     }
 
