@@ -3758,7 +3758,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         var info = _pendingUpdate;
         if (info is null) return;
 
-        // 固定尺寸，与「使用指南」对话框一致（GuideCatalog 那边是 520×360 的内容区）
+        // 固定尺寸，与「使用指南」对话框一致（那边内容区是 520×360）
         var panel = new StackPanel
         {
             Width = 520,
@@ -3766,21 +3766,24 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             Margin = new Thickness(0),
         };
 
-        // 主题里的实际资源名是 TextBrush（正文）与 SubtleTextBrush（次要）。
-        // ⚠ 之前写成 PrimaryTextBrush / SecondaryTextBrush —— 那两个**根本不存在**，
-        // FindResource 会抛"未找到资源"，而把返回值强转 Brush 又会抛出
-        // "Unable to cast MS.Internal.NamedObject to Brush"（未解析的 DynamicResource 占位符）。
-        // 现在统一用 TryFindResource + 类型模式匹配，取不到就退回继承的前景色，绝不再抛。
+        // 版式与「使用指南」保持一致：字号 12、行高 19（DialogHost 里指南正文就是这两个值）。
+        // 行距不统一是上一版显得"丑"的原因 —— 字段行、更新内容各用了不同的行距。
+        const double FontSize = 12;
+        const double LineHeight = 19;
+
         var primary = TryFindResource("TextBrush") as Brush;
         var subtle = TryFindResource("SubtleTextBrush") as Brush;
 
-        // 标签行（"版本号：0.4.3"）—— 标签用次要色，值用主色
+        // 一行字段（"版本号：0.4.3"）：标签次要色、值主色，行高统一
         void AddField(string label, string value)
         {
             var line = new TextBlock
             {
-                Margin = new Thickness(0, 0, 0, 6),
+                Margin = new Thickness(0),
                 TextWrapping = TextWrapping.Wrap,
+                FontSize = FontSize,
+                LineHeight = LineHeight,
+                LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
             };
             var labelRun = new Run { Text = label };
             if (subtle != null) labelRun.Foreground = subtle;
@@ -3792,15 +3795,24 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             panel.Children.Add(line);
         }
 
+        // 前四个字段（按用户给的示例顺序）
         AddField("版本号：", string.IsNullOrWhiteSpace(info.Version) ? "—" : info.Version);
         AddField("更新时间：", string.IsNullOrWhiteSpace(info.PublishedAt) ? "—" : info.PublishedAt);
+        AddField("下载链接：", info.DownloadUrl);
+        AddField("提取码：", string.IsNullOrWhiteSpace(info.ExtractCode) ? "—" : info.ExtractCode);
 
-        // 更新内容：不给单独的框（按用户要求），直接跟一段正文。
-        // 用 ScrollViewer 包住以保证长说明也不会把对话框撑破 —— 尺寸固定为 520×360。
+        // 空一行（用户示例里更新内容前面就空一行）
+        panel.Children.Add(new Border { Height = LineHeight });
+
+        // 更新内容：不再套底色框，改为与上面同字号同正文风格；
+        // 超长时用滚动条，保证固定尺寸的对话框不会被撑破。
         var notesLabel = new TextBlock
         {
             Text = "更新内容：",
-            Margin = new Thickness(0, 4, 0, 4),
+            Margin = new Thickness(0),
+            FontSize = FontSize,
+            LineHeight = LineHeight,
+            LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
         };
         if (subtle != null) notesLabel.Foreground = subtle;
         panel.Children.Add(notesLabel);
@@ -3809,21 +3821,20 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         {
             Text = string.IsNullOrWhiteSpace(info.Notes) ? "（无说明）" : info.Notes,
             TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 0, 0, 10),
+            Margin = new Thickness(0),
+            FontSize = FontSize,
+            LineHeight = LineHeight,
+            LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
         };
         if (primary != null) notesText.Foreground = primary;
 
-        var notesScroll = new ScrollViewer
+        panel.Children.Add(new ScrollViewer
         {
             Content = notesText,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            MaxHeight = 150,
-        };
-        panel.Children.Add(notesScroll);
-
-        AddField("下载链接：", info.DownloadUrl);
-        AddField("提取码：", string.IsNullOrWhiteSpace(info.ExtractCode) ? "—" : info.ExtractCode);
+            MaxHeight = 152,
+        });
 
         var accepted = DialogHost.ShowCustom(
             this,
@@ -3859,25 +3870,25 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             }
         }
 
-        // 剪贴板：后台重试，不阻塞界面。窗口还在的时候由这里同步再补一次（保证写进的是本线程 STA 剪贴板）。
+        // 剪贴板：后台重试，不阻塞界面。
+        //
+        // ⚠ **不能只信 SetDataObject 的返回值**（2026-11-15 用户实测）：
+        // 他先复制了别的内容，点按钮后**等几秒再粘贴，确实是提取码** —— 也就是说剪贴板
+        // 最终是写成功的，但 SetDataObject 在 CLIPBRD_E_CANT_OPEN 的竞争条件下仍抛了异常，
+        // 于是我们误报"复制失败"。
+        // 因此改为**回读校验**：真正写没写进去，以"读回来是否等于目标文本"为准。
         var code = info.ExtractCode;
         var copied = false;
-        if (!string.IsNullOrWhiteSpace(code))
+        if (string.IsNullOrWhiteSpace(code))
         {
-            for (var attempt = 0; attempt < 3 && !copied; attempt++)
+            copied = true;   // 没有提取码 ⇒ 无需复制，不算失败
+        }
+        else
+        {
+            copied = TryCopyToClipboard(code, out var copyError);
+            if (!copied && copyError != null)
             {
-                try
-                {
-                    Clipboard.SetDataObject(code, copy: true);
-                    copied = true;
-                }
-                catch (Exception ex)
-                {
-                    if (attempt == 2)
-                        Log.Warn("[检查更新] 复制提取码失败（剪贴板被其他程序占用）：" + ex.Message);
-                    else
-                        Thread.Sleep(30);   // 只短暂等，不再每次等 1 秒
-                }
+                Log.Warn("[检查更新] 复制提取码失败（剪贴板被其他程序占用）：" + copyError);
             }
         }
 
@@ -3906,6 +3917,51 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                 + "请手动访问：\n" + info.DownloadUrl
                 + (string.IsNullOrWhiteSpace(code) ? string.Empty : "\n提取码：" + code));
         }
+    }
+
+    /// <summary>
+    /// 把文本写进剪贴板，并**以回读结果判定成败**。
+    ///
+    /// 为什么不信 `SetDataObject` 的返回值：Windows 上剪贴板竞争（别的程序瞬时持有）时，
+    /// `SetDataObject` 会抛 <c>CLIPBRD_E_CANT_OPEN</c>，但**数据有时确实已经写进去了**。
+    /// 用户实测：界面报"复制失败"，可几秒后去粘贴，剪贴板里就是提取码。
+    /// 所以这里写完就 `GetText()` 读回来比对，一致才算成功 —— 这是唯一可信的判据。
+    /// </summary>
+    /// <param name="error">失败时的最后一条异常信息（成功为 null）。</param>
+    private static bool TryCopyToClipboard(string text, out string? error)
+    {
+        error = null;
+
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            try
+            {
+                Clipboard.SetDataObject(text, copy: true);
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                // 抛了异常也不要立刻认定失败 —— 下面照样回读校验一次
+            }
+
+            // 回读校验（抛异常的情况下也要校验，这是关键）
+            try
+            {
+                if (Clipboard.ContainsText() && Clipboard.GetText() == text)
+                {
+                    error = null;
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+            }
+
+            if (attempt < 2) Thread.Sleep(30);
+        }
+
+        return false;
     }
 
     private void OnUsageGuideClick(object sender, RoutedEventArgs e)        => DialogHost.ShowGuide(this, "MateMic 使用指南", GuideCatalog.Pages);
