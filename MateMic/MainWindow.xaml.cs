@@ -384,7 +384,11 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             _lastDeviceFingerprint = BuildDeviceFingerprint();
             _devicePoll = new DispatcherTimer(DispatcherPriority.Background)
             {
-                Interval = TimeSpan.FromMilliseconds(1500),
+                // 500ms（原 1500ms）：本机收不到 IMMNotificationClient 通知，
+                // 热插拔完全靠这条轮询兜底，所以它的间隔直接决定"插上多久才恢复"。
+                // 每次只枚举一次设备列表（十几台，几毫秒），3 倍频率的代价可以忽略；
+                // 换来的收益是热插拔恢复从约 2 秒降到约 1 秒。
+                Interval = TimeSpan.FromMilliseconds(500),
             };
             _devicePoll.Tick += OnDevicePollTick;
             _devicePoll.Start();
@@ -2123,13 +2127,18 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     ///
     /// 去抖是必须的：插拔一个 USB 麦克风，系统会连着发好几条通知
     /// （DeviceRemoved + DeviceStateChanged + DefaultDeviceChanged…），
-    /// 每次都重建音频流会听到连续的爆音。这里等 350 ms 没有新通知了再处理一次。
+    /// 每次都重建音频流会听到连续的爆音。
+    ///
+    /// 去抖时间从 350ms 降到 **250ms**（2026-11-16）：系统那几条通知是**同一瞬间连发**的，
+    /// 间隔通常只有几毫秒，250ms 完全够把它们合并成一次；
+    /// 同时这也是热插拔恢复延迟里唯一能省的一段（轮询那 500ms 才是大头）。
+    /// 不建议再往下压到 100ms 以内 —— 那接近通知之间真实的最大间隔，容易漏合并。
     /// </summary>
     private void OnDevicesChanged()
     {
         _deviceChangeDebounce ??= new DispatcherTimer(DispatcherPriority.Background)
         {
-            Interval = TimeSpan.FromMilliseconds(350),
+            Interval = TimeSpan.FromMilliseconds(250),
         };
         _deviceChangeDebounce.Stop();
         _deviceChangeDebounce.Tick -= OnDeviceChangeDebounceTick;
