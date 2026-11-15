@@ -129,6 +129,22 @@
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
                                 Margin="10,0,0,0">
                         <!--
+                          新版本提示（2026-11-15 新增）：位于「使用指南」左侧。
+                          边框做成淡红色细线以引起注意，其余（背景/圆角/内边距/悬停）
+                          完全复用 ToolbarButton，所以看起来就是同一个按钮，只是描了红边。
+                          ⚠ 不能直接给 Button 设 BorderBrush：ToolbarButton 的模板把边框色写死了
+                          （Legacy 是 #CFCFCF、Modern 甚至是 BorderThickness=0），属性会被忽略。
+                          因此外面套一个 Border 来画这道红边 —— 与主题无关，两套主题都正确。
+                          默认隐藏，由检查更新的结果决定是否显示。
+                        -->
+                        <Border x:Name="UpdateBadgeHost" Visibility="Collapsed" Margin="0,0,6,0"
+                                BorderBrush="#FFE0A8A8" BorderThickness="1" CornerRadius="6"
+                                SnapsToDevicePixels="True">
+                            <Button x:Name="UpdateButton" Style="{StaticResource ToolbarButton}"
+                                    Content="新版本" Padding="8,2,8,2" Margin="0"
+                                    Click="OnUpdateButtonClick" />
+                        </Border>
+                        <!--
                           使用指南：设备下拉框到底该选什么、软件怎么用，是新人最容易懵的地方。
                           做成和「风险说明」同一种按钮，点开一个自绘对话框，不占主界面空间。
                         -->

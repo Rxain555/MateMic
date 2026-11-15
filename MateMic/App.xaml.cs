@@ -176,6 +176,13 @@ public partial class App : Application
             return;
         }
 
+        // 检查更新自检：MateMic.exe --updatecheck [--local 0.4.2]
+        if (HasFlag(args, "--updatecheck"))
+        {
+            Shutdown(MateMic.Core.UpdateCheckSelfTest.RunAsync(args).GetAwaiter().GetResult());
+            return;
+        }
+
         // 实时链路模拟（自己复现欠载，不依赖用户试听）：--rtcheck [--ai <dir>]
         if (HasFlag(args, "--rtcheck"))
         {

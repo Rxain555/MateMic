@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -215,6 +216,13 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         _engine.SetAudioMonitor(_config.Player.AudioMonitor);
 
         Loaded += OnLoaded;
+
+        // 检查更新（2026-11-15 新增）：**独立订阅、延迟 3 秒**再查。
+        // 单独挂一订阅而不是塞进 OnLoaded，是为了让"检查更新失败"绝无可能影响
+        // OnLoaded 里那些关键的初始化（设备、钩子、托盘）。
+        // 延迟 3 秒：等窗口画完、音频引擎起稳，避免和启动竞争带宽与 CPU。
+        Loaded += OnUpdateCheckLoaded;
+
         _timer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(33) };
         _timer.Tick += OnRenderTick;
 
@@ -3694,6 +3702,143 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         catch (Exception ex)
         {
             ShowStatus($"打开{what}文件夹失败：" + ex.Message, false);
+        }
+    }
+
+    // ---------------------------------------------------------------- 检查更新
+
+    /// <summary>最近一次查到的更新信息（null = 没有更新，或还没查 / 查失败）。</summary>
+    private UpdateInfo? _pendingUpdate;
+
+    /// <summary>当前程序版本（"0.4.2" 这种三段式）。</summary>
+    private static string CurrentVersion
+    {
+        get
+        {
+            var v = typeof(MainWindow).Assembly.GetName().Version;
+            return v is null ? "0.0.0" : $"{v.Major}.{v.Minor}.{Math.Max(0, v.Build)}";
+        }
+    }
+
+    /// <summary>
+    /// 启动后延迟检查更新。全程不抛异常、失败静默 —— 检查更新绝不能影响正常使用。
+    /// </summary>
+    private async void OnUpdateCheckLoaded(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            // 延迟 3 秒：等窗口画完、音频引擎起稳，避免和启动抢资源
+            await Task.Delay(3000);
+
+            var info = await UpdateChecker.FetchAsync();
+            if (info is null) return;
+
+            // 逐段数字比较，只有远端更新才提示
+            if (!UpdateChecker.IsNewer(info.Version, CurrentVersion)) return;
+
+            _pendingUpdate = info;
+            UpdateBadgeHost.Visibility = Visibility.Visible;
+            Log.Info($"[检查更新] 发现新版本 {info.Version}（当前 {CurrentVersion}）");
+        }
+        catch (Exception ex)
+        {
+            // 兜底：即使出现意外也不打扰用户
+            Log.Debug("[检查更新] 流程异常：" + ex.Message);
+        }
+    }
+
+    private void OnUpdateButtonClick(object sender, RoutedEventArgs e) => ShowUpdateDialog();
+
+    /// <summary>
+    /// 更新详情对话框：内容全部来自 version.json，布局与用户给的示例一致。
+    /// 两个按钮：「取消」/「复制提取码并转到下载链接」。
+    /// </summary>
+    private void ShowUpdateDialog()
+    {
+        var info = _pendingUpdate;
+        if (info is null) return;
+
+        var panel = new StackPanel { MinWidth = 380, MaxWidth = 520 };
+
+        // 标签行（"版本号：0.4.3"）—— 标签用次要色，值用主色
+        void AddField(string label, string value)
+        {
+            var line = new TextBlock
+            {
+                Margin = new Thickness(0, 0, 0, 6),
+                TextWrapping = TextWrapping.Wrap,
+            };
+            line.Inlines.Add(new Run
+            {
+                Text = label,
+                Foreground = (Brush)FindResource("SecondaryTextBrush"),
+            });
+            line.Inlines.Add(new Run { Text = value, Foreground = (Brush)FindResource("PrimaryTextBrush") });
+            panel.Children.Add(line);
+        }
+
+        AddField("版本号：", string.IsNullOrWhiteSpace(info.Version) ? "—" : info.Version);
+        AddField("更新时间：", string.IsNullOrWhiteSpace(info.PublishedAt) ? "—" : info.PublishedAt);
+
+        // 更新内容：保留原始换行
+        panel.Children.Add(new TextBlock
+        {
+            Text = "更新内容：",
+            Margin = new Thickness(0, 4, 0, 4),
+            Foreground = (Brush)FindResource("SecondaryTextBrush"),
+        });
+        panel.Children.Add(new Border
+        {
+            Background = (Brush)FindResource("ControlBrush"),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(10, 8, 10, 8),
+            Margin = new Thickness(0, 0, 0, 10),
+            Child = new TextBlock
+            {
+                Text = string.IsNullOrWhiteSpace(info.Notes) ? "（无说明）" : info.Notes,
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = (Brush)FindResource("PrimaryTextBrush"),
+            },
+        });
+
+        AddField("下载链接：", info.DownloadUrl);
+        AddField("提取码：", string.IsNullOrWhiteSpace(info.ExtractCode) ? "—" : info.ExtractCode);
+
+        var accepted = DialogHost.ShowCustom(
+            this,
+            "发现新版本",
+            panel,
+            primaryText: "复制提取码并转到下载链接",
+            secondaryText: "取消");
+
+        if (!accepted) return;
+
+        // 主按钮：复制提取码 + 打开默认浏览器
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(info.ExtractCode))
+            {
+                Clipboard.SetText(info.ExtractCode);
+            }
+
+            // 再校验一次下载链接（白名单 + https），避免把用户送到未知站点
+            if (UpdateChecker.IsDownloadUrlAllowed(info.DownloadUrl, info.AllowedHosts))
+            {
+                Process.Start(new ProcessStartInfo(info.DownloadUrl) { UseShellExecute = true });
+            }
+            else
+            {
+                // 理论上 Parse 阶段已经拦下，这里只是双保险
+                Log.Warn("[检查更新] 下载链接未通过校验，未打开浏览器：" + info.DownloadUrl);
+                DialogHost.Info(this, "无法打开链接",
+                    "下载链接未通过安全校验，已复制提取码。请手动访问官网获取下载地址。");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("[检查更新] 复制提取码或打开浏览器失败：" + ex.Message);
+            DialogHost.Info(this, "操作未完成",
+                "自动打开下载链接失败，提取码已尝试复制到剪贴板。\n你可以手动打开下载页面。");
         }
     }
 
