@@ -82,7 +82,19 @@ public static class UpdateChecker
     {
         try
         {
-            using var response = await Http.GetAsync(FeedUrl, ct).ConfigureAwait(false);
+            // **防缓存**（2026-11-15 用户实测：云端已把版本改回 0.4.2，程序仍报 0.4.3）。
+            // Gitee 的 raw 走 CDN，改动后 CDN 节点可能还吐旧内容；再加上中间代理也可能缓存。
+            // 三层一起上：
+            //   ① URL 带一次性参数（让 CDN 视为不同资源，绕过按 URL 的缓存键）；
+            //   ② Cache-Control: no-cache / no-store；
+            //   ③ Pragma: no-cache（给老代理看）。
+            var url = FeedUrl + "?t=" + DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.TryAddWithoutValidation("Cache-Control", "no-cache, no-store, max-age=0");
+            request.Headers.TryAddWithoutValidation("Pragma", "no-cache");
+
+            using var response = await Http.SendAsync(request, ct).ConfigureAwait(false);
 
             // ⚠ 校验**重定向之后**的真实地址，而不是初始 URL。
             var actual = response.RequestMessage?.RequestUri;
