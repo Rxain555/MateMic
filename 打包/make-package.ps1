@@ -164,14 +164,31 @@ if ($SkipPublish) {
         }
     }
 
-    if ($modelCount -eq 0) {
-        Write-Host '  WARNING: no .onnx model bundled.' -ForegroundColor Yellow
-        Write-Host ("  Put models into " + (Join-Path $projectRoot 'MateMic\models') + " to ship them.") -ForegroundColor Yellow
+    # NOTE: $modelCount counts only files COPIED this run. If dist already has them
+    # (e.g. -SkipPublish reruns), nothing is copied and the count stays 0 even though
+    # the models are present. So the assertion must verify the DESTINATION directory,
+    # not the copy counter.
+    $expectedModels = 3
+    $presentModels = @(
+        Get-ChildItem -LiteralPath $modelsTarget -Filter '*.onnx' -File -ErrorAction SilentlyContinue
+    )
+
+    if ($presentModels.Count -eq 0) {
+        Write-Host '  ERROR: no .onnx model found in the package.' -ForegroundColor Red
+        Write-Host ("  Put models into " + (Join-Path $projectRoot 'MateMic\models') + " to ship them.") -ForegroundColor Red
     } else {
-        Write-Host "  Bundled $modelCount model(s):" -ForegroundColor Green
-        Get-ChildItem -LiteralPath $modelsTarget -Filter '*.onnx' | ForEach-Object {
-            Write-Host ("    - {0} ({1:N1} MB)" -f $_.Name, ($_.Length / 1MB))
+        Write-Host ("  Bundled {0} model(s) ({1} copied this run):" -f $presentModels.Count, $modelCount) -ForegroundColor Green
+        foreach ($model in $presentModels) {
+            Write-Host ("    - {0} ({1:N1} MB)" -f $model.Name, ($model.Length / 1MB))
         }
+    }
+
+    # Hard assertion: a package without the full model set is broken for users
+    # (the app falls back to no denoise), and this exact defect shipped once because
+    # the script only printed a WARNING and kept going. Fail loudly instead.
+    if ($presentModels.Count -ne $expectedModels) {
+        throw ("Package must contain exactly $expectedModels .onnx models, found " +
+               "$($presentModels.Count). Refusing to produce a broken package.")
     }
 }
 
