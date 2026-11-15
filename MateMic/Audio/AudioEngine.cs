@@ -424,14 +424,55 @@ public sealed class AudioEngine : IDisposable
             _lastHealthChangeMs = now;
 
             Log.Warn($"[音频健康] 采集回调已 {silentMs} ms 没有增长，但输入设备仍在 —— "
-                     + "判定为流失效（常见于运行中改动音频增强 / Voice Clarity、驱动重置），自动重建音频流。");
+                     + "判定为流失效（常见于运行中改动音频增强 / Voice Clarity、驱动重置），强制重建音频流。");
 
-            RecoverDevices(deviceSetChanged: false);
+            // ⚠ **不能走 RecoverDevices**（2026-11-16 实测踩到）。
+            // RecoverDevices 会先问 DeviceRecoveryPolicy.Decide：在"设备集合没变 + 流还在跑"
+            // 的组合下它返回 None ⇒ 什么都不做。可这恰恰就是本场景的状态 ——
+            // 流是"假活着"（IsRunning 仍为 true，只是回调停了），于是探针虽然检测到了，
+            // 重建却从来没执行。这里必须直接强启，绕开那条策略。
+            ForceRestartStream();
         }
         catch (Exception ex)
         {
             Log.Warn("[音频健康] 检测失败：" + ex.Message);
         }
+    }
+
+    /// <summary>
+    /// **强制重启音频流**（不做设备策略判断）。
+    ///
+    /// 与 <see cref="RecoverDevices"/> 的区别：后者是"设备集合变了，对齐到现在的设备"，
+    /// 会被 DeviceRecoveryPolicy 拦下；本方法是"流已经坏了，无条件重开一次"，
+    /// 配置里的首选设备 ID 保持不动（不会因为一次失效就把用户的设备选择改掉）。
+    /// </summary>
+    public bool ForceRestartStream()
+    {
+        // Start()/Stop() 内部都有 lock (_gate)，从 Timer 线程调用是安全的
+        if (!IsRunning) return false;
+
+        _startReason = "健康检测";
+        // 健康检测发现的是"收不到数据"，和插拔一样重置自动修复额度
+        _repairAttemptsLeft = MaxCaptureRepairAttempts;
+
+        try
+        {
+            Stop();
+            Start();
+        }
+        finally
+        {
+            _startReason = "启动";
+        }
+
+        if (!IsRunning)
+        {
+            Log.Warn("[音频健康] 强制重启后仍未能启动：" + (LastError ?? "未知原因"));
+            return false;
+        }
+
+        Log.Info("[音频健康] 音频流已重建。");
+        return true;
     }
 
     /// <summary>
