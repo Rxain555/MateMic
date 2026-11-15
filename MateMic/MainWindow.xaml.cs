@@ -3760,6 +3760,15 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
         var panel = new StackPanel { MinWidth = 380, MaxWidth = 520 };
 
+        // 主题里的实际资源名是 TextBrush（正文）与 SubtleTextBrush（次要）。
+        // ⚠ 之前写成 PrimaryTextBrush / SecondaryTextBrush —— 那两个**根本不存在**，
+        // FindResource 会抛"未找到资源"，而把返回值强转 Brush 又会抛出
+        // "Unable to cast MS.Internal.NamedObject to Brush"（未解析的 DynamicResource 占位符）。
+        // 现在统一用 TryFindResource + 类型模式匹配，取不到就退回继承的前景色，绝不再抛。
+        var primary = TryFindResource("TextBrush") as Brush;
+        var subtle = TryFindResource("SubtleTextBrush") as Brush;
+        var chipBack = TryFindResource("ControlBrush") as Brush;
+
         // 标签行（"版本号：0.4.3"）—— 标签用次要色，值用主色
         void AddField(string label, string value)
         {
@@ -3768,12 +3777,13 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
                 Margin = new Thickness(0, 0, 0, 6),
                 TextWrapping = TextWrapping.Wrap,
             };
-            line.Inlines.Add(new Run
-            {
-                Text = label,
-                Foreground = (Brush)FindResource("SecondaryTextBrush"),
-            });
-            line.Inlines.Add(new Run { Text = value, Foreground = (Brush)FindResource("PrimaryTextBrush") });
+            var labelRun = new Run { Text = label };
+            if (subtle != null) labelRun.Foreground = subtle;
+            var valueRun = new Run { Text = value };
+            if (primary != null) valueRun.Foreground = primary;
+
+            line.Inlines.Add(labelRun);
+            line.Inlines.Add(valueRun);
             panel.Children.Add(line);
         }
 
@@ -3781,15 +3791,16 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         AddField("更新时间：", string.IsNullOrWhiteSpace(info.PublishedAt) ? "—" : info.PublishedAt);
 
         // 更新内容：保留原始换行
-        panel.Children.Add(new TextBlock
+        var notesLabel = new TextBlock
         {
             Text = "更新内容：",
             Margin = new Thickness(0, 4, 0, 4),
-            Foreground = (Brush)FindResource("SecondaryTextBrush"),
-        });
-        panel.Children.Add(new Border
+        };
+        if (subtle != null) notesLabel.Foreground = subtle;
+        panel.Children.Add(notesLabel);
+
+        var notesBox = new Border
         {
-            Background = (Brush)FindResource("ControlBrush"),
             CornerRadius = new CornerRadius(6),
             Padding = new Thickness(10, 8, 10, 8),
             Margin = new Thickness(0, 0, 0, 10),
@@ -3797,9 +3808,11 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             {
                 Text = string.IsNullOrWhiteSpace(info.Notes) ? "（无说明）" : info.Notes,
                 TextWrapping = TextWrapping.Wrap,
-                Foreground = (Brush)FindResource("PrimaryTextBrush"),
             },
-        });
+        };
+        if (chipBack != null) notesBox.Background = chipBack;
+        if (primary != null) ((TextBlock)notesBox.Child).Foreground = primary;
+        panel.Children.Add(notesBox);
 
         AddField("下载链接：", info.DownloadUrl);
         AddField("提取码：", string.IsNullOrWhiteSpace(info.ExtractCode) ? "—" : info.ExtractCode);

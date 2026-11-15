@@ -135,13 +135,16 @@
                           ⚠ 不能直接给 Button 设 BorderBrush：ToolbarButton 的模板把边框色写死了
                           （Legacy 是 #CFCFCF、Modern 甚至是 BorderThickness=0），属性会被忽略。
                           因此外面套一个 Border 来画这道红边 —— 与主题无关，两套主题都正确。
-                          默认隐藏，由检查更新的结果决定是否显示。
+                          ⚠ 用 Hidden 而不是 Collapsed：Collapsed 不占空间，按钮一出现会把右边的
+                          「使用指南」「关于」和版本号整体右移一两像素（用户实测到）。
+                          Hidden 从一开始就占住这块宽度，显示时右侧元素纹丝不动。
+                          BorderThickness=3：按用户要求把红边加宽到 3px，更有存在感。
                         -->
-                        <Border x:Name="UpdateBadgeHost" Visibility="Collapsed" Margin="0,0,6,0"
-                                BorderBrush="#FFE0A8A8" BorderThickness="1" CornerRadius="6"
+                        <Border x:Name="UpdateBadgeHost" Visibility="Hidden" Margin="0,0,6,0"
+                                BorderBrush="#FFE0A8A8" BorderThickness="3" CornerRadius="8"
                                 SnapsToDevicePixels="True">
                             <Button x:Name="UpdateButton" Style="{StaticResource ToolbarButton}"
-                                    Content="新版本" Padding="8,2,8,2" Margin="0"
+                                    Content="新版本" Padding="8,1,8,1" Margin="0"
                                     Click="OnUpdateButtonClick" />
                         </Border>
                         <!--
