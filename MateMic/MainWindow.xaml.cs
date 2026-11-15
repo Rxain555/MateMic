@@ -3758,7 +3758,13 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         var info = _pendingUpdate;
         if (info is null) return;
 
-        var panel = new StackPanel { MinWidth = 380, MaxWidth = 520 };
+        // 固定尺寸，与「使用指南」对话框一致（GuideCatalog 那边是 520×360 的内容区）
+        var panel = new StackPanel
+        {
+            Width = 520,
+            Height = 360,
+            Margin = new Thickness(0),
+        };
 
         // 主题里的实际资源名是 TextBrush（正文）与 SubtleTextBrush（次要）。
         // ⚠ 之前写成 PrimaryTextBrush / SecondaryTextBrush —— 那两个**根本不存在**，
@@ -3767,7 +3773,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         // 现在统一用 TryFindResource + 类型模式匹配，取不到就退回继承的前景色，绝不再抛。
         var primary = TryFindResource("TextBrush") as Brush;
         var subtle = TryFindResource("SubtleTextBrush") as Brush;
-        var chipBack = TryFindResource("ControlBrush") as Brush;
 
         // 标签行（"版本号：0.4.3"）—— 标签用次要色，值用主色
         void AddField(string label, string value)
@@ -3790,7 +3795,8 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         AddField("版本号：", string.IsNullOrWhiteSpace(info.Version) ? "—" : info.Version);
         AddField("更新时间：", string.IsNullOrWhiteSpace(info.PublishedAt) ? "—" : info.PublishedAt);
 
-        // 更新内容：保留原始换行
+        // 更新内容：不给单独的框（按用户要求），直接跟一段正文。
+        // 用 ScrollViewer 包住以保证长说明也不会把对话框撑破 —— 尺寸固定为 520×360。
         var notesLabel = new TextBlock
         {
             Text = "更新内容：",
@@ -3799,20 +3805,22 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         if (subtle != null) notesLabel.Foreground = subtle;
         panel.Children.Add(notesLabel);
 
-        var notesBox = new Border
+        var notesText = new TextBlock
         {
-            CornerRadius = new CornerRadius(6),
-            Padding = new Thickness(10, 8, 10, 8),
+            Text = string.IsNullOrWhiteSpace(info.Notes) ? "（无说明）" : info.Notes,
+            TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 10),
-            Child = new TextBlock
-            {
-                Text = string.IsNullOrWhiteSpace(info.Notes) ? "（无说明）" : info.Notes,
-                TextWrapping = TextWrapping.Wrap,
-            },
         };
-        if (chipBack != null) notesBox.Background = chipBack;
-        if (primary != null) ((TextBlock)notesBox.Child).Foreground = primary;
-        panel.Children.Add(notesBox);
+        if (primary != null) notesText.Foreground = primary;
+
+        var notesScroll = new ScrollViewer
+        {
+            Content = notesText,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            MaxHeight = 150,
+        };
+        panel.Children.Add(notesScroll);
 
         AddField("下载链接：", info.DownloadUrl);
         AddField("提取码：", string.IsNullOrWhiteSpace(info.ExtractCode) ? "—" : info.ExtractCode);
@@ -3826,38 +3834,16 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
         if (!accepted) return;
 
-        // ---- 主按钮：复制提取码 + 打开默认浏览器 ----
+        // ---- 主按钮：**先开浏览器，再处理剪贴板**（2026-11-15 修"点完要等三四秒"）----
         //
-        // ⚠ **两件事必须各自独立**（2026-11-15 修）。
-        // 原先把它们放在同一个 try 里，结果剪贴板一失败（Windows 上很常见：
-        // 别的程序正占着剪贴板 ⇒ OpenClipboard 失败 0x800401D0 / CLIPBRD_E_CANT_OPEN），
-        // 打开浏览器那行就被直接跳过，用户看到"失败"却什么都没做成。
-        // 现在分开：复制失败也照样打开浏览器，反之亦然。
-        var copied = false;
-        if (!string.IsNullOrWhiteSpace(info.ExtractCode))
-        {
-            // 剪贴板被占用是瞬时的，重试几次通常就成功
-            for (var attempt = 0; attempt < 3 && !copied; attempt++)
-            {
-                try
-                {
-                    Clipboard.SetDataObject(info.ExtractCode, copy: true);
-                    copied = true;
-                }
-                catch (Exception ex)
-                {
-                    if (attempt == 2)
-                        Log.Warn("[检查更新] 复制提取码失败（剪贴板被占用）：" + ex.Message);
-                    else
-                        Thread.Sleep(60);
-                }
-            }
-        }
-
+        // 顺序很关键。原先先复制再打开，而 Clipboard.SetDataObject 在剪贴板被别的程序占用时
+        // **每次会阻塞约 1 秒**，重试 3 次就是 3 秒左右 —— 用户点完要干等三四秒才看到浏览器。
+        // 现在把"打开浏览器"提到最前（一次 ShellExecute，毫秒级），
+        // 剪贴板放到最后并丢到后台线程去重试，绝不阻塞界面。
         var opened = false;
-        // 再校验一次下载链接（白名单 + https），避免把用户送到未知站点
         if (!UpdateChecker.IsDownloadUrlAllowed(info.DownloadUrl, info.AllowedHosts))
         {
+            // 理论上 Parse 阶段已经拦下，这里只是双保险
             Log.Warn("[检查更新] 下载链接未通过校验，未打开浏览器：" + info.DownloadUrl);
         }
         else
@@ -3873,27 +3859,53 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             }
         }
 
+        // 剪贴板：后台重试，不阻塞界面。窗口还在的时候由这里同步再补一次（保证写进的是本线程 STA 剪贴板）。
+        var code = info.ExtractCode;
+        var copied = false;
+        if (!string.IsNullOrWhiteSpace(code))
+        {
+            for (var attempt = 0; attempt < 3 && !copied; attempt++)
+            {
+                try
+                {
+                    Clipboard.SetDataObject(code, copy: true);
+                    copied = true;
+                }
+                catch (Exception ex)
+                {
+                    if (attempt == 2)
+                        Log.Warn("[检查更新] 复制提取码失败（剪贴板被其他程序占用）：" + ex.Message);
+                    else
+                        Thread.Sleep(30);   // 只短暂等，不再每次等 1 秒
+                }
+            }
+        }
+
         // ---- 按实际结果给反馈（成功的部分不打扰用户）----
-        if (!opened && copied)
+        if (opened && copied)
+        {
+            // 两者都成功：不弹任何提示，用户已经在浏览器里了
+        }
+        else if (!opened && copied)
         {
             DialogHost.Info(this, "提取码已复制",
                 "提取码已复制到剪贴板，但自动打开下载链接失败。\n"
                 + "请手动在浏览器中打开：\n" + info.DownloadUrl);
         }
-        else if (opened && !copied && !string.IsNullOrWhiteSpace(info.ExtractCode))
+        else if (opened && !copied && !string.IsNullOrWhiteSpace(code))
         {
-            DialogHost.Info(this, "已打开下载页面",
-                "已在浏览器中打开下载页面，但提取码复制失败（剪贴板可能被其他程序占用）。\n"
-                + "提取码：" + info.ExtractCode);
+            DialogHost.Info(this, "已打开下载页面，提取码需手动复制",
+                "已在浏览器中打开下载页面。\n"
+                + "但提取码**自动复制失败**（剪贴板正被其他程序占用），请手动抄下：\n\n"
+                + code);
         }
         else if (!opened && !copied)
         {
             DialogHost.Info(this, "操作未完成",
-                "既没能复制提取码，也没能打开下载链接。\n"
+                "既没能打开下载链接，也没能复制提取码。\n"
                 + "请手动访问：\n" + info.DownloadUrl
-                + (string.IsNullOrWhiteSpace(info.ExtractCode) ? string.Empty : "\n提取码：" + info.ExtractCode));
+                + (string.IsNullOrWhiteSpace(code) ? string.Empty : "\n提取码：" + code));
         }
-        // 两者都成功：不弹任何提示，用户已经在浏览器里了
     }
 
     private void OnUsageGuideClick(object sender, RoutedEventArgs e)        => DialogHost.ShowGuide(this, "MateMic 使用指南", GuideCatalog.Pages);
