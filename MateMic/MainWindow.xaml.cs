@@ -3902,37 +3902,61 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint,
         };
 
-        // 圆角 + 描边 + 主题背景；ContextMenu 本身画不出圆角，所以内容包一层 Border
+        // ⚠ **必须接管 ContextMenu 自身的模板**（2026-11-15 用户反馈"两层框叠在一起"）。
+        // 只给内容包 Border 是不够的：ContextMenu 的默认模板自己也会画一个方角、带边框的
+        // 系统样式底色，于是外面那层系统框 + 里面我画的圆角框叠成了两层。
+        // 这里把模板换成"只有一个 ContentPresenter、不画任何装饰"，
+        // 外观完全由内部的 Border 决定。
+        var menuTemplate = new ControlTemplate(typeof(ContextMenu));
+        menuTemplate.VisualTree = new FrameworkElementFactory(typeof(ContentPresenter));
+        menu.Template = menuTemplate;
+
+        // 圆角 + 描边 + 主题背景；这层才是唯一可见的容器
         var surface = new Border
         {
             Background = TryFindResource("PopupSurfaceBrush") as Brush ?? Brushes.White,
             BorderBrush = TryFindResource("DialogBorderBrush") as Brush,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(7),
-            Padding = new Thickness(3),
+            Padding = new Thickness(4),
         };
+
+        // 「复制」：上下边距必须对称。之前用 Height + Padding 组合，文字基线偏移导致
+        // 上边距看起来比下边距小；改成固定行高 + VerticalAlignment=Center + 对称 Padding。
+        var label = new TextBlock
+        {
+            Text = "复制",
+            FontSize = 12.5,
+            LineHeight = 18,
+            LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center,
+        };
+        if (TryFindResource("TextBrush") is Brush textBrush) label.Foreground = textBrush;
 
         var item = new Button
         {
-            Content = new TextBlock { Text = "复制", VerticalAlignment = VerticalAlignment.Center },
-            Height = 28,
-            MinWidth = 64,            // 只需放得下两个字，不做满宽菜单
-            Padding = new Thickness(14, 0, 14, 0),
-            HorizontalContentAlignment = HorizontalAlignment.Left,
+            Content = label,
+            Height = 30,
+            Width = 88,
+            Padding = new Thickness(0, 6, 0, 6),
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
             Background = Brushes.Transparent,
             BorderThickness = new Thickness(0),
             Cursor = Cursors.Arrow,
-            Foreground = TryFindResource("TextBrush") as Brush,
+            // 不参与 Tab 焦点，避免影响对话框里的键盘操作
+            IsTabStop = false,
         };
 
-        // 悬停高亮：用主题里的 ControlHoverBrush，与托盘菜单一致
+        // 悬停高亮：与托盘菜单一致
         var template = new ControlTemplate(typeof(Button));
         var border = new FrameworkElementFactory(typeof(Border), "Bd");
         border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(BackgroundProperty));
         border.SetValue(Border.CornerRadiusProperty, new CornerRadius(4));
         border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(PaddingProperty));
         var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
-        presenter.SetValue(HorizontalAlignmentProperty, HorizontalAlignment.Left);
+        presenter.SetValue(HorizontalAlignmentProperty, HorizontalAlignment.Center);
         presenter.SetValue(VerticalAlignmentProperty, VerticalAlignment.Center);
         border.AppendChild(presenter);
         template.VisualTree = border;
@@ -3965,45 +3989,28 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     }
 
     /// <summary>
-    /// 把文本写进剪贴板，并**以回读结果判定成败**。
+    /// 把文本写进剪贴板。
     ///
-    /// 为什么不信 `SetDataObject` 的返回值：Windows 上剪贴板竞争（别的程序瞬时持有）时，
-    /// `SetDataObject` 会抛 <c>CLIPBRD_E_CANT_OPEN</c>，但**数据有时确实已经写进去了**。
-    /// 用户实测：界面报"复制失败"，可几秒后去粘贴，剪贴板里就是提取码。
-    /// 所以这里写完就 `GetText()` 读回来比对，一致才算成功 —— 这是唯一可信的判据。
+    /// ⚠ **写完之后绝不再去回读**（2026-11-15 定位到"自己占用自己"）。
+    /// 之前的实现是 `SetDataObject(copy:true)` 之后立刻 `ContainsText()` / `GetText()`
+    /// 做校验 —— 而 `copy:true` 会让 WPF 调 `OleFlushClipboard` 把数据留在剪贴板，
+    /// 紧接着的回读又要反复开关剪贴板 ⇒ **自己跟自己抢**，于是一会儿失败一会儿"成功但报失败"。
+    /// 现在只发一次写入，成败看它的结果，失败就算了（对话框内容可选中复制，是可靠兜底）。
     /// </summary>
-    /// <param name="error">失败时的最后一条异常信息（成功为 null）。</param>
+    /// <param name="error">失败时的异常信息（成功为 null）。</param>
     private static bool TryCopyToClipboard(string text, out string? error)
     {
         error = null;
-
-        // **只尝试一次**（2026-11-15）：SetDataObject 被占用时单次就会阻塞约 1 秒，
-        // 重试会让界面冻结好几秒、还会把用户的粘贴操作排到后面一起"补吐"。
         try
         {
             Clipboard.SetDataObject(text, copy: true);
+            return true;
         }
         catch (Exception ex)
         {
             error = ex.Message;
-            // 抛了异常也不要立刻认定失败 —— 下面照样回读校验一次
+            return false;
         }
-
-        // 回读校验（抛异常的情况下也要校验，这是关键）
-        try
-        {
-            if (Clipboard.ContainsText() && Clipboard.GetText() == text)
-            {
-                error = null;
-                return true;
-            }
-        }
-        catch (Exception ex)
-        {
-            error = ex.Message;
-        }
-
-        return false;
     }
 
     private void OnUsageGuideClick(object sender, RoutedEventArgs e)        => DialogHost.ShowGuide(this, "MateMic 使用指南", GuideCatalog.Pages);
