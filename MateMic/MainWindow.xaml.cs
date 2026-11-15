@@ -3902,14 +3902,18 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint,
         };
 
-        // ⚠ **必须接管 ContextMenu 自身的模板**（2026-11-15 用户反馈"两层框叠在一起"）。
-        // 只给内容包 Border 是不够的：ContextMenu 的默认模板自己也会画一个方角、带边框的
-        // 系统样式底色，于是外面那层系统框 + 里面我画的圆角框叠成了两层。
-        // 这里把模板换成"只有一个 ContentPresenter、不画任何装饰"，
-        // 外观完全由内部的 Border 决定。
-        var menuTemplate = new ControlTemplate(typeof(ContextMenu));
-        menuTemplate.VisualTree = new FrameworkElementFactory(typeof(ContentPresenter));
-        menu.Template = menuTemplate;
+        // ⚠ **去系统框的做法**（2026-11-15 第三版，前两版都错了）。
+        // 第一版只给内容包 Border，没接管模板 ⇒ 系统默认模板也画一层框 ⇒ 叠成两层。
+        // 第二版接管模板但用了 ContentPresenter ⇒ ContextMenu 是 ItemsControl，
+        // 内容在 Items 里不在 Content 里 ⇒ **菜单整个不显示**。
+        //
+        // 正解其实最简单：**不碰模板**，只把 ContextMenu 自己的背景/边框/内边距设空。
+        // 这样系统模板照常渲染 Items，只是不再画那层方角底色；
+        // 外观完全由下面那个圆角 Border 决定，且 Items 的容器逻辑不会被我破坏。
+        menu.Background = Brushes.Transparent;
+        menu.BorderBrush = Brushes.Transparent;
+        menu.BorderThickness = new Thickness(0);
+        menu.Padding = new Thickness(0);
 
         // 圆角 + 描边 + 主题背景；这层才是唯一可见的容器
         var surface = new Border
