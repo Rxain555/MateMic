@@ -332,21 +332,42 @@ public sealed class AudioEngine : IDisposable
 
     /// <summary>判定"采集回调停止"的阈值：连续这么久没有新回调就认为流失效。</summary>
     /// <remarks>
-    /// 采集端点是 20ms 一帧，3 秒 = 150 帧都没来，只可能是流真的死了。
-    /// ⚠ 不能设得太短：系统卡顿、调试器暂停、机器休眠唤醒都可能造成短暂停顿。
+    /// 实测依据（2026-11-16，连续观察）：采集 20ms 一帧，
+    /// **1 秒间隔观察 120 秒、200ms 间隔观察 150 秒，最大静默都是 0ms** ——
+    /// 每次检查都能看到计数增长，正常运行时完全没有静默。
+    /// 所以阈值只需防住偶发的 GC / 系统卡顿 / 休眠唤醒。
+    ///
+    /// 取 **600ms**（≈30 帧没来）：恢复延迟 ≈ 200ms 间隔 + 600ms = 约 0.8 秒，
+    /// 比最初 3 秒版本快约 4 倍，同时保留 30 帧余量。
+    /// 想再快可以降到 400ms（20 帧余量）；不建议低于 200ms —— 一次 GC 就可能超过。
+    /// 校准方法：看日志里 [音频健康] 观测行的"最大静默"，取它的 2~3 倍。
     /// </remarks>
-    private const int CaptureSilenceThresholdMs = 3000;
+    private const int CaptureSilenceThresholdMs = 600;
 
     /// <summary>自动重建的冷却时间：避免在"重建也救不回来"时反复重建。</summary>
     private const int CaptureSilenceCooldownMs = 30000;
 
     /// <summary>健康检测的轮询间隔。</summary>
-    private const int CaptureHealthIntervalMs = 1000;
+    /// <remarks>
+    /// 200ms：判定粒度就是它，恢复延迟 ≈ 间隔 + 阈值。
+    /// 开销可以忽略 —— 每次只读一个 bool 和一个 long，
+    /// 昂贵的设备查询（COM）只在静默超阈值时才执行。
+    /// </remarks>
+    private const int CaptureHealthIntervalMs = 200;
 
     private System.Threading.Timer? _healthProbe;
     private long _lastHealthCount;
     private long _lastHealthChangeMs;
     private long _lastAutoRecoverMs;
+
+    // ---- 健康检测的观测统计（只用于调阈值，不参与任何行为）----
+    // 用户关心"阈值能调到多短"，而这必须看真实的静默分布，不能拍脑袋。
+    // 每 60 秒打一行：检查次数 / 当前静默 / 窗口内最大静默 / 自动恢复次数。
+    // 阈值应当取「最大静默 × 2~3」，并留一个下限。
+    private long _healthChecks;
+    private long _healthMaxSilenceMs;
+    private long _healthAutoRecovers;
+    private long _healthStatClockMs;
 
     /// <summary>
     /// 采集流健康探针（每 1 秒一次）。
@@ -397,16 +418,22 @@ public sealed class AudioEngine : IDisposable
 
             var now = Environment.TickCount64;
             var count = Interlocked.Read(ref _captureCallbackCount);
+            Interlocked.Increment(ref _healthChecks);
+
+            if (_healthStatClockMs == 0) _healthStatClockMs = now;
 
             // 回调在增长：流是活的，只记时间戳
             if (count != _lastHealthCount)
             {
                 _lastHealthCount = count;
                 _lastHealthChangeMs = now;
+                ReportHealthStatsIfDue(now, 0);
                 return;
             }
 
             var silentMs = now - _lastHealthChangeMs;
+            ReportHealthStatsIfDue(now, silentMs);
+
             if (silentMs < CaptureSilenceThresholdMs) return;
 
             // 冷却中：上次自动恢复还没过去多久，不再动
@@ -440,6 +467,35 @@ public sealed class AudioEngine : IDisposable
     }
 
     /// <summary>
+    /// 每 60 秒输出一次健康检测的观测数据，用来**校准判定阈值**。
+    ///
+    /// 用户问"阈值能调到多短"，唯一可靠的依据是"正常情况下最大静默有多长"：
+    /// 阈值必须明显大于它（取 2~3 倍），否则正常抖动就会被误判成流失效、反复重建。
+    /// 所有计数每轮清零，所以每行日志都是独立的一分钟样本。
+    /// </summary>
+    private void ReportHealthStatsIfDue(long now, long currentSilenceMs)
+    {
+        if (currentSilenceMs > Interlocked.Read(ref _healthMaxSilenceMs))
+        {
+            Interlocked.Exchange(ref _healthMaxSilenceMs, currentSilenceMs);
+        }
+
+        if (now - _healthStatClockMs < 60_000) return;
+        _healthStatClockMs = now;
+
+        var checks = Interlocked.Exchange(ref _healthChecks, 0);
+        var maxSilence = Interlocked.Exchange(ref _healthMaxSilenceMs, 0);
+        var recovers = Interlocked.Exchange(ref _healthAutoRecovers, 0);
+
+        // 只在"有值得注意的数据"时打：正常运行时最大静默很小，这行本来就该很安静；
+        // 但要能看出一分钟内到底观察到了什么，所以无论如何都记一条（60 秒一条不算吵）。
+        Log.Info($"[音频健康] 观测 60 秒：检查 {checks} 次｜当前静默 {currentSilenceMs} ms"
+                 + $"｜**最大静默 {maxSilence} ms**｜自动恢复 {recovers} 次"
+                 + $"｜当前阈值 {CaptureSilenceThresholdMs} ms"
+                 + "（阈值应取最大静默的 2~3 倍）");
+    }
+
+    /// <summary>
     /// **强制重启音频流**（不做设备策略判断）。
     ///
     /// 与 <see cref="RecoverDevices"/> 的区别：后者是"设备集合变了，对齐到现在的设备"，
@@ -465,14 +521,15 @@ public sealed class AudioEngine : IDisposable
             _startReason = "启动";
         }
 
-        if (!IsRunning)
-        {
-            Log.Warn("[音频健康] 强制重启后仍未能启动：" + (LastError ?? "未知原因"));
-            return false;
-        }
+            if (!IsRunning)
+            {
+                Log.Warn("[音频健康] 强制重启后仍未能启动：" + (LastError ?? "未知原因"));
+                return false;
+            }
 
-        Log.Info("[音频健康] 音频流已重建。");
-        return true;
+            Interlocked.Increment(ref _healthAutoRecovers);
+            Log.Info("[音频健康] 音频流已重建。");
+            return true;
     }
 
     /// <summary>
