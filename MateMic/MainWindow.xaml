@@ -129,25 +129,6 @@
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
                                 Margin="10,0,0,0">
                         <!--
-                          新版本提示（2026-11-15 新增）：位于「使用指南」左侧。
-                          边框做成淡红色细线以引起注意，其余（背景/圆角/内边距/悬停）
-                          完全复用 ToolbarButton，所以看起来就是同一个按钮，只是描了红边。
-                          ⚠ 不能直接给 Button 设 BorderBrush：ToolbarButton 的模板把边框色写死了
-                          （Legacy 是 #CFCFCF、Modern 甚至是 BorderThickness=0），属性会被忽略。
-                          因此外面套一个 Border 来画这道红边 —— 与主题无关，两套主题都正确。
-                          ⚠ 用 Hidden 而不是 Collapsed：Collapsed 不占空间，按钮一出现会把右边的
-                          「使用指南」「关于」和版本号整体右移一两像素（用户实测到）。
-                          Hidden 从一开始就占住这块宽度，显示时右侧元素纹丝不动。
-                          BorderThickness=3：按用户要求把红边加宽到 3px，更有存在感。
-                        -->
-                        <Border x:Name="UpdateBadgeHost" Visibility="Hidden" Margin="0,0,6,0"
-                                BorderBrush="#FFE0A8A8" BorderThickness="3" CornerRadius="8"
-                                SnapsToDevicePixels="True">
-                            <Button x:Name="UpdateButton" Style="{StaticResource ToolbarButton}"
-                                    Content="新版本" Padding="8,1,8,1" Margin="0"
-                                    Click="OnUpdateButtonClick" />
-                        </Border>
-                        <!--
                           使用指南：设备下拉框到底该选什么、软件怎么用，是新人最容易懵的地方。
                           做成和「风险说明」同一种按钮，点开一个自绘对话框，不占主界面空间。
                         -->
@@ -164,6 +145,22 @@
                                 Click="OnAboutClick" />
                         <TextBlock x:Name="VersionText" Style="{StaticResource LabelText}"
                                    Text="v0.1.0" VerticalAlignment="Center" />
+                        <!--
+                          新版本提示（2026-11-15 新增）：放在这一行**最右端**（版本号之后）。
+                          样式与「使用指南」「关于」完全相同（ToolbarButton），只把文字改成红色，
+                          所以它一眼能认出来是同一个家族的按钮，又足够醒目。
+
+                          · 用 Collapsed 而不是 Hidden：本 StackPanel 靠列右对齐，
+                            按钮出现时整个行会**向左扩展** —— 也就是「使用指南」「关于」和
+                            版本号被往左挤，这正是用户要的效果（原先的占位做法已废弃）。
+                          · 颜色直接设 Foreground 即可生效：ToolbarButton 的模板里
+                            TextBlock 用的是 TemplateBinding Foreground，不需要另写样式。
+                          · 选 #FFD93F3F：比淡红更红一档，在浅色背景上清晰，深色背景也不刺眼。
+                        -->
+                        <Button x:Name="UpdateButton" Style="{StaticResource ToolbarButton}"
+                                Content="新版本" Padding="8,3,8,3" Margin="6,0,0,0"
+                                Foreground="#FFD93F3F" Visibility="Collapsed"
+                                Click="OnUpdateButtonClick" />
                     </StackPanel>
                 </Grid>
 

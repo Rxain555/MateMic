@@ -3737,7 +3737,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             if (!UpdateChecker.IsNewer(info.Version, CurrentVersion)) return;
 
             _pendingUpdate = info;
-            UpdateBadgeHost.Visibility = Visibility.Visible;
+            UpdateButton.Visibility = Visibility.Visible;
             Log.Info($"[检查更新] 发现新版本 {info.Version}（当前 {CurrentVersion}）");
         }
         catch (Exception ex)
@@ -3826,33 +3826,74 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
 
         if (!accepted) return;
 
-        // 主按钮：复制提取码 + 打开默认浏览器
-        try
+        // ---- 主按钮：复制提取码 + 打开默认浏览器 ----
+        //
+        // ⚠ **两件事必须各自独立**（2026-11-15 修）。
+        // 原先把它们放在同一个 try 里，结果剪贴板一失败（Windows 上很常见：
+        // 别的程序正占着剪贴板 ⇒ OpenClipboard 失败 0x800401D0 / CLIPBRD_E_CANT_OPEN），
+        // 打开浏览器那行就被直接跳过，用户看到"失败"却什么都没做成。
+        // 现在分开：复制失败也照样打开浏览器，反之亦然。
+        var copied = false;
+        if (!string.IsNullOrWhiteSpace(info.ExtractCode))
         {
-            if (!string.IsNullOrWhiteSpace(info.ExtractCode))
+            // 剪贴板被占用是瞬时的，重试几次通常就成功
+            for (var attempt = 0; attempt < 3 && !copied; attempt++)
             {
-                Clipboard.SetText(info.ExtractCode);
+                try
+                {
+                    Clipboard.SetDataObject(info.ExtractCode, copy: true);
+                    copied = true;
+                }
+                catch (Exception ex)
+                {
+                    if (attempt == 2)
+                        Log.Warn("[检查更新] 复制提取码失败（剪贴板被占用）：" + ex.Message);
+                    else
+                        Thread.Sleep(60);
+                }
             }
+        }
 
-            // 再校验一次下载链接（白名单 + https），避免把用户送到未知站点
-            if (UpdateChecker.IsDownloadUrlAllowed(info.DownloadUrl, info.AllowedHosts))
+        var opened = false;
+        // 再校验一次下载链接（白名单 + https），避免把用户送到未知站点
+        if (!UpdateChecker.IsDownloadUrlAllowed(info.DownloadUrl, info.AllowedHosts))
+        {
+            Log.Warn("[检查更新] 下载链接未通过校验，未打开浏览器：" + info.DownloadUrl);
+        }
+        else
+        {
+            try
             {
                 Process.Start(new ProcessStartInfo(info.DownloadUrl) { UseShellExecute = true });
+                opened = true;
             }
-            else
+            catch (Exception ex)
             {
-                // 理论上 Parse 阶段已经拦下，这里只是双保险
-                Log.Warn("[检查更新] 下载链接未通过校验，未打开浏览器：" + info.DownloadUrl);
-                DialogHost.Info(this, "无法打开链接",
-                    "下载链接未通过安全校验，已复制提取码。请手动访问官网获取下载地址。");
+                Log.Warn("[检查更新] 打开浏览器失败：" + ex.Message);
             }
         }
-        catch (Exception ex)
+
+        // ---- 按实际结果给反馈（成功的部分不打扰用户）----
+        if (!opened && copied)
         {
-            Log.Warn("[检查更新] 复制提取码或打开浏览器失败：" + ex.Message);
-            DialogHost.Info(this, "操作未完成",
-                "自动打开下载链接失败，提取码已尝试复制到剪贴板。\n你可以手动打开下载页面。");
+            DialogHost.Info(this, "提取码已复制",
+                "提取码已复制到剪贴板，但自动打开下载链接失败。\n"
+                + "请手动在浏览器中打开：\n" + info.DownloadUrl);
         }
+        else if (opened && !copied && !string.IsNullOrWhiteSpace(info.ExtractCode))
+        {
+            DialogHost.Info(this, "已打开下载页面",
+                "已在浏览器中打开下载页面，但提取码复制失败（剪贴板可能被其他程序占用）。\n"
+                + "提取码：" + info.ExtractCode);
+        }
+        else if (!opened && !copied)
+        {
+            DialogHost.Info(this, "操作未完成",
+                "既没能复制提取码，也没能打开下载链接。\n"
+                + "请手动访问：\n" + info.DownloadUrl
+                + (string.IsNullOrWhiteSpace(info.ExtractCode) ? string.Empty : "\n提取码：" + info.ExtractCode));
+        }
+        // 两者都成功：不弹任何提示，用户已经在浏览器里了
     }
 
     private void OnUsageGuideClick(object sender, RoutedEventArgs e)        => DialogHost.ShowGuide(this, "MateMic 使用指南", GuideCatalog.Pages);
