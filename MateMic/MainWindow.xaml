@@ -965,7 +965,17 @@
 
                                                                                                 <!-- 输入 频谱（2026-10-04 第四次改版）：柱状图 + 对数频率刻度；
                              读数（有效值/峰值）已按反馈删除；画布自带主题底色（修深色模式）。 -->
-                        <Border Grid.Row="0" Style="{StaticResource Card}" Padding="8,5,8,7">
+                        <!--
+                          输入 / 输出两张频谱卡片：**底部内边距必须一致**（2026-11-16 修）。
+                          原先输入是 Padding 下 7、输出是下 2，于是"频谱条为 0 时那条横线
+                          到卡片底边"的间距差 5px，输入看着更宽（用户实测指出）。
+                          统一成 4（取两者中间）：两张卡的内部结构完全一样
+                          （Auto / * MinHeight 60 / Auto 刻度 14 + 上边距 4），
+                          所以底部间距一致后，两条零线到各自卡片底边的距离就完全相同。
+                          注意：输出卡片"贴齐中栏底边"是靠它自己 Margin=0 实现的，
+                          与 Padding 无关，改这里不会影响底部对齐。
+                        -->
+                        <Border Grid.Row="0" Style="{StaticResource Card}" Padding="8,5,8,4">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto" />
@@ -988,7 +998,7 @@
 
                                                                                                 <!-- 输出 频谱（2026-10-04 第四次改版）：柱状图 + 对数频率刻度；
                              读数（有效值/峰值）已按反馈删除；画布自带主题底色（修深色模式）。 -->
-                        <Border Grid.Row="1" Style="{StaticResource Card}" Padding="8,5,8,2" Margin="0,0,0,0">
+                        <Border Grid.Row="1" Style="{StaticResource Card}" Padding="8,5,8,4" Margin="0,0,0,0">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto" />
