@@ -307,6 +307,10 @@ public sealed class AudioEngine : IDisposable
         VerifyCaptureFlow(_startReason);
 
         StartBufferProbe();
+
+        // 采集流健康检测：运行中改动"音频增强/Voice Clarity"会让端点重建、我们的流静默失效，
+        // 但设备 ID 不变 ⇒ 热插拔那套检测不到。这里靠"回调停止增长"来发现并自动重建。
+        StartHealthProbe();
     }
 
     /// <summary>启动水位探针（每 30 秒一条日志）。判据见 <see cref="_bufferProbe"/> 的注释。</summary>
@@ -322,6 +326,112 @@ public sealed class AudioEngine : IDisposable
     {
         _bufferProbe?.Dispose();
         _bufferProbe = null;
+    }
+
+    // ---------------------------------------------------------------- 采集流健康检测
+
+    /// <summary>判定"采集回调停止"的阈值：连续这么久没有新回调就认为流失效。</summary>
+    /// <remarks>
+    /// 采集端点是 20ms 一帧，3 秒 = 150 帧都没来，只可能是流真的死了。
+    /// ⚠ 不能设得太短：系统卡顿、调试器暂停、机器休眠唤醒都可能造成短暂停顿。
+    /// </remarks>
+    private const int CaptureSilenceThresholdMs = 3000;
+
+    /// <summary>自动重建的冷却时间：避免在"重建也救不回来"时反复重建。</summary>
+    private const int CaptureSilenceCooldownMs = 30000;
+
+    /// <summary>健康检测的轮询间隔。</summary>
+    private const int CaptureHealthIntervalMs = 1000;
+
+    private System.Threading.Timer? _healthProbe;
+    private long _lastHealthCount;
+    private long _lastHealthChangeMs;
+    private long _lastAutoRecoverMs;
+
+    /// <summary>
+    /// 采集流健康探针（每 1 秒一次）。
+    ///
+    /// ## 解决什么问题
+    ///
+    /// 用户在运行中改动 Windows 的「音频增强」（如 Voice Clarity）时，
+    /// 端点会被重建、我们持有的 WASAPI 流失效，**但设备 ID 一点没变** ——
+    /// 所以靠设备指纹轮询完全察觉不到（热插拔能恢复，这个不能）。
+    /// 表现为"突然没声音"，用户只能切一下设备或重启软件。
+    ///
+    /// ## 判据为什么可靠
+    ///
+    /// WASAPI 有个好性质：**即使麦克风完全静音，DataAvailable 回调也照常触发**。
+    /// 所以"设备还在、回调却停止增长"就一定是流失效，而不是"没人说话"。
+    /// 这个判据比设备指纹强得多，能覆盖一整类问题（增强开关、驱动重置、其它静默失效）。
+    ///
+    /// ## 动作
+    ///
+    /// 复用热插拔恢复通道 <see cref="RecoverDevices"/>（deviceSetChanged=false），
+    /// 带 30 秒冷却，避免"重建也救不回来"时陷入反复重建。
+    /// </summary>
+    private void StartHealthProbe()
+    {
+        StopHealthProbe();
+        _lastHealthCount = Interlocked.Read(ref _captureCallbackCount);
+        _lastHealthChangeMs = Environment.TickCount64;
+        _lastAutoRecoverMs = 0;
+
+        _healthProbe = new System.Threading.Timer(
+            _ => CheckCaptureHealth(),
+            null,
+            TimeSpan.FromMilliseconds(CaptureHealthIntervalMs),
+            TimeSpan.FromMilliseconds(CaptureHealthIntervalMs));
+    }
+
+    private void StopHealthProbe()
+    {
+        _healthProbe?.Dispose();
+        _healthProbe = null;
+    }
+
+    private void CheckCaptureHealth()
+    {
+        try
+        {
+            if (!IsRunning) return;
+
+            var now = Environment.TickCount64;
+            var count = Interlocked.Read(ref _captureCallbackCount);
+
+            // 回调在增长：流是活的，只记时间戳
+            if (count != _lastHealthCount)
+            {
+                _lastHealthCount = count;
+                _lastHealthChangeMs = now;
+                return;
+            }
+
+            var silentMs = now - _lastHealthChangeMs;
+            if (silentMs < CaptureSilenceThresholdMs) return;
+
+            // 冷却中：上次自动恢复还没过去多久，不再动
+            if (_lastAutoRecoverMs != 0 && now - _lastAutoRecoverMs < CaptureSilenceCooldownMs) return;
+
+            // 设备本身还在吗？不在的话是"拔掉了"，那是热插拔恢复的职责，这里不插手
+            if (!_devices.IsPresent(_config.Devices.InputDeviceId, DataFlow.Capture)
+                && _devices.ResolvePreferred(_config.Devices.InputDeviceId, DataFlow.Capture) == null)
+            {
+                return;
+            }
+
+            _lastAutoRecoverMs = now;
+            // 重置时间戳，给新流一个完整的观察窗口，避免立刻又触发
+            _lastHealthChangeMs = now;
+
+            Log.Warn($"[音频健康] 采集回调已 {silentMs} ms 没有增长，但输入设备仍在 —— "
+                     + "判定为流失效（常见于运行中改动音频增强 / Voice Clarity、驱动重置），自动重建音频流。");
+
+            RecoverDevices(deviceSetChanged: false);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("[音频健康] 检测失败：" + ex.Message);
+        }
     }
 
     /// <summary>
@@ -872,6 +982,7 @@ public sealed class AudioEngine : IDisposable
     private void StopCore()
     {
         StopBufferProbe();
+        StopHealthProbe();
 
         try
         {
