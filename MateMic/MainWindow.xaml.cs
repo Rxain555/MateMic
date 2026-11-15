@@ -3728,7 +3728,7 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         try
         {
             // 延迟 3 秒：等窗口画完、音频引擎起稳，避免和启动抢资源
-            await Task.Delay(3000);
+            await Task.Delay(1000);
 
             var info = await UpdateChecker.FetchAsync();
             if (info is null) return;
@@ -3825,8 +3825,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             IsTabStop = false,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            // 右键菜单：默认那个是系统原生菜单（方角、旧配色），与本程序风格完全不符。
-            ContextMenu = BuildCopyContextMenu(),
         };
         panel.Children.Add(viewer);
 
@@ -3886,111 +3884,6 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         }
     }
 
-    /// <summary>
-    /// 给对话框里的只读文本做一个"只有一个复制项"的右键菜单。
-    ///
-    /// 为什么自己搭：WPF 默认的 ContextMenu 是系统原生菜单（方角、系统配色），
-    /// 与本程序的自绘风格完全不符。这里用与托盘右键菜单（Ui\TrayMenuWindow）
-    /// 相同的主题画刷与圆角，宽度也不铺开（用户要求"无须太宽"）。
-    /// </summary>
-    private ContextMenu BuildCopyContextMenu()
-    {
-        var menu = new ContextMenu
-        {
-            Padding = new Thickness(0),
-            HasDropShadow = false,
-            Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint,
-        };
-
-        // ⚠ **去系统框的做法**（2026-11-15 第三版，前两版都错了）。
-        // 第一版只给内容包 Border，没接管模板 ⇒ 系统默认模板也画一层框 ⇒ 叠成两层。
-        // 第二版接管模板但用了 ContentPresenter ⇒ ContextMenu 是 ItemsControl，
-        // 内容在 Items 里不在 Content 里 ⇒ **菜单整个不显示**。
-        //
-        // 正解其实最简单：**不碰模板**，只把 ContextMenu 自己的背景/边框/内边距设空。
-        // 这样系统模板照常渲染 Items，只是不再画那层方角底色；
-        // 外观完全由下面那个圆角 Border 决定，且 Items 的容器逻辑不会被我破坏。
-        menu.Background = Brushes.Transparent;
-        menu.BorderBrush = Brushes.Transparent;
-        menu.BorderThickness = new Thickness(0);
-        menu.Padding = new Thickness(0);
-
-        // 圆角 + 描边 + 主题背景；这层才是唯一可见的容器
-        var surface = new Border
-        {
-            Background = TryFindResource("PopupSurfaceBrush") as Brush ?? Brushes.White,
-            BorderBrush = TryFindResource("DialogBorderBrush") as Brush,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(7),
-            Padding = new Thickness(4),
-        };
-
-        // 「复制」：上下边距必须对称。之前用 Height + Padding 组合，文字基线偏移导致
-        // 上边距看起来比下边距小；改成固定行高 + VerticalAlignment=Center + 对称 Padding。
-        var label = new TextBlock
-        {
-            Text = "复制",
-            FontSize = 12.5,
-            LineHeight = 18,
-            LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
-            VerticalAlignment = VerticalAlignment.Center,
-            HorizontalAlignment = HorizontalAlignment.Center,
-        };
-        if (TryFindResource("TextBrush") is Brush textBrush) label.Foreground = textBrush;
-
-        var item = new Button
-        {
-            Content = label,
-            Height = 30,
-            Width = 88,
-            Padding = new Thickness(0, 6, 0, 6),
-            HorizontalContentAlignment = HorizontalAlignment.Center,
-            VerticalContentAlignment = VerticalAlignment.Center,
-            Background = Brushes.Transparent,
-            BorderThickness = new Thickness(0),
-            Cursor = Cursors.Arrow,
-            // 不参与 Tab 焦点，避免影响对话框里的键盘操作
-            IsTabStop = false,
-        };
-
-        // 悬停高亮：与托盘菜单一致
-        var template = new ControlTemplate(typeof(Button));
-        var border = new FrameworkElementFactory(typeof(Border), "Bd");
-        border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(BackgroundProperty));
-        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(4));
-        border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(PaddingProperty));
-        var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
-        presenter.SetValue(HorizontalAlignmentProperty, HorizontalAlignment.Center);
-        presenter.SetValue(VerticalAlignmentProperty, VerticalAlignment.Center);
-        border.AppendChild(presenter);
-        template.VisualTree = border;
-
-        var hover = new Trigger { Property = IsMouseOverProperty, Value = true };
-        hover.Setters.Add(new Setter(Border.BackgroundProperty,
-            TryFindResource("ControlHoverBrush") ?? Brushes.LightGray, "Bd"));
-        template.Triggers.Add(hover);
-        item.Template = template;
-
-        item.Click += (_, _) =>
-        {
-            menu.IsOpen = false;
-            // 复制当前选中的文字（焦点在 RichTextBox 上时即为其选中内容）
-            if (Keyboard.FocusedElement is RichTextBox box && !box.Selection.IsEmpty)
-            {
-                var selected = box.Selection.Text;
-                if (!string.IsNullOrEmpty(selected)) TryCopyToClipboard(selected, out _);
-            }
-            else
-            {
-                // 兜底：没有选中就用系统默认的复制命令
-                ApplicationCommands.Copy.Execute(null, Keyboard.FocusedElement);
-            }
-        };
-
-        surface.Child = item;
-        menu.Items.Add(surface);
-        return menu;
-    }
 
     /// <summary>
     /// 把文本写进剪贴板。
