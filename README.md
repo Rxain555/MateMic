@@ -1,8 +1,6 @@
 # MateMic
 
-> 给游戏与语音通话用的 Windows 实时麦克风处理工具：降噪、响度平衡、均衡、变声与音效。
-
-MateMic 常驻系统托盘，把物理麦克风的声音实时处理一遍再送到虚拟声卡，这样游戏、Discord、OBS 里选到的话筒就是你处理后的声音。全部处理在本机完成，**不联网、无账号、无遥测**。
+给游戏与语音通话用的 Windows 实时麦克风处理工具：降噪、响度平衡、均衡、变声与音效。
 
 ## 功能
 
@@ -95,7 +93,7 @@ dotnet run --project MateMic\MateMic.csproj
 
 ## 致谢
 
-- 界面字体：[MiSans](https://hyperos.mi.com/font)（小米，免费商用；仅作界面显示，未做任何改动）
+- 界面字体：[MiSans](https://hyperos.mi.com/font)
 - 虚拟声卡：[MIXLINE](https://www.logitech.com/) / [VB-Cable](https://vb-audio.com/Cable/)
 - 降噪模型：[DPDFNet](https://github.com/ceva-ip/DPDFNet)、[GTCRN](https://github.com/Xiaobin-Rong/gtcrn)
 - 音频库：[NAudio](https://github.com/naudio/NAudio)、[NWaves](https://github.com/ar1st0crat/NWaves)、[ONNX Runtime](https://onnxruntime.ai/)、[Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch)
