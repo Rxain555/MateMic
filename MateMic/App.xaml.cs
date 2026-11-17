@@ -9,6 +9,104 @@ public partial class App : Application
     private Mutex? _singleInstance;
     private bool _ownsMutex;
 
+    /// <summary>命名事件名：第二个实例通过它唤醒第一个实例（把它拉到前台）。</summary>
+    private const string ActivationEventName = @"Local\MateMic.Activate";
+
+    /// <summary>本进程作为"唯一实例"时，用来等待唤醒事件的句柄。</summary>
+    private EventWaitHandle? _activationEvent;
+    private Thread? _activationThread;
+
+    /// <summary>
+    /// 通知已运行的实例"用户想看到窗口"。返回是否成功送达。
+    ///
+    /// 之所以要有超时：万一持有 Mutex 的进程正处于启动中、事件还没创建，
+    /// 或者已经崩了但 Mutex 还没释放，这里不能无限等。
+    /// </summary>
+    private static bool NotifyExistingInstance()
+    {
+        try
+        {
+            if (!EventWaitHandle.TryOpenExisting(ActivationEventName, out var handle))
+            {
+                Log.Warn("[启动] 检测到已有实例，但唤醒事件不存在（可能正在启动或刚刚退出）。");
+                return false;
+            }
+
+            using (handle)
+            {
+                handle.Set();
+            }
+            Log.Info("[启动] 已通知正在运行的实例把窗口显示出来。");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("[启动] 唤醒已运行实例失败：" + ex.Message);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 作为唯一实例，后台等待"后来者"的唤醒请求。
+    ///
+    /// 用后台线程而不是 WPF 定时器：这里要阻塞等事件，不能占 UI 线程。
+    /// 收到之后必须切回 UI 线程再动窗口（Show/Activate 都有线程亲和性）。
+    /// </summary>
+    private void StartActivationListener()
+    {
+        try
+        {
+            _activationEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ActivationEventName);
+
+            _activationThread = new Thread(() =>
+            {
+                var handle = _activationEvent;
+                while (handle != null)
+                {
+                    try
+                    {
+                        if (!handle.WaitOne()) continue;
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warn("[启动] 等待唤醒事件失败：" + ex.Message);
+                        return;
+                    }
+
+                    // 切回 UI 线程操作窗口
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        try
+                        {
+                            if (MainWindow is MateMic.MainWindow window)
+                            {
+                                window.RestoreFromTray();
+                                Log.Info("[启动] 收到唤醒请求，已把主窗口显示出来。");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Warn("[启动] 显示主窗口失败：" + ex.Message);
+                        }
+                    }));
+                }
+            })
+            {
+                IsBackground = true,
+                Name = "MateMic.ActivationListener",
+            };
+            _activationThread.Start();
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("[启动] 无法创建唤醒事件：" + ex.Message);
+        }
+    }
+
     /// <summary>
     /// 当前是否处于渲染自检（--selfcheck）模式。
     /// 自检截图是用 RenderTargetBitmap 直接渲染 WPF 可视树得到的，
@@ -81,7 +179,17 @@ public partial class App : Application
             _singleInstance = new Mutex(true, @"Local\MateMic.SingleInstance", out _ownsMutex);
             if (!_ownsMutex)
             {
-                DialogHost.Info(MainWindow as Window, "MateMic", "MateMic 已经在运行中，请在系统托盘中查看。");
+                // 已有实例在跑：**通知它把窗口叫出来**，而不是弹一句"已经在运行中"。
+                //
+                // 2026-11-17 用户实测：软件最小化到托盘后，点任务栏上的固定图标，
+                // 得到的是"MateMic 已经在运行中，请在系统托盘中查看"——等于什么都没做。
+                // 而 MIXLINE 等程序的习惯做法是"激活已有窗口"，这里对齐这个行为。
+                //
+                // 实现用命名事件：本进程只是把它 Set 一下然后退出；
+                // 已运行的实例在启动时挂了一个等待线程，收到就 RestoreFromTray()。
+                // 不用 FindWindow/PostMessage 是因为窗口可能正被隐藏（托盘态），
+                // 那种情况下 FindWindow 拿不到可激活的窗口，事件更可靠。
+                _ = NotifyExistingInstance();
                 Shutdown();
                 return;
             }
@@ -90,6 +198,9 @@ public partial class App : Application
         {
             Log.Info("[启动] 使用独立数据目录，已跳过单实例检查（隔离测试模式）");
         }
+
+        // 本进程是唯一的实例：挂一个等待线程，随时准备被"后来者"唤醒。
+        StartActivationListener();
 
         try
         {
@@ -631,6 +742,12 @@ public partial class App : Application
     {
         Log.Info("MateMic 退出");
         Log.Shutdown();
+
+        // 先停唤醒监听线程，再释放句柄：顺序反了会让等待线程拿到已释放的对象。
+        // 句柄一释放，WaitOne 会抛 ObjectDisposedException，监听线程据此正常退出。
+        try { _activationEvent?.Dispose(); } catch { }
+        _activationEvent = null;
+
         if (_ownsMutex) _singleInstance?.ReleaseMutex();
         _singleInstance?.Dispose();
         base.OnExit(e);

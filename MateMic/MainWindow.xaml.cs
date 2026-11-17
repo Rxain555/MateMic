@@ -4679,7 +4679,14 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
         menu.ExitRequested += (_, _) => ExitApplication();
     }
 
-    private void RestoreFromTray()
+    /// <summary>
+    /// 从托盘恢复主窗口。
+    ///
+    /// 2026-11-17：由 private 改为 public —— 新实例启动时若发现已有实例在跑，
+    /// 会通过命名事件通知这里把窗口显示出来（见 <see cref="MateMic.App"/> 的单实例逻辑），
+    /// 那样"点任务栏固定图标"才是"把已有窗口叫出来"，而不是弹一句"已经在运行中"。
+    /// </summary>
+    public void RestoreFromTray()
     {
         Show();
         WindowState = WindowState.Normal;
