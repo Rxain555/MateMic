@@ -6,7 +6,7 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:ui="clr-namespace:MateMic.Ui"
         mc:Ignorable="d"
-        Title="MateMic" Height="700" Width="1006"
+        Title="MateMic" Height="600" Width="1006"
         WindowStyle="SingleBorderWindow"
         ResizeMode="CanMinimize"
         WindowStartupLocation="CenterScreen"
