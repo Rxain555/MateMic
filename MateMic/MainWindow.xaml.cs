@@ -397,22 +397,43 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
             // 而处理链是否包含降噪由 UpdateAllParameters 决定。
             // 因此必须在载入模型**之后**再统一应用一次参数，
             // 否则重启后链路仍按"默认模型"构建，必须手动重选一次模型才生效。
-            _engine.UpdateAllParameters();
+            //
+            // ⚠ **引擎启动要推迟到窗口绘制之后**（2026-11-19 修"延迟与性能卡片的内容
+            // 启动后要等一会儿才出现"）。原因：_engine.Start() 是同步的，WASAPI 初始化
+            // 实测要 1 秒左右，而它跑在 OnLoaded 里 —— 于是整个窗口的首次绘制被拖住，
+            // 表现就是"界面出来了但某些区域（尤其是靠下的卡片）内容是空的，
+            // 过一会儿才补上"。用户会以为是"这张卡片要等音频就绪才显示"，
+            // 实际上是整窗绘制被同步阻塞了。
+            //
+            // 用 Background 优先级投递：Dispatcher 会先把布局与渲染做完
+            //（那两件事是 Render/Normal 优先级），再执行这里的重活。
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+            {
+                try
+                {
+                    _engine.UpdateAllParameters();
 
-            _engine.Start();
-            if (!_engine.IsRunning && _engine.LastError != null)
-                ShowStatus("音频引擎启动失败：" + _engine.LastError, false);
-            else
-                Log.Info($"音频链路就绪：采集 {_engine.CaptureLatencyMs} ms / 输出 {_engine.OutputLatencyMs} ms");
+                    _engine.Start();
+                    if (!_engine.IsRunning && _engine.LastError != null)
+                        ShowStatus("音频引擎启动失败：" + _engine.LastError, false);
+                    else
+                        Log.Info($"音频链路就绪：采集 {_engine.CaptureLatencyMs} ms / 输出 {_engine.OutputLatencyMs} ms");
 
-            // 引擎启动完成后立刻进入启动静音：此时链路是"默认模型"状态，
-            // 先静音、等下面把配置里的模型套用完毕再放开，
-            // 避免开头一小段把未降噪的底噪送出去。
-            _engine.StartupMute = true;
-            ReapplyDenoiseAfterStart();
+                    // 引擎启动完成后立刻进入启动静音：此时链路是"默认模型"状态，
+                    // 先静音、等配置里的模型套用完毕再放开，
+                    // 避免开头一小段把未降噪的底噪送出去。
+                    _engine.StartupMute = true;
+                    ReapplyDenoiseAfterStart();
 
-            // 刻意不在这里弹"降噪已启用"提示：每次开软件都弹一条状态条很吵，
-            // 而且总开关与各模块的开关状态本来就在界面上看得见。
+                    // 刻意不弹"降噪已启用"提示：每次开软件都弹一条状态条很吵，
+                    // 而且总开关与各模块的开关状态本来就在界面上看得见。
+                }
+                catch (Exception ex)
+                {
+                    Log.Error("音频引擎启动失败", ex);
+                    ShowStatus("音频引擎启动失败：" + ex.Message, false);
+                }
+            }));
 
             RegisterConfiguredHotkeys();
             RefreshTrackHighlight();
