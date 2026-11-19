@@ -6,7 +6,7 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:ui="clr-namespace:MateMic.Ui"
         mc:Ignorable="d"
-        Title="MateMic" Height="730" Width="1006"
+        Title="MateMic" Height="690" Width="1006"
         WindowStyle="SingleBorderWindow"
         ResizeMode="CanMinimize"
         WindowStartupLocation="CenterScreen"
@@ -205,12 +205,12 @@
           主体三栏：分组容器（红色框）内直接放功能模块卡（紫色 / 绿色框），只有两层。
           底部留 6px：否则三栏容器的圆角底边会与窗口底边完全重合，
           看起来像"三个层级的底边叠在一起"。
-          ⚠ 右边距从 6 收到 3（2026-11-19 用户反馈"右边框距窗口右边框比左边宽"）：
-             实测 [布局测量] 左栏容器左缘距窗口左边 6px、右栏容器右缘距窗口右边 9px，
-             差 3px —— 那是 WindowStyle="SingleBorderWindow" 的系统边框宽度造成的
-             （测量基准是客户区，视觉基准是窗口外框）。这里补 3px 让它两侧看起来一致。
+          ⚠ 右边距经过两轮实测校准（用户量的是"卡片边缘到窗口边框"）：
+             第一轮：左 13px、右 15px ⇒ 右宽 2px ⇒ 右边距 3 → 1。
+             这里的基准与 [布局测量] 的"容器边缘"不同（卡片 = 容器 + RegionPane 内边距 4），
+             所以宁可听用户量的数，不去猜测量口径。
         -->
-        <Grid Grid.Row="2" Margin="6,6,3,6">
+        <Grid Grid.Row="2" Margin="6,6,1,6">
             <Grid.ColumnDefinitions>
                 <!--
                   三栏等宽（2026-11-19 按用户要求）。
