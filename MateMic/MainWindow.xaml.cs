@@ -729,31 +729,27 @@ public partial class MainWindow : Window, System.ComponentModel.INotifyPropertyC
     /// 三栏布局是按这个宽度设计的，拉宽也没有更多信息可显示，索性钉死；
     /// 位置仍然记住，方便用户把它放到顺手的地方。
     /// </summary>
+    /// <summary>
+    /// 窗口位置：**每次启动都居中**（2026-11-19 按用户决定改）。
+    ///
+    /// 原实现会恢复上次保存的 Left/Top，于是"窗口没居中"看起来像 bug ——
+    /// 用户排查时也先怀疑了残留配置。既然期望行为就是"每次都居中"，
+    /// 那就不要再恢复位置，省掉这一层状态与"位置是否还在屏幕内"的全部判断。
+    ///
+    /// 注意：`SaveWindowPlacement()` 仍保留在退出路径上（配置里也仍有 WindowLeft/Top 字段），
+    /// 只是启动时不再读取。这样改回来很容易，也不会让老配置立刻失效。
+    /// </summary>
     private void RestoreWindowPlacement()
     {
-        if (double.IsNaN(_config.WindowLeft) || double.IsNaN(_config.WindowTop)) return;
+        // CenterScreen 在 XAML 里已经设了，这里显式再确认一次：
+        // 有可能别处的代码把 WindowStartupLocation 改成了 Manual。
+        WindowStartupLocation = WindowStartupLocation.CenterScreen;
 
-        // 虚拟桌面可能跨多显示器，且副屏可以在主屏左边/上边（此时坐标为负）。
-        // 早期实现用 `Left > -50 && Left < VirtualScreenWidth` 判断，等于假设原点在 (0,0)，
-        // 于是放在左侧副屏的窗口每次启动都会被判定为“跑到屏幕外”而拉回中间。
-        var desktopLeft = SystemParameters.VirtualScreenLeft;
-        var desktopTop = SystemParameters.VirtualScreenTop;
-        var desktopRight = desktopLeft + SystemParameters.VirtualScreenWidth;
-        var desktopBottom = desktopTop + SystemParameters.VirtualScreenHeight;
-
-        // 至少要有 100×100 落在虚拟桌面内，才认为这个位置还能用
-        var visible = _config.WindowLeft + 100 > desktopLeft && _config.WindowLeft < desktopRight - 100 &&
-                      _config.WindowTop + 100 > desktopTop && _config.WindowTop < desktopBottom - 100;
-
-        if (!visible)
+        if (!double.IsNaN(_config.WindowLeft) || !double.IsNaN(_config.WindowTop))
         {
-            Log.Info($"保存的窗口位置 ({_config.WindowLeft:0},{_config.WindowTop:0}) 已不在当前桌面范围内，改为居中显示。");
-            return;
+            Log.Info($"启动居中显示（忽略上次保存的位置 "
+                     + $"({_config.WindowLeft:0},{_config.WindowTop:0})）。");
         }
-
-        WindowStartupLocation = WindowStartupLocation.Manual;
-        Left = _config.WindowLeft;
-        Top = _config.WindowTop;
     }
 
     private void ApplyConfigToControls()
