@@ -6,7 +6,7 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:ui="clr-namespace:MateMic.Ui"
         mc:Ignorable="d"
-        Title="MateMic" Height="690" Width="1006"
+        Title="MateMic" Height="738" Width="1006"
         WindowStyle="SingleBorderWindow"
         ResizeMode="CanMinimize"
         WindowStartupLocation="CenterScreen"
@@ -197,32 +197,27 @@
             </StackPanel>
         </Border>
 
-        <!-- 主体三栏：分组容器（红色框）内直接放功能模块卡（紫色 / 绿色框），只有两层 -->
-        <!-- 主体三栏：分组容器（红色框）内直接放功能模块卡（紫色 / 绿色框），只有两层。
-             底部留 6px：否则三栏容器的圆角底边会与窗口底边完全重合，
-             看起来像"三个层级的底边叠在一起"。 -->
         <!--
           主体三栏：分组容器（红色框）内直接放功能模块卡（紫色 / 绿色框），只有两层。
           底部留 6px：否则三栏容器的圆角底边会与窗口底边完全重合，
           看起来像"三个层级的底边叠在一起"。
-          ⚠ 右边距经过两轮实测校准（用户量的是"卡片边缘到窗口边框"）：
-             第一轮：左 13px、右 15px ⇒ 右宽 2px ⇒ 右边距 3 → 1。
-             这里的基准与 [布局测量] 的"容器边缘"不同（卡片 = 容器 + RegionPane 内边距 4），
-             所以宁可听用户量的数，不去猜测量口径。
         -->
-        <Grid Grid.Row="2" Margin="6,6,1,6">
+        <Grid Grid.Row="2" Margin="6,6,6,6">
             <Grid.ColumnDefinitions>
                 <!--
-                  三栏等宽（2026-11-19 按用户要求）。
-                  原先中栏是 `*`（实际约 504），比左右各宽 174 —— 中间那三块
-                  （输入频谱 / 电平条 / 延迟与性能）显得比左右模块卡宽出一截。
-                  现在改成三栏都固定 330，中栏内容自然与左右同宽；
-                  窗口宽度相应从 1180 收到 1006（12 外边距 + 330×3 + 两处 2px 间隔）。
-                  字号一律不动，只是图标/间距/换行按更窄的宽度重新分配。
+                  三栏等宽且右栏贴右（2026-11-19 第 3 版，前两版都错了）。
+                  演进：`330 / * / 330`（中栏约 504，比两侧宽 174）
+                        → `330 / 330 / 330`（等宽了，但三列固定共 990，
+                          而客户区约 1000 ⇒ **多出的约 10px 全留在最右边**，
+                          右栏根本没贴右。于是"调 Grid 右边距"只改变了整块 Grid 的宽度、
+                          右栏位置由列宽决定 ⇒ 改动肉眼完全看不出来，几轮都白调）
+                        → **`* / * / *`（本版）**：三列等分，自动铺满整个可用宽度，
+                          右栏自然贴到窗口右边，同时保持等宽。
+                  左右留白由 Grid 的 Margin 统一给出（6px），不需要再靠调列宽去凑。
                 -->
-                <ColumnDefinition Width="330" />
-                <ColumnDefinition Width="330" />
-                <ColumnDefinition Width="330" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
             <!-- ============ 左栏：音频处理 ============ -->
