@@ -6,7 +6,7 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:ui="clr-namespace:MateMic.Ui"
         mc:Ignorable="d"
-        Title="MateMic" Height="800" Width="1180"
+        Title="MateMic" Height="800" Width="1006"
         WindowStyle="SingleBorderWindow"
         ResizeMode="CanMinimize"
         WindowStartupLocation="CenterScreen"
@@ -203,8 +203,16 @@
              看起来像"三个层级的底边叠在一起"。 -->
         <Grid Grid.Row="2" Margin="6,6,6,6">
             <Grid.ColumnDefinitions>
+                <!--
+                  三栏等宽（2026-11-19 按用户要求）。
+                  原先中栏是 `*`（实际约 504），比左右各宽 174 —— 中间那三块
+                  （输入频谱 / 电平条 / 延迟与性能）显得比左右模块卡宽出一截。
+                  现在改成三栏都固定 330，中栏内容自然与左右同宽；
+                  窗口宽度相应从 1180 收到 1006（12 外边距 + 330×3 + 两处 2px 间隔）。
+                  字号一律不动，只是图标/间距/换行按更窄的宽度重新分配。
+                -->
                 <ColumnDefinition Width="330" />
-                <ColumnDefinition Width="*" MinWidth="330" />
+                <ColumnDefinition Width="330" />
                 <ColumnDefinition Width="330" />
             </Grid.ColumnDefinitions>
 
