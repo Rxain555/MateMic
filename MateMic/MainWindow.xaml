@@ -6,7 +6,7 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:ui="clr-namespace:MateMic.Ui"
         mc:Ignorable="d"
-        Title="MateMic" Height="738" Width="1006"
+        Title="MateMic" Height="700" Width="1006"
         WindowStyle="SingleBorderWindow"
         ResizeMode="CanMinimize"
         WindowStartupLocation="CenterScreen"
@@ -963,24 +963,19 @@
                     <Grid>
                         <Grid.RowDefinitions>
                             <!--
-                              输入 / 输出频谱：**固定高度，让频谱区接近 16:9**
-                              （2026-11-19 用户要求"频谱图改成近似 16:9"）。
+                              输入 / 输出频谱：`*` 平分剩余高度（2026-11-19 回退到这一形态）。
 
-                              为什么必须写死高度而不是继续用 `*`：
-                              之前只调窗口总高，而这两行是 `*`，会把多出来的高度**平摊**给两张卡 ——
-                              窗口从 800 改到 690/738，每张卡只变 20~30px，
-                              肉眼几乎看不出变化（用户反馈"看着也没改"）。
+                              ⚠ 曾试过把它们改成固定 218 想做 16:9，结果**窗口底边与中栏底部脱节** ——
+                              两行吃掉 436px 后，下面的电平条与延迟性能卡（Auto 行）没空间了。
+                              **正确做法是保持 `*`、只调窗口总高**：多出来的高度会自动平摊给两张卡，
+                              每加/减 2px 窗口高度，单张卡就变 1px。
 
-                              尺寸推算：栏宽约 329 → 减去 RegionPane 内边距 8 → 卡片 321
-                              → 再减卡片内边距 16 → 频谱 Canvas 约 305 宽
-                              → 16:9 ⇒ 高约 172；加上标题约 20 + 频率刻度 18 + 内边距 9
-                              ⇒ 卡片总高约 **218**。
-
-                              取固定 218 后，剩余空间自动分给下面的电平条与延迟性能卡；
-                              窗口总高再按实际内容微调（不需要再靠猜）。
+                              MinHeight 55 是下限（2026-10-08 起）：底部要放"实时数据"卡片，
+                              频谱不能再高，否则那张卡会被挤掉。
                             -->
-                            <RowDefinition Height="218" />
-                            <RowDefinition Height="218" />
+                            <RowDefinition Height="*" MinHeight="55" />
+                            <!-- 输出频谱：与输入平分 -->
+                            <RowDefinition Height="*" MinHeight="55" />
                             <!-- RMS 电平条。必须给 MinHeight，否则可用高度不足时
                                  这一行（Auto）会被两张频谱挤成 0 高而消失
                                  （2026-10-08 用户报"电平调被挡住了"）。刻度 6 + 条 16 + 下边距 2 = 24。 -->
