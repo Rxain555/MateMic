@@ -977,14 +977,21 @@
       Button.Tag 绑定窗口上的布尔属性（如 GateExpanded）：True = 展开（朝下），False = 收起（朝左）。
     -->
     <Style x:Key="ExpanderButton" TargetType="Button">
-        <Setter Property="Width" Value="18" />
-        <Setter Property="Height" Value="18" />
+        <!--
+          点击区域 18×18 → **24×24**（2026-11-19 用户反馈"悬浮时的按钮有点小，不好点"）。
+          18px 见方对鼠标来说偏小（Windows 推荐的可点击目标约 24px 起），
+          而这是每个模块卡都要用的高频按钮，所以统一放大。
+          箭头几何也同步放大（10×6 → 12×7），保持"箭头 / 点击区"的观感比例不变；
+          描边粗细维持 1.6，避免放大后显得笨重。
+        -->
+        <Setter Property="Width" Value="24" />
+        <Setter Property="Height" Value="24" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="Focusable" Value="False" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
-                    <Border x:Name="Bd" Background="Transparent" CornerRadius="5">
+                    <Border x:Name="Bd" Background="Transparent" CornerRadius="6">
                         <Grid>
                             <!--
                               折叠/展开箭头（2026-10-04 第三次修正：统一为"展开朝下、收起朝左"）。
@@ -998,7 +1005,7 @@
                               ⚠ 为什么让"展开态"等于基线：即使动画没跑（例如启动时被绑定直接赋值），
                               静态观感依然正确，不依赖动画是否播放过。
                             -->
-                            <Path x:Name="Arrow" Data="M 0 1 L 5 6 L 10 1" Stroke="{DynamicResource ExpanderArrowBrush}"
+                            <Path x:Name="Arrow" Data="M 0 1 L 6 7 L 12 1" Stroke="{DynamicResource ExpanderArrowBrush}"
                                   StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                                   StrokeLineJoin="Round" HorizontalAlignment="Center" VerticalAlignment="Center"
                                   RenderTransformOrigin="0.5,0.5">
