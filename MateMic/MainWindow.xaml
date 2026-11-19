@@ -1157,7 +1157,7 @@
                                         <TextBlock Grid.Column="0" Style="{StaticResource LabelText}"
                                                    Text="AI 降噪" FontSize="11" />
                                         <TextBlock Grid.Column="1" x:Name="StatsDenoiseText"
-                                                   Style="{StaticResource LabelText}" FontSize="11" Text="—" />
+                                                   Style="{StaticResource LabelText}" FontSize="11" Text="初始化…" />
                                         <TextBlock Grid.Column="2" x:Name="StatsDenoiseLoad"
                                                    Style="{StaticResource LabelText}" FontSize="11" Text="" />
                                     </Grid>
@@ -1171,7 +1171,7 @@
                                         <TextBlock Grid.Column="0" Style="{StaticResource LabelText}"
                                                    Text="AI 变声" FontSize="11" />
                                         <TextBlock Grid.Column="1" x:Name="StatsAiVoiceText"
-                                                   Style="{StaticResource LabelText}" FontSize="11" Text="—" />
+                                                   Style="{StaticResource LabelText}" FontSize="11" Text="初始化…" />
                                         <TextBlock Grid.Column="2" x:Name="StatsAiVoiceLoad"
                                                    Style="{StaticResource LabelText}" FontSize="11" Text="" />
                                     </Grid>
@@ -1191,10 +1191,10 @@
                                                    Text="延迟构成" FontSize="11" />
                                         <TextBlock Grid.Column="1" x:Name="StatsLatencyText"
                                                    Style="{StaticResource LabelText}" FontSize="11"
-                                                   Text="—" TextWrapping="Wrap" />
+                                                   Text="初始化…" TextWrapping="Wrap" />
                                         <TextBlock Grid.Column="2" x:Name="StatsLatencyTotal"
                                                    Style="{StaticResource LabelText}" FontSize="11"
-                                                   Text="—" />
+                                                   Text="初始化…" />
                                     </Grid>
                                 </StackPanel>
                             </Border>
